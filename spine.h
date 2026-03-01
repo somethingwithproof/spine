@@ -168,56 +168,23 @@
 #define DEFAULT_TIMEOUT 294000000
 
 /* threads constants */
-#define LOCK_SNMP 0
-#define LOCK_SETEUID 2
-#define LOCK_GHBN 3
-#define LOCK_POOL 4
-#define LOCK_PHP 6
-#define LOCK_PHP_PROC_0 7
-#define LOCK_PHP_PROC_1 8
-#define LOCK_PHP_PROC_2 9
-#define LOCK_PHP_PROC_3 10
-#define LOCK_PHP_PROC_4 11
-#define LOCK_PHP_PROC_5 12
-#define LOCK_PHP_PROC_6 13
-#define LOCK_PHP_PROC_7 14
-#define LOCK_PHP_PROC_8 15
-#define LOCK_PHP_PROC_9 16
-#define LOCK_PHP_PROC_10 17
-#define LOCK_PHP_PROC_11 18
-#define LOCK_PHP_PROC_12 19
-#define LOCK_PHP_PROC_13 20
-#define LOCK_PHP_PROC_14 21
-#define LOCK_THDET 40
-#define LOCK_HOST_TIME 41
+enum spine_lock_id {
+	LOCK_SNMP = 0,
+	LOCK_SETEUID,
+	LOCK_GHBN,
+	LOCK_POOL,
+	LOCK_PHP,
+	LOCK_PHP_PROC_0,
+	/* LOCK_PHP_PROC_1 through _14 are LOCK_PHP_PROC_0 + offset */
+	LOCK_THDET = LOCK_PHP_PROC_0 + 15,
+	LOCK_HOST_TIME,
+	N_SPINE_LOCKS
+};
 
-#define LOCK_SNMP_O 0
-#define LOCK_SETEUID_O 2
-#define LOCK_GHBN_O 3
-#define LOCK_POOL_O 4
-#define LOCK_PHP_O 6
-#define LOCK_PHP_PROC_0_O 7
-#define LOCK_PHP_PROC_1_O 8
-#define LOCK_PHP_PROC_2_O 9
-#define LOCK_PHP_PROC_3_O 10
-#define LOCK_PHP_PROC_4_O 11
-#define LOCK_PHP_PROC_5_O 12
-#define LOCK_PHP_PROC_6_O 13
-#define LOCK_PHP_PROC_7_O 14
-#define LOCK_PHP_PROC_8_O 15
-#define LOCK_PHP_PROC_9_O 16
-#define LOCK_PHP_PROC_10_O 17
-#define LOCK_PHP_PROC_11_O 18
-#define LOCK_PHP_PROC_12_O 19
-#define LOCK_PHP_PROC_13_O 20
-#define LOCK_PHP_PROC_14_O 21
-#define LOCK_THDET_O 40
-#define LOCK_HOST_TIME_O 41
+#define LOCK_PHP_PROC(n) (LOCK_PHP_PROC_0 + (n))
 
-_Static_assert(LOCK_PHP_PROC_14 == LOCK_PHP_PROC_0 + 14,
+_Static_assert(LOCK_THDET == LOCK_PHP_PROC_0 + 15,
 	"PHP process lock IDs must be contiguous");
-_Static_assert(LOCK_PHP_PROC_14_O == LOCK_PHP_PROC_0_O + 14,
-	"PHP process lock-once IDs must be contiguous");
 
 /* poller actions */
 #define POLLER_ACTION_SNMP 0
