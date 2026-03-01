@@ -497,8 +497,8 @@ typedef struct poller_thread {
 	int host_thread;
 	int host_threads;
 	int host_data_ids;
-	int threads_complete;
-	int complete;
+	_Atomic int threads_complete;
+	_Atomic int complete;
 	char host_time[40];
 	double host_time_double;
 	sem_t *thread_init_sem;
@@ -562,9 +562,9 @@ typedef struct host_struct {
 	int    total_polls;
 	int    failed_polls;
 	double availability;
-	int    ignore_host;
+	_Atomic int ignore_host;
 	void   *snmp_session;
-	int    snmp_status;
+	_Atomic int snmp_status;
 } host_t;
 
 /*! Host Reindex Structure

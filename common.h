@@ -93,6 +93,7 @@
 #include <stdio.h>
 #include <syslog.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <arpa/inet.h>
 
 #if HAVE_STDINT_H
