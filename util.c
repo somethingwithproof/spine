@@ -1161,7 +1161,7 @@ void config_defaults() {
  *	error, append a newline, then exit Spine.
  *
  */
-void die(const char *format, ...) {
+_Noreturn void die(const char *format, ...) {
 	va_list	args;
 	char logmessage[BUFSIZE];
 	char flogmessage[DBL_BUFSIZE];
@@ -1195,7 +1195,13 @@ void die(const char *format, ...) {
 		}
 	}
 
-	exit(set.exit_code);
+	/* quick_exit skips atexit handlers, which is safer when called
+	 * from worker threads where atexit context is undefined */
+#ifdef __CYGWIN__
+	exit(set.exit_code ? set.exit_code : 1);
+#else
+	quick_exit(set.exit_code ? set.exit_code : 1);
+#endif
 }
 
 char * get_date_format() {

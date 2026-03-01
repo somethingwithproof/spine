@@ -40,8 +40,7 @@ extern void config_defaults(void);
 extern int spine_log(const char *format, ...)
 	__attribute__((format(printf, 1, 2)));
 
-extern void die(const char *format, ...)
-	__attribute__((noreturn))
+extern _Noreturn void die(const char *format, ...)
 	__attribute__((format(printf, 1, 2)));
 
 /* option processing function */

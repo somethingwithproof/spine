@@ -31,6 +31,25 @@ AC_PREFIX_DEFAULT(/usr/local/spine)
 AC_LANG(C)
 AC_PROG_CC
 
+# Require C11 support (GCC 4.9+, Clang 3.1+)
+save_CFLAGS="$CFLAGS"
+C11_FLAG=""
+for flag in -std=c11 -std=gnu11; do
+  CFLAGS="$save_CFLAGS $flag"
+  AC_MSG_CHECKING([whether $CC supports $flag])
+  AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM(
+      [[#include <stdatomic.h>
+        _Static_assert(1, "C11 works");]],
+      [[_Atomic int x = 0; (void)x;]])],
+    [AC_MSG_RESULT([yes]); C11_FLAG="$flag"; break],
+    [AC_MSG_RESULT([no])])
+done
+if test -z "$C11_FLAG"; then
+  AC_MSG_ERROR([C11 compiler support is required (GCC 4.9+ or Clang 3.1+)])
+fi
+CFLAGS="$save_CFLAGS $C11_FLAG"
+
 AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_HEADERS(config/config.h)
 
@@ -141,24 +160,9 @@ AC_CHECK_HEADERS(
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_CHECK_TYPES([unsigned long long, long long])
-AC_C_CONST
 AC_TYPE_SIZE_T
-AC_HEADER_TIME
-AC_STRUCT_TM
 
 # Checks for library functions.
-AC_DIAGNOSE([obsolete],[your code may safely assume C89 semantics that RETSIGTYPE is void.
-Remove this warning and the `AC_CACHE_CHECK' when you adjust the code.])dnl
-AC_CACHE_CHECK([return type of signal handlers],[ac_cv_type_signal],[AC_COMPILE_IFELSE(
-[AC_LANG_PROGRAM([#include <sys/types.h>
-#include <signal.h>
-],
-		 [return *(signal (0, 0)) (0) == 1;])],
-		   [ac_cv_type_signal=int],
-		   [ac_cv_type_signal=void])])
-AC_DEFINE_UNQUOTED([RETSIGTYPE],[$ac_cv_type_signal],[Define as the return type of signal handlers
-		    (`int' or `void').])
-
 AC_CHECK_FUNCS(malloc calloc gettimeofday strerror strtoll)
 
 # ****************** Solaris Privileges Check ***********************

@@ -214,6 +214,11 @@
 #define LOCK_THDET_O 40
 #define LOCK_HOST_TIME_O 41
 
+_Static_assert(LOCK_PHP_PROC_14 == LOCK_PHP_PROC_0 + 14,
+	"PHP process lock IDs must be contiguous");
+_Static_assert(LOCK_PHP_PROC_14_O == LOCK_PHP_PROC_0_O + 14,
+	"PHP process lock-once IDs must be contiguous");
+
 /* poller actions */
 #define POLLER_ACTION_SNMP 0
 #define POLLER_ACTION_SCRIPT 1
