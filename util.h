@@ -99,6 +99,9 @@ extern void checkAsRoot();
 /* log format */
 extern char *get_date_format();
 
+/* per-thread ID for logging context */
+extern _Thread_local int spine_thread_id;
+
 /* start time for spine */
 extern double start_time;
 
