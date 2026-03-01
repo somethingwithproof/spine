@@ -34,7 +34,7 @@ AC_PROG_CC
 # Require C11 support (GCC 4.9+, Clang 3.1+)
 save_CFLAGS="$CFLAGS"
 C11_FLAG=""
-for flag in -std=c11 -std=gnu11; do
+for flag in -std=gnu11 -std=c11; do
   CFLAGS="$save_CFLAGS $flag"
   AC_MSG_CHECKING([whether $CC supports $flag])
   AC_COMPILE_IFELSE(
