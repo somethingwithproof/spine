@@ -88,16 +88,58 @@ AC_PROG_INSTALL
 AC_PROG_LN_S
 LT_INIT
 
-AC_MSG_CHECKING([whether to enable -Wall])
-AC_ARG_ENABLE(warnings,
-  [  --enable-warnings       Enable -Wall if using gcc.],
-  [if test -n "$GCC"; then
-    AC_MSG_RESULT(adding -Wall to CFLAGS.)
-    CFLAGS="$CFLAGS -Wall"
-   fi
-  ],
-  AC_MSG_RESULT(no)
+# ****************** Compiler Hardening Flags ***********************
+# All flags are tested at configure time; unsupported ones are silently
+# skipped so the build remains portable across GCC, Clang, and older
+# toolchains.  Disable everything with --disable-hardening.
+AC_ARG_ENABLE(hardening,
+  AS_HELP_STRING([--disable-hardening],[Disable compiler/linker hardening flags (default: enabled)]),
+  [enable_hardening=$enableval],
+  [enable_hardening=yes]
 )
+
+HARDENING_CFLAGS=""
+HARDENING_LDFLAGS=""
+
+AS_IF([test "x$enable_hardening" = "xyes"], [
+  # -Wall -Wextra: always-on diagnostic baseline
+  AX_CHECK_COMPILE_FLAG([-Wall],   [HARDENING_CFLAGS="$HARDENING_CFLAGS -Wall"],   [], [-Werror])
+  AX_CHECK_COMPILE_FLAG([-Wextra], [HARDENING_CFLAGS="$HARDENING_CFLAGS -Wextra"], [], [-Werror])
+
+  # Stack protector: GCC 4.9+/Clang 3.7+ variant; fall back to basic form
+  AX_CHECK_COMPILE_FLAG([-fstack-protector-strong],
+    [HARDENING_CFLAGS="$HARDENING_CFLAGS -fstack-protector-strong"],
+    [AX_CHECK_COMPILE_FLAG([-fstack-protector],
+      [HARDENING_CFLAGS="$HARDENING_CFLAGS -fstack-protector"])],
+    [-Werror])
+
+  # FORTIFY_SOURCE=2 requires optimisation; pair with -O2 when not already set.
+  # We test the combined flag because some compilers warn at -O0.
+  AX_CHECK_COMPILE_FLAG([-O2 -D_FORTIFY_SOURCE=2],
+    [HARDENING_CFLAGS="$HARDENING_CFLAGS -O2 -D_FORTIFY_SOURCE=2"],
+    [], [-Werror])
+
+  # Position-independent executable: skip for static builds
+  AS_IF([test "x$with_static" != "xyes"], [
+    AX_CHECK_COMPILE_FLAG([-fPIE],
+      [HARDENING_CFLAGS="$HARDENING_CFLAGS -fPIE"], [], [-Werror])
+    AX_CHECK_LINK_FLAG([-pie],
+      [HARDENING_LDFLAGS="$HARDENING_LDFLAGS -pie"])
+  ])
+
+  # RELRO + BIND_NOW: Linux ELF linker only
+  AX_CHECK_LINK_FLAG([-Wl,-z,relro],
+    [AX_CHECK_LINK_FLAG([-Wl,-z,now],
+      [HARDENING_LDFLAGS="$HARDENING_LDFLAGS -Wl,-z,relro -Wl,-z,now"])])
+
+  # Control-flow protection: GCC 8+, x86/x86_64 only
+  AX_CHECK_COMPILE_FLAG([-fcf-protection=full],
+    [HARDENING_CFLAGS="$HARDENING_CFLAGS -fcf-protection=full"],
+    [], [-Werror])
+])
+
+AC_SUBST(HARDENING_CFLAGS)
+AC_SUBST(HARDENING_LDFLAGS)
 
 AC_PATH_PROG(HELP2MAN, help2man, false // No help2man //)
 AC_CHECK_PROG([HELP2MAN], [help2man], [help2man])
@@ -362,7 +404,7 @@ if test -n "$SNMP_LIBDIR" ; then
 fi
 
 if test -n "$SNMP_INCDIR" ; then
-  CFLAGS="-I$SNMP_INCDIR -I$SNMP_INCDIR/.. $CFLAGS"
+  CFLAGS="-isystem $SNMP_INCDIR -isystem $SNMP_INCDIR/.. $CFLAGS"
 fi
 
 # Net-SNMP includes v3 support and insists on crypto unless compiled --without-openssl

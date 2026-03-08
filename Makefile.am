@@ -22,6 +22,9 @@
 AUTOMAKE_OPTIONS = foreign
 ACLOCAL_AMFLAGS = -I m4
 
+AM_CFLAGS  = @HARDENING_CFLAGS@
+AM_LDFLAGS = @HARDENING_LDFLAGS@
+
 spine_SOURCES = sql.c spine.c util.c snmp.c locks.c poller.c nft_popen.c php.c ping.c keywords.c error.c
 
 configdir = $(sysconfdir)
