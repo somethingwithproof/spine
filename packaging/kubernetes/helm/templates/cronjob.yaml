@@ -1,0 +1,81 @@
+{{- $root := . -}}
+{{- range $i, $_ := until (int .Values.pollerCount) }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cacti-spine.fullname" $root }}{{- if gt (int $root.Values.pollerCount) 1 }}-{{ $i }}{{- end }}
+  labels:
+    {{- include "cacti-spine.labels" $root | nindent 4 }}
+    {{- if gt (int $root.Values.pollerCount) 1 }}
+    cacti-spine/poller-id: {{ $i | quote }}
+    {{- end }}
+spec:
+  schedule: {{ $root.Values.schedule | quote }}
+  concurrencyPolicy: {{ $root.Values.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ $root.Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $root.Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "cacti-spine.selectorLabels" $root | nindent 12 }}
+            {{- if gt (int $root.Values.pollerCount) 1 }}
+            cacti-spine/poller-id: {{ $i | quote }}
+            {{- end }}
+        spec:
+          serviceAccountName: {{ include "cacti-spine.serviceAccountName" $root }}
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: spine
+              image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              command:
+                - /usr/sbin/spine
+                - --conf
+                - /etc/spine/spine.conf
+                - --poller
+                - {{ $i | quote }}
+              {{- with $root.Values.spine.extraArgs }}
+                {{- range . }}
+                - {{ . | quote }}
+                {{- end }}
+              {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 1000
+                capabilities:
+                  drop: ["ALL"]
+                  {{- if $root.Values.netRawCapability }}
+                  add: ["NET_RAW"]
+                  {{- end }}
+              env:
+                - name: DB_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ if $root.Values.db.existingSecret }}{{ $root.Values.db.existingSecret }}{{ else }}{{ include "cacti-spine.fullname" $root }}{{ end }}
+                      key: {{ $root.Values.db.existingSecretKey }}
+              resources:
+                {{- toYaml $root.Values.resources | nindent 16 }}
+              volumeMounts:
+                - name: spine-conf
+                  mountPath: /etc/spine
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: spine-conf
+              configMap:
+                name: {{ include "cacti-spine.fullname" $root }}
+            - name: tmp
+              emptyDir:
+                medium: Memory
+{{- end }}
