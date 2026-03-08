@@ -1,0 +1,14 @@
+<services>
+  <service name="tar_scm">
+    <param name="url">https://github.com/Cacti/spine</param>
+    <param name="scm">git</param>
+    <param name="revision">develop</param>
+    <param name="versionformat">@PARENT_TAG@+git%cd.%h</param>
+    <param name="dateformat">%Y%m%d</param>
+  </service>
+  <service name="recompress">
+    <param name="file">*.tar</param>
+    <param name="compression">gz</param>
+  </service>
+  <service name="set_version"/>
+</services>

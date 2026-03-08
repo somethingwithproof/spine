@@ -1,0 +1,105 @@
+# +-------------------------------------------------------------------------+
+# | Copyright (C) 2004-2026 The Cacti Group                                 |
+# |                                                                         |
+# | This program is free software; you can redistribute it and/or           |
+# | modify it under the terms of the GNU General Public License             |
+# | as published by the Free Software Foundation; either version 2          |
+# | of the License, or (at your option) any later version.                  |
+# +-------------------------------------------------------------------------+
+
+Name:           cacti-spine
+Version:        1.3.0
+Release:        1%{?dist}
+Summary:        High-performance SNMP poller for Cacti
+Group:          Productivity/Networking/Other
+
+License:        GPL-2.0-or-later
+URL:            https://www.cacti.net/
+Source0:        https://github.com/Cacti/spine/archive/refs/tags/%{version}.tar.gz#/cacti-spine-%{version}.tar.gz
+
+BuildRequires:  autoconf
+BuildRequires:  automake
+BuildRequires:  libtool
+BuildRequires:  gcc
+BuildRequires:  make
+BuildRequires:  libcap-devel
+BuildRequires:  net-snmp-devel
+BuildRequires:  pkgconfig(libssl)
+
+# openSUSE/SLES ship the MariaDB client headers under libmariadb-devel;
+# Fedora/RHEL use mariadb-devel.  The mysql-devel alias does not exist on SUSE.
+%if 0%{?suse_version}
+BuildRequires:  libmariadb-devel
+Requires:       libmariadb3
+%else
+BuildRequires:  mariadb-devel
+Requires:       mariadb-connector-c
+%endif
+
+Requires:       net-snmp-libs
+Requires:       libcap
+
+%description
+Spine is a replacement for the cmd.php data collector in Cacti.
+It uses POSIX threads to poll many devices in parallel via SNMP,
+ICMP, and TCP, providing substantially higher throughput than the
+PHP-based poller.
+
+The spine binary uses CAP_NET_RAW (via file capabilities) to open raw
+sockets for ICMP availability checking without running setuid-root.
+
+%prep
+%autosetup -n spine-%{version}
+
+%build
+./bootstrap
+%configure \
+    --enable-lcap \
+    --bindir=%{_sbindir} \
+    --sysconfdir=%{_sysconfdir} \
+    --with-results-buffer=2048 \
+    --with-max-scripts=20
+%make_build
+
+%install
+%make_install
+
+# Relocate the binary when the autotools prefix default (/usr/local/spine)
+# puts it somewhere other than sbindir.
+if [ -f "%{buildroot}%{_prefix}/spine/bin/spine" ]; then
+    install -d "%{buildroot}%{_sbindir}"
+    mv "%{buildroot}%{_prefix}/spine/bin/spine" "%{buildroot}%{_sbindir}/spine"
+fi
+
+install -D -m 0640 spine.conf.dist %{buildroot}%{_sysconfdir}/spine.conf
+
+# openSUSE fillup convention: drop the sysconfig template so that
+# SuSEconfig / fillup can merge site settings on package update.
+%if 0%{?suse_version}
+install -D -m 0644 spine.conf.dist \
+    %{buildroot}%{_fillupdir}/sysconfig.%{name}
+%endif
+
+[ -f spine.1 ] && install -D -m 0644 spine.1 \
+    %{buildroot}%{_mandir}/man1/spine.1 || true
+
+%post
+# Grant CAP_NET_RAW so spine can open raw ICMP sockets without setuid-root.
+setcap cap_net_raw+eip %{_sbindir}/spine || true
+
+%preun
+exit 0
+
+%files
+%license LICENSE
+%doc README.md INSTALL CHANGELOG
+%attr(0755, root, root) %{_sbindir}/spine
+%config(noreplace) %{_sysconfdir}/spine.conf
+%if 0%{?suse_version}
+%{_fillupdir}/sysconfig.%{name}
+%endif
+%optional %{_mandir}/man1/spine.1*
+
+%changelog
+* Sun Mar 08 2026 The Cacti Group <developers@cacti.net> - 1.3.0-1
+- Initial openSUSE/SLES RPM packaging
