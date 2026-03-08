@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  build-source:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libmariadb-dev libmariadb-dev-compat \
+            libsnmp-dev libssl-dev libcap-dev \
+            help2man autoconf automake libtool dos2unix
+
+      - name: Build
+        run: |
+          ./bootstrap
+          ./configure --enable-lcap
+          make -j$(nproc)
+
+      - name: Build source tarball
+        run: make dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-tarball
+          path: spine-*.tar.gz
+
+  build-deb:
+    runs-on: ubuntu-latest
+    needs: build-source
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper devscripts build-essential \
+            libmariadb-dev libmariadb-dev-compat \
+            libsnmp-dev libssl-dev libcap-dev \
+            help2man autoconf automake libtool dos2unix \
+            libcap2-bin
+
+      - name: Symlink packaging dir
+        run: ln -s packaging/debian debian
+
+      - name: Build .deb
+        run: dpkg-buildpackage -us -uc -b
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deb-package
+          path: ../cacti-spine_*.deb
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    needs: build-source
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            rpm build-essential \
+            libmariadb-dev libmariadb-dev-compat \
+            libsnmp-dev libssl-dev libcap-dev \
+            help2man autoconf automake libtool dos2unix
+
+      - name: Build .rpm
+        run: |
+          mkdir -p ~/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+          cp packaging/rpm/spine.spec ~/rpmbuild/SPECS/
+          rpmbuild -bb ~/rpmbuild/SPECS/spine.spec \
+            --define "_sourcedir $(pwd)" \
+            --define "_builddir $(pwd)/_rpmbuild"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rpm-package
+          path: ~/rpmbuild/RPMS/**/*.rpm
+
+  sbom:
+    runs-on: ubuntu-latest
+    needs: build-source
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: anchore/sbom-action@f325610c9d4e84b27255eff85e6d559caa6f0b07
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: spine-sbom.cyclonedx.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sbom
+          path: spine-sbom.cyclonedx.json
+
+  container:
+    runs-on: ubuntu-latest
+    needs: build-source
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-deb, build-rpm, sbom, container]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: actions/download-artifact@cc203385981b70ca67064eef5d4e0b46af61e3e6
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.tar.gz" -o -name "*.json" \) \
+            -exec sha256sum {} \; | sed 's|./[^/]*/||' | tee ../SHA256SUMS
+
+      - uses: softprops/action-gh-release@e7a8f85e1c67a31e6ed99a94b41bd0b71bbee6b9
+        with:
+          files: |
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.tar.gz
+            artifacts/**/*.json
+            SHA256SUMS
+          generate_release_notes: true
