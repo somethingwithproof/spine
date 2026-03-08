@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cacti-spine.fullname" . }}
+  labels:
+    {{- include "cacti-spine.labels" . | nindent 4 }}
+data:
+  spine.conf: |
+    DB_Host       {{ .Values.db.host }}
+    DB_Database   {{ .Values.db.name }}
+    DB_User       {{ .Values.db.user }}
+    DB_Port       {{ .Values.db.port }}
+    Threads       {{ .Values.spine.threads }}
+    Results_Buffer  {{ .Values.spine.resultsBuffer }}
+    MaxScripts    {{ .Values.spine.maxScripts }}
+    # DB_Pass is supplied via the DB_PASS environment variable, not stored here.

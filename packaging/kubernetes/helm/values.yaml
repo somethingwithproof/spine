@@ -1,0 +1,44 @@
+image:
+  repository: ghcr.io/cacti/spine
+  tag: "1.3.0"
+  pullPolicy: IfNotPresent
+
+schedule: "*/1 * * * *"
+concurrencyPolicy: Forbid
+successfulJobsHistoryLimit: 1
+failedJobsHistoryLimit: 3
+
+# Number of pollers (each gets its own CronJob with --poller <index>)
+pollerCount: 1
+
+db:
+  host: "localhost"
+  port: 3306
+  name: "cacti"
+  user: "cactiuser"
+  # Use existingSecret in production. If set, the chart will not render secret.yaml.
+  existingSecret: ""
+  existingSecretKey: "db-password"
+  password: "cactiuser"
+
+spine:
+  threads: 25
+  resultsBuffer: 2048
+  maxScripts: 20
+  extraArgs: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+serviceAccount:
+  create: true
+  name: ""
+
+# NET_RAW is required for ICMP ping checks. Set false if only SNMP (no ping).
+# Note: NET_RAW is allowed under PodSecurity Baseline but blocked under Restricted.
+netRawCapability: true

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cacti-spine
+data:
+  spine.conf: |
+    # Override these values in an overlay (kustomize/overlays/<env>/patch-configmap.yaml)
+    DB_Host       localhost
+    DB_Database   cacti
+    DB_User       cactiuser
+    DB_Port       3306
+    Threads       25
+    Results_Buffer  2048
+    MaxScripts    20
+    # DB_Pass is supplied via the DB_PASS environment variable, not stored here.
