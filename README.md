@@ -10,6 +10,99 @@ questions please consult the forums and/or online documentation.
 
 -----------------------------------------------------------------------------
 
+## Build Dependencies
+
+Spine requires GCC (or Clang), autoconf/automake/libtool, a MariaDB/MySQL
+client library, Net-SNMP, and OpenSSL. Install them for your platform before
+running the Unix build steps below.
+
+### Debian / Ubuntu
+
+```shell
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential autoconf automake libtool help2man \
+    libmariadb-dev libsnmp-dev libssl-dev libcap-dev
+```
+
+### RHEL / Rocky Linux / AlmaLinux / CentOS Stream
+
+```shell
+sudo dnf install -y \
+    gcc autoconf automake libtool help2man \
+    mariadb-devel net-snmp-devel openssl-devel libcap-devel
+```
+
+On RHEL 8/9 you may need to enable the CRB/CodeReady repository first:
+
+```shell
+sudo dnf config-manager --set-enabled crb   # RHEL 9 / Rocky 9
+sudo dnf config-manager --set-enabled powertools  # CentOS Stream 8
+```
+
+### openSUSE / SLES
+
+```shell
+sudo zypper install -y \
+    gcc autoconf automake libtool help2man \
+    libmariadb-devel net-snmp-devel libopenssl-devel libcap-devel
+```
+
+### Alpine Linux
+
+```shell
+apk add --no-cache \
+    gcc musl-dev make autoconf automake libtool help2man \
+    mariadb-dev net-snmp-dev openssl-dev libcap-dev
+```
+
+### Arch Linux / Manjaro
+
+```shell
+sudo pacman -S --needed \
+    base-devel autoconf automake libtool help2man \
+    mariadb-libs net-snmp openssl libcap
+```
+
+### macOS (Homebrew)
+
+```shell
+brew install autoconf automake libtool help2man \
+    mariadb-connector-c net-snmp openssl@3
+```
+
+Then configure with OpenSSL from Homebrew:
+
+```shell
+./configure LDFLAGS="-L$(brew --prefix openssl@3)/lib" \
+            CPPFLAGS="-I$(brew --prefix openssl@3)/include"
+```
+
+`libcap` is Linux-only; `--enable-lcap` is not supported on macOS.
+
+### FreeBSD
+
+```shell
+pkg install -y autoconf automake libtool help2man \
+    mariadb106-client net-snmp openssl
+```
+
+FreeBSD uses `gmake` instead of `make`:
+
+```shell
+./bootstrap
+./configure
+gmake
+sudo gmake install
+```
+
+### NetBSD / OpenBSD
+
+Install the equivalent packages via `pkgsrc` or `pkg_add`, then use `gmake`.
+The `libcap` dependency is Linux-specific; omit `--enable-lcap`.
+
+-----------------------------------------------------------------------------
+
 ## Unix Installation
 
 These instructions assume the default install location for spine of
