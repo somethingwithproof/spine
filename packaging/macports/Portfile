@@ -1,0 +1,55 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+
+name                cacti-spine
+version             1.3.0
+categories          net sysutils
+platforms           darwin
+maintainers         nomaintainer
+license             LGPL-2.1+
+
+description         Multithreaded poller for Cacti
+
+long_description    cacti-spine (formerly Cactid) is the high-performance C-based poller \
+                    for Cacti. It replaces the default cmd.php poller and supports \
+                    parallel data collection via SNMP, scripts, and SQL queries.
+
+homepage            https://www.cacti.net/
+master_sites        https://github.com/Cacti/spine/archive/refs/tags/
+distname            spine-${version}
+
+# TODO: update checksums on release
+checksums           rmd160 0 \
+                    sha256 0 \
+                    size   0
+
+depends_build       port:autoconf \
+                    port:automake \
+                    port:libtool
+
+depends_lib         port:mariadb-10.11 \
+                    port:net-snmp \
+                    path:lib/libssl.dylib:openssl
+
+use_autoreconf      yes
+autoreconf.args     -fiv
+
+configure.args      --with-mysql=${prefix}/lib/mariadb-10.11 \
+                    --with-snmp=${prefix} \
+                    --with-openssl=${prefix}
+
+post-install {
+    if {![file exists ${prefix}/etc/spine.conf]} {
+        file copy ${prefix}/etc/spine.conf.dist ${prefix}/etc/spine.conf
+    }
+}
+
+notes "
+To configure cacti-spine, edit ${prefix}/etc/spine.conf with your database\
+credentials and Cacti settings.
+
+On macOS, raw socket access for ICMP ping checks requires root privileges.\
+Install port:fping and configure Cacti to use it as the ping method instead:
+    sudo port install fping
+"

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  net.cacti.spine.plist — LaunchDaemon for Cacti spine poller (macOS)
+
+  This plist is OPTIONAL.  Cacti's PHP poller normally exec()s spine
+  directly for each polling cycle; install this only if you need to
+  trigger spine outside of Cacti (e.g., manual or cron-based setups).
+
+  Install:
+    sudo cp net.cacti.spine.plist /Library/LaunchDaemons/
+    sudo launchctl load /Library/LaunchDaemons/net.cacti.spine.plist
+
+  Homebrew users: change ProgramArguments to
+    /opt/homebrew/bin/spine   (Apple Silicon)
+    /usr/local/bin/spine      (Intel)
+-->
+<plist version="1.0">
+<dict>
+
+    <key>Label</key>
+    <string>net.cacti.spine</string>
+
+    <!-- Standard install path for non-Homebrew builds.
+         Homebrew users: adjust to /opt/homebrew/bin/spine or
+         /usr/local/bin/spine — see comment at top of file. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/sbin/spine</string>
+    </array>
+
+    <!-- WorkingDirectory must contain spine.conf (or pass -C <path>
+         as an additional ProgramArguments entry). -->
+    <key>WorkingDirectory</key>
+    <string>/usr/local/spine</string>
+
+    <!-- Placeholder: add environment variables here if needed.
+         Example: <key>SPINE_CONF</key><string>/etc/spine.conf</string> -->
+    <key>EnvironmentVariables</key>
+    <dict/>
+
+    <!-- root is required for raw-socket ICMP on macOS; macOS does not
+         support Linux file capabilities (setcap).  Consider using fping
+         (setuid-root) instead and avoiding raw sockets in spine. -->
+    <key>UserName</key>
+    <string>root</string>
+
+    <!-- spine is short-lived; Cacti's PHP poller invokes it each cycle.
+         RunAtLoad is false — do not start spine at boot without a poller
+         managing its lifecycle. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/cacti/spine.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/cacti/spine.err</string>
+
+</dict>
+</plist>
