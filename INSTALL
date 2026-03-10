@@ -47,6 +47,37 @@ To compile and install Spine using MySQL versions previous to 5.5 please add
 the additional --with-reentrant option to the ./configure command above but
 please be aware that Cacti no longer officially supports MySQL prior to 5.5.
 
+Nix Installation
+================
+
+Supported on Linux (x86_64, aarch64) and macOS (x86_64, aarch64).
+Requires Nix with flakes enabled (https://nixos.wiki/wiki/Flakes).
+
+To build the spine binary:
+
+   nix build
+
+The compiled binary is at ./result/bin/spine.  To build directly from
+the repository without cloning:
+
+   nix build github:Cacti/spine
+
+Install and set the setuid bit:
+
+   install -D result/bin/spine /usr/local/spine/bin/spine
+   chown root:root /usr/local/spine/bin/spine
+   chmod u+s /usr/local/spine/bin/spine
+
+To enter a development shell with all build dependencies available
+(autoconf, automake, libtool, mariadb-client, net-snmp, openssl, and
+libcap on Linux):
+
+   nix develop
+
+Then run ./bootstrap && ./configure && make as in the Unix section.
+
+-----------------------------------------------------------------------------
+
 Windows Installation
 ====================
 

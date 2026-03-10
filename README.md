@@ -40,6 +40,47 @@ chown root:root /usr/local/spine/bin/spine
 chmod +s /usr/local/spine/bin/spine
 ```
 
+## Nix Installation
+
+Supported on Linux (x86\_64, aarch64) and macOS (x86\_64, aarch64). Requires
+[Nix](https://nixos.org/download/) with [flakes enabled](https://nixos.wiki/wiki/Flakes).
+
+**Build the spine binary:**
+
+```shell
+nix build
+# result/bin/spine is the compiled binary
+```
+
+**Or build directly from the repository without cloning:**
+
+```shell
+nix build github:Cacti/spine
+```
+
+**Install and set the setuid bit:**
+
+```shell
+install -D result/bin/spine /usr/local/spine/bin/spine
+chown root:root /usr/local/spine/bin/spine
+chmod u+s /usr/local/spine/bin/spine
+```
+
+**Drop into a development shell with all build dependencies:**
+
+```shell
+nix develop
+# autoconf, automake, libtool, mariadb-client, net-snmp, openssl (+ libcap on Linux)
+# are all available; run ./bootstrap && ./configure && make as usual
+```
+
+**Notes:**
+- The Linux build enables `--enable-lcap` (POSIX capabilities via `setcap`).
+  If `setcap` is not available on your system, use the `chmod u+s` form above.
+- `spine.conf.dist` is installed to `$out/etc/spine.conf.dist` by the Nix build.
+
+-----------------------------------------------------------------------------
+
 ## Windows Installation
 
 ### CYGWIN Prerequisite
