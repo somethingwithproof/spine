@@ -418,6 +418,9 @@ typedef struct config_struct {
 	size_t exit_size;
 	void*  exit_stack[10];
 
+	/* batch INSERT row limit for poller_output writes */
+	int    db_batch_size;
+
 	/* Remote polling mode */
 	int    mode;
 	/* remote database connection information */

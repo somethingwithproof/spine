@@ -61,3 +61,8 @@ DB_Port       3306
 #RDB_SSL_Cert
 #RDB_SSL_CA
 
+
+# DB_BatchSize  Rows per thread accumulated before flushing to poller_output.
+#               Higher values reduce round-trips; each thread holds one batch
+#               buffer in memory. Default 100 suits most deployments.
+#DB_BatchSize   100

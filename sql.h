@@ -46,6 +46,24 @@ extern int db_column_exists(MYSQL *mysql, int type, const char *table, const cha
 
 extern int append_hostrange(char *obuf, const char *colname);
 
+/* Batch accumulator for multi-row INSERT INTO poller_output. */
+typedef struct result_batch_t {
+	char  *sql;       /* growing SQL string: INSERT ... VALUES (...),... */
+	size_t sql_len;   /* current used length (excl. NUL) */
+	size_t sql_size;  /* allocated capacity */
+	int    row_count; /* rows accumulated, not yet flushed */
+} result_batch_t;
+
+extern result_batch_t *db_batch_init(void);
+extern int             db_batch_append(MYSQL *mysql, int type, result_batch_t *b,
+                                       int local_data_id, const char *rrd_name,
+                                       const char *host_time, const char *output,
+                                       const char *suffix);
+extern int             db_batch_flush(MYSQL *mysql, int type, result_batch_t *b,
+                                      const char *suffix);
+extern void            db_batch_free(MYSQL *mysql, int type, result_batch_t *b,
+                                     const char *suffix);
+
 #define MYSQL_SET_OPTION(opt, value, desc)	\
 {\
 	options_error = mysql_options(mysql, opt, value); \

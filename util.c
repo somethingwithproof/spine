@@ -1098,6 +1098,7 @@ int read_spine_config(char *file) {
 				else if (STRIMATCH(p1, "DB_SSL_Cert"))      STRNCOPY(set.db_ssl_cert, p2);
 				else if (STRIMATCH(p1, "DB_SSL_CA"))        STRNCOPY(set.db_ssl_ca, p2);
 				else if (STRIMATCH(p1, "Poller"))           set.poller_id = atoi(p2);
+				else if (STRIMATCH(p1, "DB_BatchSize"))     set.db_batch_size = atoi(p2);
 				else if (STRIMATCH(p1, "DB_PreG")) {
 					if (!set.stderr_notty) {
 						fprintf(stderr,"WARNING: DB_PreG is no longer supported\n");
@@ -1130,6 +1131,7 @@ int read_spine_config(char *file) {
  *
  */
 void config_defaults() {
+	set.db_batch_size = 100;
 	set.threads = DEFAULT_THREADS;
 
 	/* default server */

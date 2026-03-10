@@ -604,6 +604,163 @@ void db_free_result(MYSQL_RES *result) {
 	mysql_free_result(result);
 }
 
+/*! \fn result_batch_t *db_batch_init(void)
+ *  \brief allocates and initialises a batch accumulator for poller_output inserts.
+ *
+ *  \return pointer to a zeroed result_batch_t, or NULL on allocation failure.
+ */
+result_batch_t *db_batch_init(void) {
+	result_batch_t *b;
+	char           *buf;
+
+	b = (result_batch_t *)calloc(1, sizeof(result_batch_t));
+	if (b == NULL) {
+		return NULL;
+	}
+
+	buf = (char *)malloc(4096);
+	if (buf == NULL) {
+		free(b);
+		return NULL;
+	}
+
+	buf[0]    = '\0';
+	b->sql      = buf;
+	b->sql_len  = 0;
+	b->sql_size = 4096;
+	b->row_count = 0;
+
+	return b;
+}
+
+/*! \fn int db_batch_flush(MYSQL *mysql, int type, result_batch_t *b, const char *suffix)
+ *  \brief executes the accumulated INSERT and resets the accumulator for reuse.
+ *  \param mysql  database connection
+ *  \param type   LOCAL or REMOTE
+ *  \param b      batch accumulator
+ *  \param suffix ON DUPLICATE KEY ... clause appended before execution
+ *
+ *  \return TRUE on success (or nothing to flush), FALSE on db error.
+ */
+int db_batch_flush(MYSQL *mysql, int type, result_batch_t *b, const char *suffix) {
+	size_t suffix_len;
+	size_t needed;
+	char  *tmp;
+	int    rc;
+
+	if (b->row_count == 0) {
+		return TRUE;
+	}
+
+	suffix_len = strlen(suffix);
+	needed     = b->sql_len + suffix_len + 1;
+
+	if (needed > b->sql_size) {
+		tmp = (char *)realloc(b->sql, needed);
+		if (tmp == NULL) {
+			SPINE_LOG(("ERROR: db_batch_flush realloc failed"));
+			return FALSE;
+		}
+		b->sql      = tmp;
+		b->sql_size = needed;
+	}
+
+	memcpy(b->sql + b->sql_len, suffix, suffix_len + 1);
+
+	rc = db_insert(mysql, type, b->sql);
+
+	/* reset accumulator; keep buffer allocated for reuse */
+	b->sql[0]    = '\0';
+	b->sql_len   = 0;
+	b->row_count = 0;
+
+	return rc;
+}
+
+/*! \fn int db_batch_append(MYSQL *mysql, int type, result_batch_t *b, ...)
+ *  \brief escapes and appends one VALUES row to the accumulator.
+ *         Flushes first when the row count reaches set.db_batch_size.
+ *  \param mysql        database connection
+ *  \param type         LOCAL or REMOTE
+ *  \param b            batch accumulator
+ *  \param local_data_id data source id
+ *  \param rrd_name     DS name (will be escaped)
+ *  \param host_time    unix timestamp string passed verbatim to FROM_UNIXTIME()
+ *  \param output       poll result (will be escaped)
+ *  \param suffix       ON DUPLICATE KEY ... clause forwarded to db_batch_flush
+ *
+ *  \return TRUE on success, FALSE if a mid-batch flush fails.
+ */
+int db_batch_append(MYSQL *mysql, int type, result_batch_t *b,
+                    int local_data_id, const char *rrd_name,
+                    const char *host_time, const char *output,
+                    const char *suffix) {
+	/* escaped buffers: mysql_real_escape_string needs 2n+1 bytes */
+	char   esc_name[62];   /* rrd_name field is VARCHAR(30); 30*2+1=61 */
+	char   esc_out[RESULTS_BUFFER * 2 + 1];
+	char   row[RESULTS_BUFFER + SMALL_BUFSIZE];
+	size_t row_len;
+	size_t needed;
+	char  *tmp;
+
+	/* flush before appending when the row cap is reached */
+	if (b->row_count >= set.db_batch_size) {
+		if (!db_batch_flush(mysql, type, b, suffix)) {
+			return FALSE;
+		}
+	}
+
+	mysql_real_escape_string(mysql, esc_name, rrd_name,  strlen(rrd_name));
+	mysql_real_escape_string(mysql, esc_out,  output,    strlen(output));
+
+	/* Start a fresh INSERT statement when the buffer is empty (first row or
+	 * post-flush).  Subsequent rows append with a comma. */
+	if (b->row_count == 0) {
+		row_len = (size_t)snprintf(row, sizeof(row),
+			"INSERT INTO poller_output"
+			" (local_data_id, rrd_name, time, output) VALUES"
+			" (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+			local_data_id, esc_name, host_time, esc_out);
+	} else {
+		row_len = (size_t)snprintf(row, sizeof(row),
+			",(%i, '%s', FROM_UNIXTIME(%s), '%s')",
+			local_data_id, esc_name, host_time, esc_out);
+	}
+
+	/* grow sql buffer if necessary */
+	needed = b->sql_len + row_len + 1;
+	if (needed > b->sql_size) {
+		size_t new_size = b->sql_size * 2;
+		if (new_size < needed) new_size = needed;
+
+		tmp = (char *)realloc(b->sql, new_size);
+		if (tmp == NULL) {
+			SPINE_LOG(("ERROR: db_batch_append realloc failed"));
+			return FALSE;
+		}
+		b->sql      = tmp;
+		b->sql_size = new_size;
+	}
+
+	memcpy(b->sql + b->sql_len, row, row_len + 1);
+	b->sql_len  += row_len;
+	b->row_count++;
+
+	return TRUE;
+}
+
+/*! \fn void db_batch_free(MYSQL *mysql, int type, result_batch_t *b, const char *suffix)
+ *  \brief flushes any remaining rows then releases all memory.
+ */
+void db_batch_free(MYSQL *mysql, int type, result_batch_t *b, const char *suffix) {
+	if (b == NULL) return;
+
+	db_batch_flush(mysql, type, b, suffix);
+
+	free(b->sql);
+	free(b);
+}
+
 int db_column_exists(MYSQL *mysql, int type, const char *table, const char *column) {
 	char       query_frag[BUFSIZE];
    MYSQL_RES *result;
