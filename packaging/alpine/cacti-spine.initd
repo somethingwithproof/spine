@@ -1,0 +1,23 @@
+#!/sbin/openrc-run
+
+description="Cacti Spine SNMP poller"
+
+: ${SPINE_CONF:=/etc/spine.conf}
+: ${SPINE_OPTS:=}
+
+command="/usr/sbin/spine"
+command_args="--conf ${SPINE_CONF} ${SPINE_OPTS}"
+command_user="cacti:cacti"
+
+# spine is one-shot: it runs a single collection cycle and exits.
+# OpenRC marks the service stopped once the process returns; running
+# it again triggers another poll cycle.  Normal deployments invoke
+# spine via crond, not rc-service.
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="no"
+
+depend() {
+	need net
+	after localmount
+	use mysql
+}

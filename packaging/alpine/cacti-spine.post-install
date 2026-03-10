@@ -1,0 +1,9 @@
+#!/bin/sh
+post_install() {
+	if [ ! -f /etc/spine.conf ]; then
+		install -m 0640 /etc/spine.conf.dist /etc/spine.conf
+		echo "spine: created /etc/spine.conf from dist -- edit before use"
+	fi
+	# Restore file capability after package upgrade (apk strips xattrs on install).
+	setcap cap_net_raw+eip /usr/sbin/spine
+}

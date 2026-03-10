@@ -1,0 +1,41 @@
+# Contributor: The Cacti Group <developers@cacti.net>
+# Maintainer: The Cacti Group <developers@cacti.net>
+pkgname=cacti-spine
+pkgver=1.3.0
+pkgrel=0
+pkgdesc="High-performance SNMP poller for Cacti"
+url="https://www.cacti.net/"
+arch="all"
+license="LGPL-2.1-or-later"
+depends="libmariadb mariadb-connector-c net-snmp-libs openssl libcap"
+makedepends="autoconf automake libtool help2man mariadb-connector-c-dev net-snmp-dev openssl-dev libcap-dev"
+install="$pkgname.post-install"
+source="$pkgname-$pkgver.tar.gz::https://github.com/Cacti/spine/archive/refs/tags/$pkgver.tar.gz"
+builddir="$srcdir/spine-$pkgver"
+
+build() {
+	cd "$builddir"
+	./bootstrap
+	./configure \
+		--prefix=/usr \
+		--bindir=/usr/sbin \
+		--sysconfdir=/etc \
+		--enable-lcap
+	make -j$(nproc)
+}
+
+check() {
+	cd "$builddir"
+	make -n check || true
+}
+
+package() {
+	cd "$builddir"
+	make DESTDIR="$pkgdir" install
+	# Install conf dist; postinstall seeds the live config
+	install -D -m 0644 spine.conf.dist "$pkgdir/etc/spine.conf.dist"
+	# OpenRC service for sites that prefer rc-service over crond
+	install -D -m 0755 packaging/alpine/cacti-spine.initd \
+		"$pkgdir/etc/init.d/cacti-spine"
+	# CAP_NET_RAW is set in post-install; apk strips xattrs during install.
+}

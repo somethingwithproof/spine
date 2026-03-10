@@ -1,0 +1,10 @@
+To build an Alpine package:
+
+    abuild-keygen -a -i   # one-time: generate signing key
+    cd packaging/alpine
+    abuild -r
+
+Or install abuild deps and build without installing the key (for testing):
+
+    abuild -F checksum
+    abuild -F
