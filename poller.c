@@ -167,6 +167,10 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	int    num_rows;
 	int    assert_fail = FALSE;
 	int    reindex_err = FALSE;
+	/* Spike kill suppresses RRD writes for this poll cycle when sysUpTime
+	 * or a counter-wrap trigger fires.  Writing a counter-wrap value into
+	 * an RRD creates a permanent spike that Cacti cannot distinguish from
+	 * real traffic without manual intervention. */
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	int    i = 0;
@@ -266,7 +270,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 		limits[0] = '\0';
 	}
 
-	/* single polling interval query for items */
+	/* SQL_NO_CACHE is required because polling cycles run faster than the
+	 * query cache TTL on busy systems; a cached result would return stale
+	 * poller_item rows and silently skip data sources added mid-cycle. */
 	if (set.poller_id == 0) {
 		if (set.total_snmp_ports == 1) {
 			snprintf(query1, BUFSIZE,
@@ -757,6 +763,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 					}
 				}
 
+				/* Thread 1 owns all host-level DB writes (status, sysinfo, reindex commands).
+				 * The N>1 threads share the same host_id but collect different OID ranges;
+				 * letting more than one write host status races on the availability fields. */
 				/* update host table */
 				if (host_thread == 1) {
 					if (!ignore_sysinfo) {
@@ -1877,6 +1886,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 			i++;
 		}
 
+		/* out_buffer tracks accumulated SQL length.  strlen(query8) is the
+		 * INSERT-prefix-only length (no VALUES rows); anything larger means
+		 * at least one row was appended and the statement needs flushing. */
 		/* perform the last insert if there is data to process */
 		if (out_buffer > strlen(query8)) {
 			/* append the suffix */

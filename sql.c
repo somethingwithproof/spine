@@ -103,6 +103,14 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	}
 }
 
+/*
+ * Errors 2006 (server gone away) and 2013 (lost connection) are transient:
+ * MariaDB closes idle connections after wait_timeout, and brief network
+ * hiccups produce the same errors.  Rather than propagating the error up
+ * and aborting the poll, we attempt mysql_ping() which reconnects silently
+ * if the server is reachable.  The old thread ID check lets us KILL the
+ * stale server-side thread so it does not hold locks or consume resources.
+ */
 int db_reconnect(MYSQL *mysql, int type, int error, char *function) {
 	unsigned long  mysql_thread = 0;
 	char   query[100];
@@ -242,8 +250,11 @@ void db_connect(int type, MYSQL *mysql) {
 	char    *ssl_cert = NULL;
 	#endif
 
-	/* see if the hostname variable is a file reference.  If so,
-	 * and if it is a socket file, setup mysql to use it.
+	/*
+	 * The hostname field doubles as a Unix socket path for local connections.
+	 * Deployments that co-locate spine and MariaDB on the same host commonly
+	 * use a socket to avoid TCP stack overhead and firewall rules.  We stat()
+	 * the path rather than guessing so the config file needs no socket flag.
 	 */
 	if (set.poller_id > 1) {
 		if (type == LOCAL) {
@@ -294,7 +305,14 @@ void db_connect(int type, MYSQL *mysql) {
 	MYSQL_SET_OPTION(MYSQL_OPT_RETRY_COUNT, &tries, "retry count");
 	#endif
 
-	/* set SSL options if available */
+	/*
+	 * SSL verification is optional because many Cacti deployments use
+	 * self-signed certificates on replication links between the main and
+	 * remote pollers.  Requiring a trusted CA would break those setups
+	 * without providing meaningful security given the certificates are
+	 * already on private infrastructure.  db_ssl=0 disables verification
+	 * only; the connection is still encrypted when a cert is present.
+	 */
 	#ifdef HAS_MYSQL_OPT_SSL_KEY
 	/* if the users has explicitly said to disable SSL, do that now */
 	#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
@@ -412,6 +430,13 @@ void db_disconnect(MYSQL *mysql) {
  *  \brief Creates a connection pool for spine
  *  \param type the connection type, LOCAL or REMOTE
  *
+ * One connection per worker thread is created at startup rather than sharing
+ * a single connection across threads.  The MySQL C API is not thread-safe for
+ * concurrent use of one MYSQL handle; each thread needs its own.  Connections
+ * are also kept for the duration of the poll cycle rather than opened and
+ * closed per query: MariaDB's default wait_timeout is 8 hours, so connections
+ * survive a normal poll cycle, and the reconnect logic in db_reconnect()
+ * handles the rare case where the server has recycled an idle connection.
  */
 void db_create_connection_pool(int type) {
 	int id;

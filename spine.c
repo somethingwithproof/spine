@@ -240,7 +240,13 @@ int main(int argc, char *argv[]) {
 
 	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
 
-	/* install the spine signal handler */
+	/*
+	 * Signal handlers must be installed before any threads are spawned.
+	 * pthreads inherit the signal mask of the creating thread, so a signal
+	 * arriving after the first pthread_create() could be delivered to a
+	 * worker thread instead of the main thread.  Installing here ensures
+	 * the mask is set correctly before any child thread exists.
+	 */
 	install_spine_signal_handler();
 
 	/* establish php processes and initialize space */
@@ -691,7 +697,14 @@ int main(int argc, char *argv[]) {
 
 	init_mutexes();
 
-	/* initialize available_threads semaphore */
+	/*
+	 * available_threads is a counting semaphore that limits concurrency.
+	 * The cap enforced at read_config_options() time (MAX_THREADS=100) is not
+	 * just a safety limit: Net-SNMP's internal select() loop uses a plain
+	 * fd_set, which is bounded by FD_SETSIZE.  Each SNMP session opens at
+	 * least one socket, so thread count * sessions-per-thread must stay well
+	 * below FD_SETSIZE (typically 1024) to avoid silent fd_set corruption.
+	 */
 	sem_init(&available_threads, 0, set.threads);
 
 	/* initialize available_scripts semaphore */
@@ -707,7 +720,13 @@ int main(int argc, char *argv[]) {
 	sem_getvalue(&available_threads, &a_threads_value);
 	SPINE_LOG_HIGH(("DEBUG: Initial Value of Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
 
-	/* tell fork processes that they are now active */
+	/*
+	 * parent_fork distinguishes log context: messages from the main process
+	 * and messages from worker threads log differently so that a fatal error
+	 * in a thread does not invoke php_close() twice (the parent owns the
+	 * PHP script server pipes).  SPINE_FORK is set here, just before
+	 * pthread_create(), so threads inherit the correct state.
+	 */
 	set.parent_fork = SPINE_FORK;
 
 	/* initialize the threading code */

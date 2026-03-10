@@ -1107,6 +1107,8 @@ int read_spine_config(char *file) {
 					set.logfile_processed = 1;
 					set.log_destination = LOGDEST_BOTH;
 				} else if (STRIMATCH(p1, "SNMP_Clientaddr"))  STRNCOPY(set.snmp_clientaddr, p2);
+				/* Warn but continue: a newer spine.conf key on an older binary
+				 * should not abort the poller.  Forward-compat requires tolerance. */
 				else if (!set.stderr_notty) {
 					fprintf(stderr,"WARNING: Unrecognized directive: %s=%s in %s\n", p1, p2, file);
 				}
@@ -1130,6 +1132,9 @@ int read_spine_config(char *file) {
  *
  */
 void config_defaults() {
+	/* Conservative defaults matter here: spine runs unattended and a wrong
+	 * default (too many threads, wrong host, missing config) causes silent
+	 * data gaps in RRD files that are hard to diagnose after the fact. */
 	set.threads = DEFAULT_THREADS;
 
 	/* default server */
@@ -1686,7 +1691,8 @@ char *add_slashes(char *string) {
  *
  *	  strncopy(buf, src, sizeof buf)
  *
- *	so we provide an STRNCOPY() macro which adds the size.
+ *	so we provide an STRNCOPY() macro which adds the size. strlcpy(3) would be the natural fit but it is absent from C99 and
+ *	POSIX.1-2001, so portable code cannot rely on it without an autoconf probe.
  *
  *  \return pointer to destination string
  *
@@ -2081,7 +2087,6 @@ int get_cacti_version(MYSQL *psql, int mode) {
 char *regex_replace(char *exp, char *value) {
 	regex_t regex;
 	int reti;
-	char msgbuf[100];
 	regmatch_t matches[MAX_MATCHES];
 
 	/* Compile regular expression */
@@ -2094,12 +2099,15 @@ char *regex_replace(char *exp, char *value) {
 	/* Execute regular expression */
 	reti = regexec(&regex, value, MAX_MATCHES, matches, 0);
 	if (!reti) {
-		// regex matched
-		memcpy(msgbuf, value + matches[0].rm_so, matches[0].rm_eo - matches[0].rm_so);
+		/* Shift the matched substring to the front of the caller's buffer.
+		 * The match is always <= strlen(value), so this is safe in-place. */
+		size_t mlen = (size_t)(matches[0].rm_eo - matches[0].rm_so);
+		memmove(value, value + matches[0].rm_so, mlen);
+		value[mlen] = '\0';
 	}
 
 	/* Free memory allocated to the pattern buffer by regcomp() */
 	regfree(&regex);
 
-	return (reti) ? value : msgbuf;
+	return value;
 }

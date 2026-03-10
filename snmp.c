@@ -34,6 +34,15 @@
 #include "common.h"
 #include "spine.h"
 
+/*
+ * SNMP session lifecycle and polling.
+ *
+ * snmp_spine_init() / snmp_spine_close() bracket the process lifetime and must
+ * be called from the main thread only -- Net-SNMP's library initialisation is
+ * not thread-safe.  Per-host sessions (snmp_host_init / snmp_host_cleanup) are
+ * opened and closed by worker threads, serialised through LOCK_SNMP.
+ */
+
 /* resolve problems in debian */
 #ifndef NETSNMP_DS_LIB_DONT_PERSIST_STATE
  #define NETSNMP_DS_LIB_DONT_PERSIST_STATE 32
@@ -54,12 +63,16 @@ void snmp_spine_init(void) {
 	netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_PRINT_NUMERIC_ENUM, 1);
 #endif
 
-/* Prevent update of the snmpapp.conf file */
+/*
+ * Both DONT_PERSIST_STATE and DISABLE_PERSISTENT_LOAD suppress writes to
+ * ~/.snmp/snmpapp.conf.  Spine runs with potentially hundreds of concurrent
+ * sessions; letting Net-SNMP update that file would cause lock contention and
+ * corrupt the file.
+ */
 #ifdef NETSNMP_DS_LIB_DONT_PERSIST_STATE
 	netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_DONT_PERSIST_STATE, 1);
 #endif
 
-/* Prevent update of the snmpapp.conf file */
 #ifdef NETSNMP_DS_LIB_DISABLE_PERSISTENT_LOAD
 	netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_DISABLE_PERSISTENT_LOAD, 1);
 #endif
@@ -372,7 +385,12 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		} /* end auth/priv block */
 	}
 
-	/* open SNMP Session */
+	/*
+	 * snmp_sess_open() is not re-entrant in all Net-SNMP builds; serialise it.
+	 * The lock covers only the open call, not the lifetime of the session --
+	 * individual snmp_sess_synch_response calls are safe to run concurrently
+	 * once the session handle is established.
+	 */
 	thread_mutex_lock(LOCK_SNMP);
 	sessp = snmp_sess_open(&session);
 	thread_mutex_unlock(LOCK_SNMP);
