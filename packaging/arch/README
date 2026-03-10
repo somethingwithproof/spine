@@ -1,0 +1,15 @@
+To build and install from source using makepkg:
+
+    cd packaging/arch
+    makepkg -si
+
+To build without installing (inspect the package first):
+
+    makepkg
+
+To submit to the AUR, copy PKGBUILD to an AUR git repository:
+
+    git clone ssh://aur@aur.archlinux.org/cacti-spine.git
+    cp packaging/arch/PKGBUILD cacti-spine/
+    cd cacti-spine && makepkg --printsrcinfo > .SRCINFO
+    git add PKGBUILD .SRCINFO && git commit && git push

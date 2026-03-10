@@ -1,0 +1,38 @@
+# Maintainer: The Cacti Group <developers@cacti.net>
+pkgname=cacti-spine
+pkgver=1.3.0
+pkgrel=1
+pkgdesc="High-performance SNMP poller for Cacti"
+arch=('x86_64' 'aarch64')
+url="https://www.cacti.net/"
+license=('LGPL-2.1-or-later')
+depends=('libmariadb' 'net-snmp' 'openssl' 'libcap')
+makedepends=('autoconf' 'automake' 'libtool' 'help2man' 'libcap')
+backup=('etc/spine.conf')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/Cacti/spine/archive/refs/tags/$pkgver.tar.gz")
+b2sums=('SKIP')
+
+prepare() {
+	cd "spine-$pkgver"
+	./bootstrap
+}
+
+build() {
+	cd "spine-$pkgver"
+	./configure \
+		--prefix=/usr \
+		--bindir=/usr/bin \
+		--sysconfdir=/etc \
+		--enable-lcap
+	make
+}
+
+package() {
+	cd "spine-$pkgver"
+	make DESTDIR="$pkgdir" install
+	install -D -m 0644 spine.conf.dist "$pkgdir/etc/spine.conf.dist"
+	# Install seeded live config as a backup= conffile
+	install -D -m 0640 spine.conf.dist "$pkgdir/etc/spine.conf"
+	# Grant CAP_NET_RAW for raw socket access; spine drops root after acquire.
+	setcap cap_net_raw+eip "$pkgdir/usr/bin/spine"
+}
