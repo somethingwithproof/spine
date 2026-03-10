@@ -114,8 +114,11 @@ AC_CHECK_LIB(z, deflate)
 AC_CHECK_LIB(kstat, kstat_close)
 AC_CHECK_LIB(crypto, CRYPTO_realloc)
 
-# minor adjustments for debian
+# clock_gettime lives in -lrt on Solaris and older Linux
 AC_SEARCH_LIBS([clock_gettime], [rt pthread])
+
+# Solaris needs -lnsl for gethostbyname; harmless no-op elsewhere
+AC_SEARCH_LIBS([gethostbyname], [nsl])
 
 # Checks for header files.
 AC_CHECK_HEADERS(sys/socket.h sys/select.h sys/wait.h sys/time.h)
@@ -160,6 +163,13 @@ AC_DEFINE_UNQUOTED([RETSIGTYPE],[$ac_cv_type_signal],[Define as the return type 
 		    (`int' or `void').])
 
 AC_CHECK_FUNCS(malloc calloc gettimeofday strerror strtoll)
+
+# BSD/macOS provide strlcpy/strlcat; compat.c supplies fallbacks when absent
+AC_CHECK_FUNCS([strlcpy strlcat])
+
+# Thread naming: Linux and newer FreeBSD have pthread_setname_np;
+# older FreeBSD has pthread_set_name_np; Solaris/AIX have neither.
+AC_CHECK_FUNCS([pthread_setname_np pthread_set_name_np])
 
 # ****************** Solaris Privileges Check ***********************
 

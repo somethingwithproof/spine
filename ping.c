@@ -1007,7 +1007,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 		if (tokens == 1) {
 			if (strlen(token) && token[0] == '[') {
 				SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-				strncpy(name->hostname, hostname, sizeof(name->hostname));
+				STRNCOPY(name->hostname, hostname);
 				break;
 			} else if (strlen(token) == 3) {
 				if (strncasecmp(token, "TCP", 3)) {
@@ -1044,8 +1044,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 
 		if (tokens == 2) {
 			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s", hostname, token));
-			strncpy(name->hostname, token, sizeof(name->hostname));
-			name->hostname[strlen(token)] = '\0';
+			STRNCOPY(name->hostname, token);
 		}
 
 		if (tokens == 3 && strlen(token)) {

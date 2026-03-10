@@ -159,4 +159,7 @@
 #  include <grp.h>
 #endif
 
+/* Platform portability shims -- must follow all system headers */
+#include "compat.h"
+
 #endif /* SPINE_COMMON_H */

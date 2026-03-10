@@ -1691,10 +1691,8 @@ char *add_slashes(char *string) {
  *  \return pointer to destination string
  *
 */
-#pragma GCC diagnostic push
-#if (defined(__GNUC__) && (__GNUC__ > 7)) || (__GNUC__ == 7 && defined(__GNUC_MINOR__) && __GNUC_MINOR__ > 1)
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-#endif
+SPINE_DIAG_PUSH
+SPINE_DIAG_IGNORE(GCC diagnostic ignored "-Wstringop-overflow")
 char *strncopy(char *dst, const char *src, size_t obuf) {
 	size_t len;
 
@@ -1709,7 +1707,7 @@ char *strncopy(char *dst, const char *src, size_t obuf) {
 	dst[len] = '\0';
 	return dst;
 }
-#pragma GCC diagnostic pop
+SPINE_DIAG_POP
 
 /*! \fn double get_time_as_double()
  *  \brief fetches system time as a double-precision value
