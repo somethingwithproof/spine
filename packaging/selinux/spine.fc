@@ -1,0 +1,3 @@
+/usr/sbin/spine                 -- gen_context(system_u:object_r:spine_exec_t,s0)
+/etc/spine\.conf.*              -- gen_context(system_u:object_r:spine_conf_t,s0)
+/var/log/cacti(/.*)?            -- gen_context(system_u:object_r:spine_log_t,s0)

@@ -1,0 +1,9 @@
+SELinux policy module for cacti-spine.
+
+Build and install:
+    cd packaging/selinux
+    make -f /usr/share/selinux/devel/Makefile spine.pp
+    sudo semodule -i spine.pp
+    sudo restorecon -Rv /usr/sbin/spine /etc/spine.conf
+
+The RPM package installs this automatically via %post.

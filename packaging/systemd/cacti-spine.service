@@ -1,0 +1,23 @@
+[Unit]
+Description=Cacti Spine Poller (one-shot)
+Documentation=man:spine(1) https://www.cacti.net/
+After=network.target mariadb.service mysql.service
+Wants=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/spine
+User=www-data
+Group=www-data
+# spine needs CAP_NET_RAW for ICMP ping (built with --enable-lcap)
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/log/cacti
+RestartSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+AppArmor profile for cacti-spine.
+
+Install:
+    sudo install -m 0644 packaging/apparmor/usr.sbin.spine \
+        /etc/apparmor.d/usr.sbin.spine
+    sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.spine
+
+The Debian package installs this automatically via postinst.

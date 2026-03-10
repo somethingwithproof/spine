@@ -1,0 +1,53 @@
+# AppArmor profile for cacti-spine
+# Install to /etc/apparmor.d/usr.sbin.spine
+
+#include <tunables/global>
+
+/usr/sbin/spine {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+
+  # Capabilities
+  capability net_raw,
+  capability setuid,
+  capability setgid,
+  capability dac_override,
+
+  # Network: SNMP (UDP), MySQL (TCP), ICMP
+  network inet dgram,
+  network inet stream,
+  network inet raw,
+  network inet6 dgram,
+  network inet6 stream,
+
+  # Configuration
+  /etc/spine.conf r,
+  /etc/spine.conf.dist r,
+  /usr/local/etc/spine.conf r,
+
+  # Binary and libraries
+  /usr/sbin/spine mr,
+  /usr/lib/** mr,
+  /lib/** mr,
+
+  # Cacti scripts and RRD tools
+  /usr/bin/rrdtool Cx,
+  /usr/local/bin/rrdtool Cx,
+  /usr/share/cacti/scripts/** Cx,
+  /var/www/html/cacti/scripts/** Cx,
+
+  # Logs
+  /var/log/cacti/ rw,
+  /var/log/cacti/** rw,
+  /tmp/ rw,
+  /tmp/spine_* rw,
+
+  # Proc (for getsockopt, etc.)
+  /proc/*/net/if_inet6 r,
+  /proc/net/if_inet6 r,
+
+  # Deny everything else
+  deny /home/** rwx,
+  deny /root/** rwx,
+}

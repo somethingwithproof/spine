@@ -1,0 +1,47 @@
+policy_module(spine, 1.0.0)
+
+########################################
+# Declarations
+#
+
+type spine_t;
+type spine_exec_t;
+init_daemon_domain(spine_t, spine_exec_t)
+
+type spine_conf_t;
+files_config_file(spine_conf_t)
+
+type spine_log_t;
+logging_log_file(spine_log_t)
+
+########################################
+# spine local policy
+#
+
+# Allow basic process operations
+allow spine_t self:process { fork signal_perms };
+allow spine_t self:fifo_file rw_file_perms;
+allow spine_t self:unix_stream_socket create_stream_socket_perms;
+
+# Raw socket for ICMP ping
+allow spine_t self:rawip_socket { create ioctl read write bind getopt setopt };
+allow spine_t self:udp_socket { create ioctl read write bind connect getopt setopt };
+allow spine_t self:tcp_socket { create ioctl read write bind connect accept getopt setopt };
+
+# Config
+read_files_pattern(spine_t, spine_conf_t, spine_conf_t)
+
+# Logs
+manage_files_pattern(spine_t, spine_log_t, spine_log_t)
+logging_log_filetrans(spine_t, spine_log_t, file)
+
+# MySQL connection
+corenet_tcp_connect_mysqld_port(spine_t)
+
+# SNMP UDP
+corenet_udp_sendrecv_generic_port(spine_t)
+corenet_raw_sendrecv_generic_if(spine_t)
+
+# Execute scripts via Cacti
+corecmd_exec_bin(spine_t)
+corecmd_exec_shell(spine_t)
