@@ -1,0 +1,9 @@
+To use this port with the FreeBSD Ports tree:
+
+    cp -r packaging/freebsd /usr/ports/net-mgmt/spine
+    cd /usr/ports/net-mgmt/spine
+    make install clean
+
+To build a package without installing:
+
+    make package

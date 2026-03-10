@@ -1,0 +1,41 @@
+#!/bin/sh
+#
+# PROVIDE: spine
+# REQUIRE: DAEMON mysql
+# KEYWORD: shutdown
+#
+# Add the following to /etc/rc.conf to enable spine:
+#
+#   spine_enable="YES"
+#   spine_config="/usr/local/etc/spine.conf"   # optional, this is the default
+#   spine_flags=""                              # optional extra flags
+
+. /etc/rc.subr
+
+name="spine"
+rcvar="spine_enable"
+
+: ${spine_enable:="NO"}
+: ${spine_config:="/usr/local/etc/spine.conf"}
+: ${spine_flags:=""}
+
+command="/usr/local/sbin/spine"
+command_interpreter=""
+
+# spine is a one-shot poller: it runs a single collection cycle and exits.
+# There is no persistent daemon to track via pidfile, but rc.subr requires
+# pidfile to be set when using certain helpers; point it at /dev/null.
+pidfile="/var/run/${name}.pid"
+
+start_cmd="spine_start"
+extra_commands="poll"
+poll_cmd="spine_start"
+
+spine_start()
+{
+	echo "Running ${name} poll cycle."
+	${command} --conf ${spine_config} ${spine_flags}
+}
+
+load_rc_config ${name}
+run_rc_command "$1"

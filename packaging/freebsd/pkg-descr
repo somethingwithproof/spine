@@ -1,0 +1,8 @@
+Spine is the high-performance poller for Cacti, the network graphing
+solution. It replaces the default PHP-based poller for large installations
+where polling speed is critical.
+
+Spine uses pthreads to poll multiple hosts simultaneously via SNMP,
+scripts, and commands, writing results directly to the Cacti database.
+
+WWW: https://www.cacti.net/

@@ -1,0 +1,25 @@
++-----------------------------------------------------------------------+
+| cacti-spine installed                                                 |
++-----------------------------------------------------------------------+
+
+Copy the sample configuration and edit it before starting spine:
+
+  cp %%PREFIX%%/etc/spine.conf.dist %%PREFIX%%/etc/spine.conf
+  $EDITOR %%PREFIX%%/etc/spine.conf
+
+spine requires raw socket access (CAP_NET_RAW) for ICMP polling. The
+Linux --enable-lcap/setcap path is not available on FreeBSD. Choose one
+of the following approaches based on site policy:
+
+  1. setuid-root (simplest):
+       chmod u+s %%PREFIX%%/sbin/spine
+
+  2. Run Cacti's poller as root, which passes the privilege through to
+     spine without requiring a setuid binary.
+
+  3. Use security/sudo to grant the cacti user controlled invocation:
+       cacti ALL=(root) NOPASSWD: %%PREFIX%%/sbin/spine
+
+For use with Cacti, configure the poller path in Cacti's settings to
+point to %%PREFIX%%/sbin/spine.
++-----------------------------------------------------------------------+

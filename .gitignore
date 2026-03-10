@@ -22,6 +22,8 @@
 .deps
 Makefile
 Makefile.in
+# packaging/ Makefiles are port/build specs, not autotools artifacts
+!packaging/**/Makefile
 configure
 config.*
 autom4te.cache/
