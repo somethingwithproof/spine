@@ -1,0 +1,17 @@
+# net-snmp SSL init -- one-time allocation, not a leak
+{
+   netsnmp_ssl_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:SSL_library_init
+}
+
+# libmariadb thread-local storage
+{
+   mariadb_tls
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*libmariadb*
+}

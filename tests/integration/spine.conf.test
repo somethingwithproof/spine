@@ -1,0 +1,5 @@
+DB_Host       db
+DB_Database   cacti
+DB_User       cactiuser
+DB_Pass       cactiuser
+DB_Port       3306

@@ -1,0 +1,28 @@
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: cacti
+      MARIADB_USER: cactiuser
+      MARIADB_PASSWORD: cactiuser
+    ports:
+      # Port-mapped so the benchmark script can reach MariaDB directly from
+      # the host without a spine service inside the compose project.
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  snmpsim:
+    image: tandrup/snmpsim:latest
+    # snmpsim serves files from /usr/local/snmpsim/data/public/.
+    # gen-snmprec.py writes one <ip>.snmprec per device into ./snmprec/,
+    # which is bind-mounted here so snmpsim picks them up at startup.
+    volumes:
+      - ./snmprec:/usr/local/snmpsim/data/public
+    ports:
+      # 16100 instead of 161 so the benchmark script runs without root.
+      - "127.0.0.1:16100:161/udp"

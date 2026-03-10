@@ -1,0 +1,89 @@
+Load Test Suite
+===============
+
+Benchmarks spine throughput against a fleet of simulated SNMP devices
+running under snmpsim in Docker. MariaDB is port-mapped to the host so
+the local spine binary runs natively without a container.
+
+Prerequisites
+-------------
+
+- Python 3.8 or later in PATH
+- Docker with Compose v2 (docker compose, not docker-compose)
+- mysql client in PATH (MariaDB or MySQL, used only to seed the DB)
+- spine binary built at the repo root:
+
+    cd /path/to/spine
+    ./configure && make
+
+  The benchmark script looks for the binary at ../../spine relative to
+  this directory. Override with SPINE_BIN=/path/to/spine.
+
+Quick start
+-----------
+
+    cd tests/load
+    sh run-bench.sh
+
+This generates 500 fake devices, starts MariaDB on 127.0.0.1:3307 and
+snmpsim on 127.0.0.1:16100/udp, then runs spine at 10, 25, and 50
+threads. Docker services are torn down automatically on exit.
+
+Options
+-------
+
+    --count N          number of simulated devices (1-508, default: 500)
+    --threads T1,T2,T3 comma-separated thread counts (default: 10,25,50)
+
+Environment overrides:
+
+    COUNT=100 THREAD_COUNTS=5,10 sh run-bench.sh
+
+Output
+------
+
+The script prints a throughput table after all runs complete:
+
+    threads | devices | items | duration_s | results | throughput (items/s)
+    --------+---------+-------+------------+---------+--------------------
+         10 |     500 |  2500 |       45.2 |    2500 |                55
+         25 |     500 |  2500 |       18.7 |    2500 |               133
+         50 |     500 |  2500 |       11.3 |    2500 |               221
+
+Columns:
+
+  threads      spine --threads value for this run
+  devices      total host rows in the DB
+  items        total poller_item rows (devices x 5 OIDs each)
+  duration_s   wall-clock seconds from spine launch to exit
+  results      SELECT COUNT(*) FROM poller_output after the run
+  throughput   items / duration_s
+
+A results value less than items means spine did not poll all devices
+within the run. Check spine stderr for timeout or connection errors.
+
+snmpsim performance ceiling
+---------------------------
+
+snmpsim is single-threaded and handles roughly 400-600 requests per
+second on typical hardware. At high spine thread counts (50+) snmpsim
+becomes the bottleneck, not spine. The throughput numbers therefore
+reflect the snmpsim ceiling rather than spine's true capacity.
+
+To measure spine's own ceiling, replace snmpsim with real devices or
+a multi-process SNMP simulator. The infrastructure here is useful for
+regression testing (does throughput stay the same across spine builds?)
+rather than absolute capacity planning.
+
+File layout
+-----------
+
+    gen-snmprec.py        generates one .snmprec file per device IP
+    gen-seed.py           generates seed SQL (host + poller_item rows)
+    run-bench.sh          orchestrates the full benchmark
+    docker-compose.load.yml  MariaDB + snmpsim with host port mappings
+    snmprec/              populated by gen-snmprec.py at runtime
+    load-seed.sql         generated at runtime, removed on exit
+    spine.conf.load       generated at runtime, removed on exit
+
+IP ranges used: 192.0.2.1-254 and 198.51.100.1-254 (RFC 5737).

@@ -1,0 +1,33 @@
+Integration Test Environment
+============================
+
+Prerequisites
+-------------
+- Docker Engine 20.10+ with the Compose plugin (or docker-compose v2)
+- The spine repo must build via its top-level Dockerfile
+
+Running
+-------
+From this directory:
+
+    sh run.sh
+
+The script:
+1. Starts MariaDB 10.11 and waits for it to be healthy.
+2. Starts snmpsim serving the .snmprec device stubs under snmprec/.
+3. Builds the spine container from the repo root Dockerfile.
+4. Seeds the Cacti schema (seed.sql) into MariaDB.
+5. Runs spine against poller_id=1 host_id=1.
+6. Tears down all containers and volumes on exit (pass or fail).
+
+What it tests
+-------------
+- spine can connect to MariaDB with the test credentials.
+- spine queries a fake SNMP device via snmpsim (192.0.2.1, community "public").
+- The sysDescr OID (1.3.6.1.2.1.1.1.0) is polled and spine exits 0.
+
+Adding devices
+--------------
+Drop additional .snmprec files into snmprec/ using the device IP as the
+filename (e.g., 192.0.2.2.snmprec). Add matching rows to seed.sql and
+re-run.

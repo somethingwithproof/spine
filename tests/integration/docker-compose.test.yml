@@ -1,0 +1,54 @@
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: cacti
+      MARIADB_USER: cactiuser
+      MARIADB_PASSWORD: cactiuser
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  snmpsim:
+    image: tandrup/snmpsim:latest
+    # serves .snmprec files from /usr/local/snmpsim/data/
+    # v3 user matches seed.sql: MD5 auth, DES priv.
+    volumes:
+      - ./snmprec:/usr/local/snmpsim/data/public
+    ports:
+      - "161:161/udp"
+    command: >
+      --data-dir=/usr/local/snmpsim/data
+      --agent-udpv4-endpoint=0.0.0.0:161
+      --v3-user=testuser
+      --v3-auth-key=testauth123
+      --v3-priv-key=testpriv123
+      --v3-auth-proto=MD5
+      --v3-priv-proto=DES
+
+  spine-test:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: cactiuser
+      DB_PASS: cactiuser
+      DB_NAME: cacti
+    volumes:
+      - ./spine.conf.test:/etc/spine.conf:ro
+      - ./seed.sql:/seed.sql:ro
+    command: >
+      sh -c "
+        mysql -h db -u root -prootpass cacti < /seed.sql &&
+        /usr/sbin/spine --conf /etc/spine.conf 1 2;
+        ROWS=\$(mysql -h db -u cactiuser -pcactiuser cacti -sNe 'SELECT COUNT(*) FROM poller_output');
+        if [ \"\$ROWS\" -ne 2 ]; then echo \"FAIL: expected 2 rows in poller_output, got \$ROWS\" >&2; exit 1; fi;
+        echo \"PASS: poller_output has \$ROWS rows as expected.\"
+      "

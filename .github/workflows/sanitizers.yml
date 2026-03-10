@@ -1,0 +1,97 @@
+name: Sanitizer builds
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool \
+            libmariadb-dev libsnmp-dev libssl-dev libcap-dev
+
+      - name: Configure with ASan+UBSan
+        run: |
+          ./bootstrap
+          ./configure \
+            --enable-lcap \
+            CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1" \
+            LDFLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Smoke test (--version)
+        # detect_leaks=0: spine does not free all allocations at exit (daemon pattern).
+        # Suppressing leak detection avoids false positives while retaining UAF/overflow detection.
+        run: |
+          ASAN_OPTIONS=detect_leaks=0 ./spine --version
+
+  tsan:
+    runs-on: ubuntu-22.04
+    # TSan uses shadow memory incompatible with ASan; must run as a separate job.
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool \
+            libmariadb-dev libsnmp-dev libssl-dev libcap-dev
+
+      - name: Configure with TSan
+        run: |
+          ./bootstrap
+          ./configure \
+            --enable-lcap \
+            CFLAGS="-fsanitize=thread -fno-omit-frame-pointer -g -O1" \
+            LDFLAGS="-fsanitize=thread"
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Smoke test (--version)
+        run: |
+          ./spine --version
+
+  valgrind:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool valgrind \
+            libmariadb-dev libsnmp-dev libssl-dev libcap-dev
+
+      - name: Build (debug, no sanitizers)
+        run: |
+          ./bootstrap
+          ./configure --enable-lcap CFLAGS="-g -O0"
+          make -j$(nproc)
+
+      - name: Smoke test under Valgrind
+        run: |
+          valgrind \
+            --error-exitcode=1 \
+            --leak-check=full \
+            --show-leak-kinds=definite \
+            --errors-for-leak-kinds=definite \
+            --suppressions=tests/valgrind/spine.supp \
+            ./spine --version 2>&1 | tee valgrind.log
+          grep -q "ERROR SUMMARY: 0 errors" valgrind.log

@@ -509,5 +509,12 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([[
   ],[AC_MSG_RESULT(no)
 ])
 
-AC_CONFIG_FILES([Makefile])
+# ****************** Optional: unit test support via libcheck ***********************
+PKG_CHECK_MODULES([CHECK], [check >= 0.9.10],
+  [have_check=yes],
+  [have_check=no
+   AC_MSG_WARN([libcheck not found; unit tests will not be built])])
+AM_CONDITIONAL([HAVE_CHECK], [test "x$have_check" = "xyes"])
+
+AC_CONFIG_FILES([Makefile tests/Makefile])
 AC_OUTPUT

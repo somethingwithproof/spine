@@ -1,0 +1,50 @@
+Unit Tests
+==========
+
+Spine's unit test suite uses libcheck (https://libcheck.github.io/check/).
+The tests cover pure utility functions and config-file parsing.  Functions
+that require a live MySQL handle or a Net-SNMP session are not included here;
+those belong in the integration layer under tests/snmpv3/.
+
+Prerequisites
+-------------
+
+libcheck >= 0.9.10 must be present at configure time.  On common platforms:
+
+  macOS:   brew install check
+  Debian:  apt-get install check
+  RHEL:    yum install check-devel
+
+Building
+--------
+
+  ./bootstrap          # regenerate autoconf/automake files
+  ./configure          # check must appear in pkg-config output
+  make
+
+Running
+-------
+
+  make check
+
+The check target builds and runs test_util and test_config.  Each binary
+reports per-test pass/fail in CK_NORMAL format, then exits non-zero if any
+test failed.
+
+If libcheck is not found at configure time, a warning is printed and the
+tests/ subdirectory is skipped silently.  The main spine binary is unaffected.
+
+Test binaries
+-------------
+
+test_util    -- covers all_digits, is_ipaddress, is_hexadecimal, trim/rtrim/ltrim,
+                reverse, strpos, char_count, strncopy, is_numeric
+
+test_config  -- covers config_defaults (default values in global set struct)
+                and read_spine_config (file parsing, directive handling,
+                missing-file error path)
+
+Sanitizer builds
+----------------
+
+Sanitizer builds run on every push/PR via `.github/workflows/sanitizers.yml`.
