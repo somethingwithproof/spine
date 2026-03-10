@@ -1,0 +1,9 @@
+# /etc/default/spine
+# Configuration overrides for cacti-spine.
+# These values are sourced by the systemd unit / init script.
+
+# Path to spine configuration file.
+SPINE_CONF=/etc/cacti/spine.conf
+
+# Extra flags passed to spine (e.g. --debug).
+SPINE_OPTS=

@@ -1,0 +1,8 @@
+# /etc/sysconfig/spine
+# Configuration for cacti-spine.
+
+# Path to spine configuration file.
+SPINE_CONF=/etc/cacti/spine.conf
+
+# Additional options passed to spine.
+SPINE_OPTS=

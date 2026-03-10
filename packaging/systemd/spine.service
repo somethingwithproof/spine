@@ -1,0 +1,28 @@
+[Unit]
+Description=Cacti Spine SNMP poller
+Documentation=https://www.cacti.net/
+After=network.target
+After=mysql.service mariadb.service
+Wants=spine.timer
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/spine
+EnvironmentFile=-/etc/sysconfig/spine
+ExecStart=/usr/sbin/spine $SPINE_OPTS
+User=cacti
+Group=cacti
+
+# CAP_NET_RAW is required for ICMP availability checks.  When running
+# under systemd the ambient set is sufficient; setcap on the binary
+# covers cron-based invocations.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log/cacti /tmp
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Cacti Spine poll cycle every minute
+Documentation=https://www.cacti.net/
+
+[Timer]
+OnCalendar=minutely
+Persistent=true
+Unit=spine.service
+
+[Install]
+WantedBy=timers.target
