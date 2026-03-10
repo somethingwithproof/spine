@@ -1390,7 +1390,11 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 					(!STRMATCH(last_snmp_engine_id, poller_items[i].snmp_engine_id))))) {
 
 					if (num_oids > 0) {
-						snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+						if (set.snmp_async) {
+							snmp_get_multi_async(host, poller_items, snmp_oids, num_oids);
+						} else {
+							snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+						}
 
 						for (j = 0; j < num_oids; j++) {
 							if (host->ignore_host) {
@@ -1491,7 +1495,11 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				}
 
 				if (num_oids >= host->max_oids) {
-					snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+					if (set.snmp_async) {
+						snmp_get_multi_async(host, poller_items, snmp_oids, num_oids);
+					} else {
+						snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+					}
 
 					for (j = 0; j < num_oids; j++) {
 						if (host->ignore_host) {
@@ -1703,7 +1711,11 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 		/* process last multi-get request if applicable */
 		if (num_oids > 0) {
-			snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+			if (set.snmp_async) {
+				snmp_get_multi_async(host, poller_items, snmp_oids, num_oids);
+			} else {
+				snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+			}
 
 			for (j = 0; j < num_oids; j++) {
 				if (host->ignore_host) {

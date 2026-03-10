@@ -61,3 +61,18 @@ DB_Port       3306
 #RDB_SSL_Cert
 #RDB_SSL_CA
 
+# +-------------------------------------------------------------------------+
+# | Settings for SNMP Async Polling                                         |
+# +-------------------------------------------------------------------------+
+# | SNMP_Async    Enable async (non-blocking) SNMP I/O within each worker  |
+# |               thread. Improves throughput when polling many OIDs per    |
+# |               device by overlapping network round-trips. Each thread    |
+# |               runs its own select() loop. Default: 0 (synchronous).    |
+# | SNMP_Async_MaxOutstanding                                               |
+# |               Max SNMP requests in flight per worker thread when async  |
+# |               mode is enabled. Higher values increase parallelism but   |
+# |               may overwhelm slow agents. Default: 10.                  |
+# +-------------------------------------------------------------------------+
+#SNMP_Async     0
+#SNMP_Async_MaxOutstanding 10
+

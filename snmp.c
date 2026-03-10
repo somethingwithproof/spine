@@ -1098,3 +1098,247 @@ void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *s
 
 	free(name);
 }
+
+/*! \fn static int spine_async_cb(int operation, struct snmp_session *sp,
+ *       int reqid, struct snmp_pdu *pdu, void *magic)
+ *  \brief callback invoked by net-snmp when an async response arrives
+ *
+ *  Populates the result string in the corresponding snmp_oids entry and
+ *  marks the request complete.  On timeout the result is set to "U".
+ *
+ */
+static int spine_async_cb(int operation, struct snmp_session *sp,
+	int reqid, struct snmp_pdu *pdu, void *magic) {
+
+	async_req_t *req = (async_req_t *) magic;
+	struct variable_list *vars;
+	char temp_result[RESULTS_BUFFER];
+
+	UNUSED_PARAMETER(sp);
+	UNUSED_PARAMETER(reqid);
+
+	if (operation == NETSNMP_CALLBACK_OP_RECEIVED_MESSAGE) {
+		if (pdu->errstat == SNMP_ERR_NOERROR) {
+			vars = pdu->variables;
+			if (vars != NULL) {
+				snprint_value(temp_result, RESULTS_BUFFER,
+					vars->name, vars->name_length, vars);
+				snprintf(req->snmp_oids[req->oid_index].result,
+					RESULTS_BUFFER, "%s", trim(temp_result));
+			} else {
+				SET_UNDEFINED(req->snmp_oids[req->oid_index].result);
+			}
+		} else {
+			SET_UNDEFINED(req->snmp_oids[req->oid_index].result);
+		}
+	} else {
+		/* NETSNMP_CALLBACK_OP_TIMED_OUT or other error */
+		SET_UNDEFINED(req->snmp_oids[req->oid_index].result);
+	}
+
+	req->complete = 1;
+
+	return 1;
+}
+
+/*! \fn void snmp_get_multi_async(host_t *current_host, target_t *poller_items,
+ *       snmp_oids_t *snmp_oids, int num_oids)
+ *  \brief performs multiple OID snmp_get's using the net-snmp async API
+ *
+ *  Sends up to max_outstanding requests at a time using snmp_sess_async_send,
+ *  then runs a select() event loop to collect responses.  Falls back to the
+ *  synchronous snmp_get_multi() on send failure.
+ *
+ *  Thread-safe: each worker thread has its own session and fd_set.
+ *
+ */
+void snmp_get_multi_async(host_t *current_host, target_t *poller_items,
+	snmp_oids_t *snmp_oids, int num_oids) {
+
+	int i;
+	int sent;
+	int completed;
+	int pending;
+	int max_outstanding;
+	int send_cursor;
+	int status;
+	async_req_t *reqs;
+	struct snmp_pdu *pdu;
+	oid anOID[MAX_OID_LEN];
+	size_t anOID_len;
+
+	int fds;
+	int block;
+	fd_set fdset;
+	struct timeval tv;
+	struct timeval tv_wait;
+
+#ifdef SPINE_ASYNC_TIMING
+	double t_select_total = 0;
+	double t_start;
+	double t_end;
+#endif
+
+	/* guard: fall back to sync if session is missing */
+	if (current_host->snmp_session == NULL) {
+		snmp_get_multi(current_host, poller_items, snmp_oids, num_oids);
+		return;
+	}
+
+	max_outstanding = set.snmp_async_max_outstanding;
+	if (max_outstanding < 1) {
+		max_outstanding = 10;
+	}
+
+	reqs = (async_req_t *) calloc(num_oids, sizeof(async_req_t));
+	if (reqs == NULL) {
+		die("ERROR: Fatal malloc error: snmp.c async reqs!");
+	}
+
+	/* initialize request contexts */
+	for (i = 0; i < num_oids; i++) {
+		reqs[i].oid_index  = i;
+		reqs[i].snmp_oids  = snmp_oids;
+		reqs[i].complete   = 0;
+	}
+
+	sent        = 0;
+	completed   = 0;
+	send_cursor = 0;
+
+	/* main dispatch loop: send up to max_outstanding, then select() */
+	while (completed < num_oids) {
+		/* fan out requests up to the concurrency cap */
+		pending = sent - completed;
+		while (send_cursor < num_oids && pending < max_outstanding) {
+			/* skip OIDs already marked bad by parse failure */
+			if (IS_UNDEFINED(snmp_oids[send_cursor].result)) {
+				reqs[send_cursor].complete = 1;
+				completed++;
+				send_cursor++;
+				continue;
+			}
+
+			anOID_len = MAX_OID_LEN;
+			if (!snmp_parse_oid(snmp_oids[send_cursor].oid, anOID, &anOID_len)) {
+				SPINE_LOG(("Device[%i] DS[%i] ERROR: Async: bad OID '%s'",
+					current_host->id,
+					poller_items[snmp_oids[send_cursor].array_position].local_data_id,
+					snmp_oids[send_cursor].oid));
+				SET_UNDEFINED(snmp_oids[send_cursor].result);
+				reqs[send_cursor].complete = 1;
+				completed++;
+				send_cursor++;
+				continue;
+			}
+
+			pdu = snmp_pdu_create(SNMP_MSG_GET);
+			if (pdu == NULL) {
+				SPINE_LOG(("Device[%i] ERROR: Async: snmp_pdu_create failed", current_host->id));
+				SET_UNDEFINED(snmp_oids[send_cursor].result);
+				reqs[send_cursor].complete = 1;
+				completed++;
+				send_cursor++;
+				continue;
+			}
+
+			snmp_add_null_var(pdu, anOID, anOID_len);
+
+			status = snmp_sess_async_send(current_host->snmp_session,
+				pdu, spine_async_cb, &reqs[send_cursor]);
+
+			if (status == 0) {
+				/* send failed; the library frees the PDU on failure */
+				SPINE_LOG_HIGH(("Device[%i] WARNING: Async send failed for oid '%s', falling back",
+					current_host->id, snmp_oids[send_cursor].oid));
+				SET_UNDEFINED(snmp_oids[send_cursor].result);
+				reqs[send_cursor].complete = 1;
+				completed++;
+				send_cursor++;
+				continue;
+			}
+
+			sent++;
+			pending++;
+			send_cursor++;
+		}
+
+		/* all sent and completed? */
+		if (completed >= num_oids) {
+			break;
+		}
+
+		/* run the select loop to process pending responses */
+		fds   = 0;
+		block = 1;
+		FD_ZERO(&fdset);
+		tv.tv_sec  = 0;
+		tv.tv_usec = 0;
+
+		snmp_sess_select_info(current_host->snmp_session,
+			&fds, &fdset, &tv, &block);
+
+		if (block) {
+			/* no timeout from the library; use a short poll */
+			tv_wait.tv_sec  = 1;
+			tv_wait.tv_usec = 0;
+		} else {
+			tv_wait = tv;
+		}
+
+#ifdef SPINE_ASYNC_TIMING
+		t_start = get_time_as_double();
+#endif
+
+		i = select(fds, &fdset, NULL, NULL, &tv_wait);
+
+#ifdef SPINE_ASYNC_TIMING
+		t_end = get_time_as_double();
+		t_select_total += (t_end - t_start);
+#endif
+
+		if (i > 0) {
+			snmp_sess_read(current_host->snmp_session, &fdset);
+		} else if (i == 0) {
+			snmp_sess_timeout(current_host->snmp_session);
+		} else {
+			/* select error (EINTR, etc.); handle timeouts */
+			if (errno == EINTR) {
+				continue;
+			}
+			snmp_sess_timeout(current_host->snmp_session);
+		}
+
+		/* recount completions */
+		completed = 0;
+		for (i = 0; i < num_oids; i++) {
+			if (reqs[i].complete) {
+				completed++;
+			}
+		}
+	}
+
+	/* mark host as timed out if all results came back undefined */
+	{
+		int all_undef = 1;
+		for (i = 0; i < num_oids; i++) {
+			if (!IS_UNDEFINED(snmp_oids[i].result)) {
+				all_undef = 0;
+				break;
+			}
+		}
+		if (all_undef && num_oids > 0) {
+			current_host->ignore_host = 1;
+			current_host->snmp_status = STAT_TIMEOUT;
+		} else {
+			current_host->snmp_status = STAT_SUCCESS;
+		}
+	}
+
+#ifdef SPINE_ASYNC_TIMING
+	SPINE_LOG_HIGH(("Device[%i] ASYNC_TIMING: %d OIDs, select() total %.3f ms",
+		current_host->id, num_oids, t_select_total * 1000.0));
+#endif
+
+	free(reqs);
+}

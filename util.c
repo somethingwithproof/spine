@@ -748,6 +748,15 @@ void read_config_options() {
 	/* log the snmp_max_get_size variable */
 	SPINE_LOG_DEBUG(("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp_max_get_size));
 
+	/* async SNMP defaults (may be overridden by spine.conf SNMP_Async) */
+	if (set.snmp_async_max_outstanding < 1) {
+		set.snmp_async_max_outstanding = 10;
+	}
+
+	SPINE_LOG_DEBUG(("DEBUG: SNMP Async Polling is %s (max outstanding: %i)",
+		set.snmp_async ? "enabled" : "disabled",
+		set.snmp_async_max_outstanding));
+
 	strcat(spine_capabilities, "{ authProtocols: \"");
 	#ifndef NETSNMP_DISABLE_MD5
 	strcat(spine_capabilities, "MD5");
@@ -1107,6 +1116,8 @@ int read_spine_config(char *file) {
 					set.logfile_processed = 1;
 					set.log_destination = LOGDEST_BOTH;
 				} else if (STRIMATCH(p1, "SNMP_Clientaddr"))  STRNCOPY(set.snmp_clientaddr, p2);
+				else if (STRIMATCH(p1, "SNMP_Async"))       set.snmp_async = atoi(p2);
+				else if (STRIMATCH(p1, "SNMP_Async_MaxOutstanding")) set.snmp_async_max_outstanding = atoi(p2);
 				else if (!set.stderr_notty) {
 					fprintf(stderr,"WARNING: Unrecognized directive: %s=%s in %s\n", p1, p2, file);
 				}

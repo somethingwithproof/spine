@@ -407,6 +407,8 @@ typedef struct config_struct {
 	int    snmp_max_get_size;
 	int    snmp_retries;
 	char   snmp_clientaddr[BUFSIZE];
+	int    snmp_async;
+	int    snmp_async_max_outstanding;
 	int    mibs;
 	/* PHP Script Server Options */
 	int    php_required;
@@ -481,6 +483,19 @@ typedef struct snmp_oids {
 	char   oid[1024];
 	char   result[RESULTS_BUFFER];
 } snmp_oids_t;
+
+/*! Async SNMP Request Context
+ *
+ * Per-request context passed as the callback magic pointer during
+ * asynchronous SNMP polling.  Allocated as an array, one entry per
+ * outstanding OID request.
+ *
+ */
+typedef struct async_req {
+	int           oid_index;       /* index into the snmp_oids array */
+	snmp_oids_t  *snmp_oids;      /* back-pointer to the OID array  */
+	int           complete;        /* set to 1 by the callback       */
+} async_req_t;
 
 /*! Poller Structure
  *
