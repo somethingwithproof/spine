@@ -1648,10 +1648,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 		}
 
 		/* close the host snmp session, we will create again momentarily */
-		if (host->snmp_session != NULL) {
-			snmp_host_cleanup(host->snmp_session);
-			host->snmp_session = NULL;
-		}
+		SNMP_FREE(host->snmp_session);
 	}
 
 	/* calculate the number of poller items to poll this cycle */
@@ -1886,10 +1883,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 						memset(snmp_oids, 0, sizeof(snmp_oids_t)*host->max_oids);
 					}
 
-					if (host->snmp_session != NULL) {
-						snmp_host_cleanup(host->snmp_session);
-						host->snmp_session = NULL;
-					}
+					SNMP_FREE(host->snmp_session);
 
 					host->snmp_session = snmp_host_init(host->id, poller_items[i].hostname,
 						poller_items[i].snmp_version, poller_items[i].snmp_community,
@@ -2356,11 +2350,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 			}
 
 		/* cleanup memory and prepare for function exit */
-		if (host->snmp_session != NULL) {
-			snmp_host_cleanup(host->snmp_session);
-			host->snmp_session = NULL;
-		}
-
+		SNMP_FREE(host->snmp_session);
 		SPINE_FREE(query3);
 		if (set.boost_redirect && set.boost_enabled) {
 			SPINE_FREE(query12);
