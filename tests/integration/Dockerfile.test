@@ -1,0 +1,29 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    help2man \
+    libmariadb-dev \
+    libsnmp-dev \
+    libssl-dev \
+    zlib1g-dev \
+    libcmocka-dev \
+    default-mysql-client \
+    pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY . .
+
+RUN autoreconf -fi && ./configure
+RUN make -j1
+
+WORKDIR /build/tests/integration
+
+RUN make
+
+CMD ["./run_all.sh"]

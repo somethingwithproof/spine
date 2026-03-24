@@ -33,6 +33,25 @@ man_MANS = spine.1
 
 EXTRA_DIST = spine.1
 
+# Integration test target — requires cmocka and a MySQL test database
+.PHONY: integration-test
+
+integration-test:
+	$(MAKE) -C tests/integration
+	tests/integration/test_db_connectivity
+	tests/integration/test_sql_buffer_integration
+	tests/integration/test_config_parsing
+	tests/integration/test_connection_pool
+	tests/integration/test_poller_pipeline
+
+# Docker integration tests (builds spine + runs tests against MySQL in containers)
+.PHONY: docker-integration-test
+
+docker-integration-test:
+	docker compose -f tests/integration/docker-compose.yml build
+	docker compose -f tests/integration/docker-compose.yml run --rm spine-integration
+	docker compose -f tests/integration/docker-compose.yml down -v
+
 # Docker targets — require Dockerfile and Dockerfile.dev (from PR #401)
 .PHONY: docker docker-dev verify cppcheck
 
