@@ -51,6 +51,11 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	int    error_count = 0;
 	char   query_frag[LRG_BUFSIZE];
 
+	if (mysql == NULL || query == NULL) {
+		SPINE_LOG(("ERROR: db_insert called with NULL parameter"));
+		return FALSE;
+	}
+
 	/* save a fragment just in case */
 	memset(query_frag, 0, LRG_BUFSIZE);
 	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
@@ -147,6 +152,11 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 	int    error_count = 0;
 
 	char   query_frag[LRG_BUFSIZE];
+
+	if (mysql == NULL || query == NULL) {
+		SPINE_LOG(("ERROR: db_query called with NULL parameter"));
+		return NULL;
+	}
 
 	/* save a fragment just in case */
 	memset(query_frag, 0, LRG_BUFSIZE);
@@ -579,7 +589,8 @@ int append_hostrange(char *obuf, const char *colname) {
  *
  */
 void db_escape(MYSQL *mysql, char *output, int max_size, const char *input) {
-	if (input == NULL) return;
+	if (output == NULL) return;
+	if (input == NULL) { output[0] = '\0'; return; }
 
 	char input_trimmed[DBL_BUFSIZE];
 	int  max_escaped_input_size = (strlen(input) * 2) + 1;
