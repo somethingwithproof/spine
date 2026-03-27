@@ -171,9 +171,6 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	session.contextName    = 0;
 	session.contextNameLen = 0;
 
-	session.contextEngineID    = 0;
-	session.contextEngineIDLen = 0;
-
 	/* verify snmp version is accurate */
 	if (snmp_version == 2) {
 		session.version       = SNMP_VERSION_2c;
@@ -263,6 +260,9 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 
 			free(Apsz);
 			Apsz = strdup(snmp_password);
+			if (Apsz == NULL) {
+				SPINE_LOG(("WARNING: Failed to allocate memory for SNMP auth password"));
+			}
 
 			if (zero_sensitive) {
 	            memset(snmp_password, 0x0, strlen(snmp_password));
@@ -275,6 +275,9 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 
 			free(Xpsz);
 			Xpsz = strdup(snmp_priv_passphrase);
+			if (Xpsz == NULL) {
+				SPINE_LOG(("WARNING: Failed to allocate memory for SNMP priv passphrase"));
+			}
 
 			if (zero_sensitive) {
 				memset(snmp_priv_passphrase, 0x0, strlen(snmp_priv_passphrase));
@@ -783,6 +786,10 @@ void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *s
 
 	/* load up oids */
 	namep = name = (struct nameStruct *) calloc(num_oids, sizeof(*name));
+	if (name == NULL) {
+		SPINE_LOG(("ERROR: Failed to allocate memory for SNMP OID names"));
+		return;
+	}
 	pdu = snmp_pdu_create(SNMP_MSG_GET);
 	for (i = 0; i < num_oids; i++) {
 		namep->name_len = MAX_OID_LEN;

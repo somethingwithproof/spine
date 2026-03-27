@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Cacti Spine is a C-based multi-threaded network polling engine. This review identified **~90 findings** across the codebase, including **17 Critical**, **18 High**, **20 Medium**, and **~35 Low** severity issues. The most concerning patterns are:
+Cacti Spine is a C-based multi-threaded network polling engine. This review identified **~85 findings** across the codebase, including **16 Critical**, **15 High**, **19 Medium**, and **~35 Low** severity issues. The most concerning patterns are:
 
 1. **Pervasive buffer overflow risks** from `sprintf()`, `vsprintf()`, `strcat()` without bounds checking
 2. **SQL injection vectors** through unescaped parameters in dynamically constructed queries
@@ -128,22 +128,7 @@ switch (set.log_datetime_format) {
 
 ---
 
-### C08. Buffer Overflow in `php_readpipe()` - Wrong Size Constant
-**File:** `php.c:256-275`
-
-Buffer allocated with `RESULTS_BUFFER` but boundary check uses `BUFSIZE`:
-
-```c
-result_string = malloc(RESULTS_BUFFER);    // Allocated size
-// ...
-if (bptr >= result_string + BUFSIZE) {     // Wrong constant!
-```
-
-**Fix:** Change to `result_string + RESULTS_BUFFER`.
-
----
-
-### C09. Race Condition - NULL Return from `get_lock()`
+### C08. Race Condition - NULL Return from `get_lock()`
 **File:** `locks.c:100-160, 230-242`
 
 `get_lock()` returns NULL for invalid lock IDs, callers don't check:

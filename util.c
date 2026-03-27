@@ -60,6 +60,7 @@ static struct {
  *
  */
 void set_option(const char *option, const char *value) {
+	if (nopts >= 256) return;
 	opttable[nopts  ].opt = option;
 	opttable[nopts++].val = value;
 }
@@ -96,7 +97,9 @@ static const char *getsetting(MYSQL *psql, int mode, const char *setting) {
 		}
 	}
 
-	sprintf(qstring, "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
+	char escaped_setting[BUFSIZE];
+	db_escape(psql, escaped_setting, BUFSIZE, setting);
+	snprintf(qstring, BUFSIZE, "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", escaped_setting);
 
 	result = db_query(psql, mode, qstring);
 
@@ -137,14 +140,19 @@ int putsetting(MYSQL *psql, int mode, const char *mysetting, const char *myvalue
 	assert(mysetting != 0);
 	assert(myvalue   != 0);
 
+	char escaped_setting[BUFSIZE];
+	char escaped_value[BUFSIZE];
+	db_escape(psql, escaped_setting, BUFSIZE, mysetting);
+	db_escape(psql, escaped_value, BUFSIZE, myvalue);
+
 	if (set.dbonupdate == 0) {
-		sprintf(qstring, "INSERT INTO settings (name, value) "
+		snprintf(qstring, BUFSIZE, "INSERT INTO settings (name, value) "
 			"VALUES ('%s', '%s') "
-			"ON DUPLICATE KEY UPDATE value = VALUES(value)", mysetting, myvalue);
+			"ON DUPLICATE KEY UPDATE value = VALUES(value)", escaped_setting, escaped_value);
 	} else {
-		sprintf(qstring, "INSERT INTO settings (name, value) "
+		snprintf(qstring, BUFSIZE, "INSERT INTO settings (name, value) "
 			"VALUES ('%s', '%s') AS rs "
-			"ON DUPLICATE KEY UPDATE value = rs.value", mysetting, myvalue);
+			"ON DUPLICATE KEY UPDATE value = rs.value", escaped_setting, escaped_value);
 	}
 
 	result = db_insert(psql, mode, qstring);
@@ -188,7 +196,7 @@ static const char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 		}
 	}
 
-	sprintf(qstring, "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller_id);
+	snprintf(qstring, BUFSIZE, "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller_id);
 
 	result = db_query(psql, mode, qstring);
 
@@ -282,7 +290,9 @@ static const char *getglobalvariable(MYSQL *psql, int mode, const char *setting)
 		}
 	}
 
-	sprintf(qstring, "SHOW GLOBAL VARIABLES LIKE '%s'", setting);
+	char escaped_setting[BUFSIZE];
+	db_escape(psql, escaped_setting, BUFSIZE, setting);
+	snprintf(qstring, BUFSIZE, "SHOW GLOBAL VARIABLES LIKE '%s'", escaped_setting);
 
 	result = db_query(psql, mode, qstring);
 
@@ -1168,13 +1178,13 @@ void die(const char *format, ...) {
 	int old_errno = errno;
 
 	va_start(args, format);
-	vsprintf(logmessage, format, args);
+	vsnprintf(logmessage, BUFSIZE, format, args);
 	va_end(args);
 
 	if (set.log_perror) {
 		char perr[BUFSIZE];
 		snprintf(perr, BUFSIZE, " [%d, %s]", old_errno, strerror(old_errno));
-		strcat(logmessage,perr);
+		strncat(logmessage, perr, BUFSIZE - strlen(logmessage) - 1);
 	}
 
 	if (set.logfile_processed) {
@@ -1228,16 +1238,22 @@ char * get_date_format() {
 	switch (set.log_datetime_format) {
 		case GD_MO_D_Y:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%m%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		case GD_MN_D_Y:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%b%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		case GD_D_MO_Y:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%m%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		case GD_D_MN_Y:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%b%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		case GD_Y_MO_D:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		case GD_Y_MN_D:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%b%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
+			break;
 		default:
 			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
 	}
@@ -1367,7 +1383,7 @@ int spine_log(const char *format, ...) {
 
 	/* append a line feed to the log message if needed */
 	if (!strstr(flogmessage, "\n")) {
-		strcat(flogmessage, "\n");
+		strncat(flogmessage, "\n", LOGSIZE - strlen(flogmessage) - 1);
 	}
 
 	if ((IS_LOGGING_TO_FILE() &&
@@ -1653,10 +1669,12 @@ char *add_slashes(char *string) {
 	while (position < length) {
 		/* backslash detected, change to forward slash */
 		if (string[position] == '\\') {
+			if (new_position + 1 >= BUFSIZE - 1) break;
 			return_str[new_position] = '\\';
 			new_position++;
 			return_str[new_position] = '\\';
 		} else {
+			if (new_position >= BUFSIZE - 1) break;
 			return_str[new_position] = string[position];
 		}
 		new_position++;

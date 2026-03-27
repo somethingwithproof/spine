@@ -185,6 +185,9 @@ pthread_mutex_t* get_lock(int lock) {
 		case LOCK_PHP_PROC_14: ret_val = &php_proc_14_lock; break;
 		case LOCK_THDET:       ret_val = &thdet_lock;       break;
 		case LOCK_HOST_TIME:   ret_val = &host_time_lock;   break;
+		default:
+			SPINE_LOG(("ERROR: Invalid mutex id %d requested", lock));
+			break;
 	}
 
 	SPINE_LOG_DEVDBG(("LOCKS: [RET]   Returning lock for %s", get_name(lock)));
@@ -226,20 +229,35 @@ pthread_once_t* get_attr(int locko) {
 }
 
 void thread_mutex_lock(int mutex) {
+	pthread_mutex_t *lock = get_lock(mutex);
+	if (lock == NULL) {
+		SPINE_LOG(("ERROR: Attempted to lock invalid mutex %d", mutex));
+		return;
+	}
 	SPINE_LOG_DEVDBG(("LOCKS: [START] Mutex lock for %s", get_name(mutex)));
-	pthread_mutex_lock(get_lock(mutex));
+	pthread_mutex_lock(lock);
 	SPINE_LOG_DEVDBG(("LOCKS: [END]   Mutex lock for %s", get_name(mutex)));
 }
 
 void thread_mutex_unlock(int mutex) {
+	pthread_mutex_t *lock = get_lock(mutex);
+	if (lock == NULL) {
+		SPINE_LOG(("ERROR: Attempted to unlock invalid mutex %d", mutex));
+		return;
+	}
 	SPINE_LOG_DEVDBG(("LOCKS: [START] Mutex unlock for %s", get_name(mutex)));
-	pthread_mutex_unlock(get_lock(mutex));
+	pthread_mutex_unlock(lock);
 	SPINE_LOG_DEVDBG(("LOCKS: [END]   Mutex unlock for %s", get_name(mutex)));
 }
 
 int thread_mutex_trylock(int mutex) {
+	pthread_mutex_t *lock = get_lock(mutex);
+	if (lock == NULL) {
+		SPINE_LOG(("ERROR: Attempted to trylock invalid mutex %d", mutex));
+		return -1;
+	}
 	SPINE_LOG_DEVDBG(("LOCKS: [START] Mutex try lock for %s", get_name(mutex)));
-	int ret_val = pthread_mutex_trylock(get_lock(mutex));
+	int ret_val = pthread_mutex_trylock(lock);
 	SPINE_LOG_DEVDBG(("LOCKS: [END]   Mutex try lock for %s, result = %d", get_name(mutex), ret_val));
 	return ret_val;
 }

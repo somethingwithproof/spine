@@ -202,6 +202,7 @@ int nft_popen(const char * command, const char * type) {
 
 		(void)close(pdes[0]);
 		(void)close(pdes[1]);
+		free(cur);
 		pthread_mutex_unlock(&ListMutex);
 		pthread_setcancelstate(cancel_state, NULL);
 

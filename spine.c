@@ -385,6 +385,18 @@ int main(int argc, char *argv[]) {
 
 		else if (STRIMATCH(arg, "-H") || STRIMATCH(arg, "--hostlist")) {
 			snprintf(set.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, &argv));
+
+			/* Validate host_id_list contains only digits and commas */
+			{
+				const char *p = set.host_id_list;
+				while (*p) {
+					if (!isdigit((unsigned char)*p) && *p != ',' && *p != ' ') {
+						printf("FATAL: Invalid character in host list\n");
+						exit(1);
+					}
+					p++;
+				}
+			}
 		}
 
 		else if (STRIMATCH(arg, "-M") || STRMATCH(arg, "--mibs")) {
@@ -521,15 +533,19 @@ int main(int argc, char *argv[]) {
 	if (strlen(set.selective_device_debug)) {
 		SPINE_LOG_DEBUG(("DEBUG: Selective Debug Devices %s", set.selective_device_debug));
 		int i = 0;
-		char *token = strtok(set.selective_device_debug, ",");
-		while(token) {
-			debug_devices[i]   = atoi(token);
-			debug_devices[i+1] = '\0';
-			token = strtok(NULL, ",");
-			i++;
+		char *debug_copy = strdup(set.selective_device_debug);
+		if (debug_copy != NULL) {
+			char *token = strtok(debug_copy, ",");
+			while(token && i < 99) {
+				debug_devices[i] = atoi(token);
+				token = strtok(NULL, ",");
+				i++;
+			}
+			debug_devices[i] = -1;
+			free(debug_copy);
 		}
 	} else {
-		debug_devices[0] = '\0';
+		debug_devices[0] = -1;
 	}
 
 	/* initialize mysql objects for threads */
@@ -540,6 +556,9 @@ int main(int argc, char *argv[]) {
 
 	/* setup local connection pool for hosts */
 	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
+	if (db_pool_local == NULL) {
+		die("FATAL: Failed to allocate local connection pool");
+	}
 	db_create_connection_pool(LOCAL);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
@@ -548,6 +567,9 @@ int main(int argc, char *argv[]) {
 
 		/* setup remote connection pool for hosts */
 		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
+		if (db_pool_remote == NULL) {
+			die("FATAL: Failed to allocate remote connection pool");
+		}
 		db_create_connection_pool(REMOTE);
 	} else {
 		mode = LOCAL;
@@ -734,6 +756,10 @@ int main(int argc, char *argv[]) {
 	while (canexit == FALSE && device_counter < num_rows) {
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
+			if (mysql_row == NULL) {
+				SPINE_LOG(("FATAL: Failed to fetch row from device result"));
+				break;
+			}
 			host_id         = atoi(mysql_row[0]);
 			device_threads  = atoi(mysql_row[1]);
 			current_thread  = 1;
@@ -756,8 +782,15 @@ int main(int argc, char *argv[]) {
 			tresult   = db_query(&mysql, LOCAL, querybuf);
 			mysql_row = mysql_fetch_row(tresult);
 
-			total_items = atoi(mysql_row[0]);
-			db_free_result(tresult);
+			if (mysql_row == NULL) {
+				SPINE_LOG(("FATAL: Failed to fetch row for total_items count"));
+				db_free_result(tresult);
+				device_threads = 1;
+				total_items = 0;
+			} else {
+				total_items = atoi(mysql_row[0]);
+				db_free_result(tresult);
+			}
 
 			if (total_items && total_items < device_threads) {
 				device_threads = total_items;

@@ -404,6 +404,10 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				/* send packet to destination */
 				return_code = sendto(icmp_socket, packet, packet_len, 0, (struct sockaddr *) &fromname, sizeof(fromname));
 
+				if (return_code == -1) {
+					SPINE_LOG(("WARNING: ICMP sendto failed for host"));
+				}
+
 				fromlen = sizeof(fromname);
 
 				/* wait for a response on the socket */
@@ -435,7 +439,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 							goto keep_listening;
 						}
-					} else {
+					} else if (return_code >= (int)sizeof(struct ip)) {
 						ip  = (struct ip *) socket_reply;
 						pkt = (struct icmp *) (socket_reply + (ip->ip_hl << 2));
 
@@ -642,7 +646,9 @@ int ping_udp(host_t *host, ping_t *ping) {
 				}
 
 				/* send packet to destination */
-				send(udp_socket, request, request_len, 0);
+				if (send(udp_socket, request, request_len, 0) == -1) {
+					SPINE_LOG(("WARNING: UDP send failed for host"));
+				}
 
 				/* wait for a response on the socket */
 				wait_more:
@@ -993,7 +999,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 	}
 
 	memset(stack, '\0', strlen(hostname)+1);
-	strncopy(stack, hostname, strlen(stack));
+	strncopy(stack, hostname, strlen(hostname)+1);
 	token = strtok(stack, ":");
 
 	if (token == NULL) {
@@ -1013,7 +1019,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 				if (strncasecmp(token, "TCP", 3)) {
 					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv4 method", hostname));
 					name->method = 1;
-				} else if (strncasecmp(hostname, "UDP", 3)) {
+				} else if (strncasecmp(token, "UDP", 3)) {
 					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv4 method", hostname));
 					name->method = 2;
 				} else {
@@ -1025,7 +1031,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 				if (strncasecmp(token, "TCP6", 3)) {
 					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
 					name->method = 3;
-				} else if (strncasecmp(hostname, "UDP6", 3)) {
+				} else if (strncasecmp(token, "UDP6", 3)) {
 					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv6 method", hostname));
 					name->method = 4;
 				} else {
