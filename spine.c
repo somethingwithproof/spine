@@ -813,7 +813,12 @@ int main(int argc, char *argv[]) {
 				tresult   = db_query(&mysql, LOCAL, querybuf);
 				mysql_row = mysql_fetch_row(tresult);
 
-				items_per_thread = atoi(mysql_row[0]);
+				if (mysql_row == NULL) {
+					SPINE_LOG(("FATAL: Failed to fetch row for items_per_thread count"));
+					items_per_thread = 0;
+				} else {
+					items_per_thread = atoi(mysql_row[0]);
+				}
 
 				db_free_result(tresult);
 
@@ -828,7 +833,12 @@ int main(int argc, char *argv[]) {
 			tresult   = db_query(&mysql, LOCAL, querybuf);
 			mysql_row = mysql_fetch_row(tresult);
 
-			items_per_thread = atoi(mysql_row[0]);
+			if (mysql_row == NULL) {
+				SPINE_LOG(("FATAL: Failed to fetch row for items_per_thread count"));
+				items_per_thread = 0;
+			} else {
+				items_per_thread = atoi(mysql_row[0]);
+			}
 
 			db_free_result(tresult);
 

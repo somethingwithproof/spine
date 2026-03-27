@@ -394,6 +394,7 @@ int php_init(int php_process) {
 					} else {
 						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Resources", i));
 					}
+					break;
 				case ENOMEM:
 					if (retry_count < 3) {
 						retry_count++;
@@ -405,6 +406,7 @@ int php_init(int php_process) {
 					} else {
 						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Memory", i));
 					}
+					break;
 				default:
 					SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Unknown Reason", i));
 				}

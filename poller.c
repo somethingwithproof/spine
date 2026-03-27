@@ -218,8 +218,17 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	snmp_oids_t *snmp_oids = NULL;
 
 	error_string = malloc(DBL_BUFSIZE);
-	buf_size     = malloc(sizeof(int));
-	buf_errors   = malloc(sizeof(int));
+	if (error_string == NULL) {
+		die("ERROR: Fatal malloc error: poller.c error_string");
+	}
+	buf_size = malloc(sizeof(int));
+	if (buf_size == NULL) {
+		die("ERROR: Fatal malloc error: poller.c buf_size");
+	}
+	buf_errors = malloc(sizeof(int));
+	if (buf_errors == NULL) {
+		die("ERROR: Fatal malloc error: poller.c buf_errors");
+	}
 
 	*buf_size     = 0;
 	*buf_errors   = 0;
@@ -972,6 +981,10 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 									// Use the primed uptime to repopulate the poll_result
 									// This ensures whichever response was valid gets used
+									SPINE_FREE(poll_result);
+									if (!(poll_result = (char *) malloc(BUFSIZE))) {
+										die("ERROR: Fatal malloc error: poller.c poll_result");
+									}
 									snprintf(poll_result, BUFSIZE, "%s", sysUptime);
 
 									if (is_debug_device(host->id)) {
@@ -1807,11 +1820,15 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 		i = 0;
 		while (i < rows_processed) {
-			snprintf(result_string, RESULTS_BUFFER+SMALL_BUFSIZE, " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
-				poller_items[i].local_data_id,
-				poller_items[i].rrd_name,
-				host_time,
-				poller_items[i].result);
+			{
+				char escaped_result[RESULTS_BUFFER*2+1];
+				db_escape(&mysqlt, escaped_result, sizeof(escaped_result), poller_items[i].result);
+				snprintf(result_string, RESULTS_BUFFER+SMALL_BUFSIZE, " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+					poller_items[i].local_data_id,
+					poller_items[i].rrd_name,
+					host_time,
+					escaped_result);
+			}
 
 			result_length = strlen(result_string);
 
@@ -2007,7 +2024,7 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
 			*buf_size = snprintf(error_string, DBL_BUFSIZE, "%i", local_data_id);
 		} else {
 			(*buf_errors)++;
-			snprintf(error_string + *buf_size, DBL_BUFSIZE, "%s", tbuffer);
+			snprintf(error_string + *buf_size, DBL_BUFSIZE - *buf_size, "%s", tbuffer);
 			*buf_size += error_len;
 		}
 	}
@@ -2103,6 +2120,10 @@ void get_system_information(host_t *host, MYSQL *mysql, int system)  {
 
 			if (poll_result && is_numeric(poll_result)) {
 				host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
+				SPINE_FREE(poll_result);
+				if (!(poll_result = (char *) malloc(BUFSIZE))) {
+					die("ERROR: Fatal malloc error: poller.c poll_result");
+				}
 				snprintf(poll_result, BUFSIZE, "%llu", host->snmp_sysUpTimeInstance);
 			}
 
@@ -2158,6 +2179,10 @@ void get_system_information(host_t *host, MYSQL *mysql, int system)  {
 
 			if (poll_result && is_numeric(poll_result)) {
 				host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
+				SPINE_FREE(poll_result);
+				if (!(poll_result = (char *) malloc(BUFSIZE))) {
+					die("ERROR: Fatal malloc error: poller.c poll_result");
+				}
 				snprintf(poll_result, BUFSIZE, "%llu", host->snmp_sysUpTimeInstance);
 			}
 
