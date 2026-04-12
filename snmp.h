@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,19 +25,21 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
 */
 
+#define SNMP_SESSION_FREE(s) { if (s != NULL) { snmp_host_cleanup(s); s = NULL; } }
+
 extern void snmp_spine_init(void);
 extern void snmp_spine_close(void);
 extern void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community, char *snmp_username, char *snmp_password, char *snmp_auth_protocol, char *snmp_priv_passphrase, char *snmp_priv_protocol, char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout);
 extern void snmp_host_cleanup(void *snmp_session);
-extern char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fail);
-extern char *snmp_get(host_t *current_host, char *snmp_oid);
-extern char *snmp_getnext(host_t *current_host, char *snmp_oid);
-extern int snmp_count(host_t *current_host, char *snmp_oid);
+extern char *snmp_get_base(host_t *current_host, const char *snmp_oid, bool should_fail);
+extern char *snmp_get(host_t *current_host, const char *snmp_oid);
+extern char *snmp_getnext(host_t *current_host, const char *snmp_oid);
+extern int snmp_count(host_t *current_host, const char *snmp_oid);
 extern void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids);
 extern void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, struct variable_list *variable);

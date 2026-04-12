@@ -1,6 +1,6 @@
 /*
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU General Public License             |
@@ -86,6 +86,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include <spawn.h>
 
 /* An instance of this struct is created for each popen() fd. */
 static struct pid
@@ -122,12 +123,19 @@ static void	close_cleanup(void *);
  *
  *------------------------------------------------------------------------------
  */
+/* WARNING: command is passed to /bin/sh -c without shell escaping.
+ * The caller MUST ensure command originates from a trusted source
+ * (the Cacti database). Do not pass user-controlled input directly. */
 int nft_popen(const char * command, const char * type) {
 	struct pid *cur;
 	struct pid *p;
 	int    pdes[2];
-	int    fd, pid, twoway;
+	int    fd, twoway;
+	pid_t  pid;
 	char   *argv[4];
+	char   *command_copy;
+	char   shell_cmd[] = "sh";
+	char   shell_flag[] = "-c";
 	int    cancel_state;
 	extern char **environ;
 	int    retry_count = 0;
@@ -159,9 +167,17 @@ int nft_popen(const char * command, const char * type) {
 		return -1;
 	}
 
-	argv[0] = "sh";
-	argv[1] = "-c";
-	argv[2] = (char *)command;
+	if ((command_copy = strdup(command)) == NULL) {
+		(void)close(pdes[0]);
+		(void)close(pdes[1]);
+		free(cur);
+		pthread_setcancelstate(cancel_state, NULL);
+		return -1;
+	}
+
+	argv[0] = shell_cmd;
+	argv[1] = shell_flag;
+	argv[2] = command_copy;
 	argv[3] = NULL;
 
 	/* Lock the list mutex prior to forking, to ensure that
@@ -169,88 +185,69 @@ int nft_popen(const char * command, const char * type) {
 	 */
 	pthread_mutex_lock(&ListMutex);
 
-	/* Fork. */
-	retry:
-	switch (pid = vfork()) {
-	case -1:		/* Error. */
-		switch (errno) {
-		case EAGAIN:
-			if (retry_count < 3) {
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				usleep(50000);
-				#endif
-				goto retry;
-			}else{
-				SPINE_LOG(("ERROR: SCRIPT: Cound not fork. Out of Resources nft_popen.c"));
-			}
-		case ENOMEM:
-			if (retry_count < 3) {
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				usleep(50000);
-				#endif
-				goto retry;
-			}else{
-				SPINE_LOG(("ERROR: SCRIPT Cound not fork. Out of Memory nft_popen.c"));
-			}
-		default:
-			SPINE_LOG(("ERROR: SCRIPT Cound not fork. Unknown Reason nft_popen.c"));
-		}
-
+	/* Build file actions for posix_spawn to replace vfork+execve. */
+	posix_spawn_file_actions_t fa;
+	if (posix_spawn_file_actions_init(&fa) != 0) {
+		SPINE_LOG(("ERROR: SCRIPT: posix_spawn_file_actions_init failed"));
 		(void)close(pdes[0]);
 		(void)close(pdes[1]);
 		pthread_mutex_unlock(&ListMutex);
+		free(command_copy);
 		pthread_setcancelstate(cancel_state, NULL);
-
 		return -1;
-		/* NOTREACHED */
-	case 0:			/* Child. */
-		if (*type == 'r') {
-			/* The dup2() to STDIN_FILENO is repeated to avoid
-			 * writing to pdes[1], which might corrupt the
-			 * parent's copy.  This isn't good enough in
-			 * general, since the _exit() is no return, so
-			 * the compiler is free to corrupt all the local
-			 * variables.
-			 */
-			(void)close(pdes[0]);
-			if (pdes[1] != STDOUT_FILENO) {
-				(void)dup2(pdes[1], STDOUT_FILENO);
-				(void)close(pdes[1]);
-				if (twoway)
-					(void)dup2(STDOUT_FILENO, STDIN_FILENO);
-			}else if (twoway && (pdes[1] != STDIN_FILENO))
-				(void)dup2(pdes[1], STDIN_FILENO);
-		}else {
-			if (pdes[0] != STDIN_FILENO) {
-				(void)dup2(pdes[0], STDIN_FILENO);
-				(void)close(pdes[0]);
-			}
-			(void)close(pdes[1]);
-		}
-
-		/* Close all the other pipes in the child process.
-		 * Posix.2 requires this, tho I don't know why.
-		 */
-		for (p = PidList; p; p = p->next)
-			(void)close(p->fd);
-
-		/* Execute the command. */
-		#if defined(__CYGWIN__)
-		if (set.cygwinshloc == 0) {
-			execve("sh.exe", argv, environ);
-		}else{
-			execve("/bin/sh", argv, environ);
-		}
-		#else
-		execve("/bin/sh", argv, environ);
-		#endif
-		_exit(127);
-		/* NOTREACHED */
 	}
+
+	if (*type == 'r') {
+		posix_spawn_file_actions_addclose(&fa, pdes[0]);
+		if (pdes[1] != STDOUT_FILENO) {
+			posix_spawn_file_actions_adddup2(&fa, pdes[1], STDOUT_FILENO);
+			posix_spawn_file_actions_addclose(&fa, pdes[1]);
+			if (twoway)
+				posix_spawn_file_actions_adddup2(&fa, STDOUT_FILENO, STDIN_FILENO);
+		} else if (twoway && (pdes[1] != STDIN_FILENO)) {
+			posix_spawn_file_actions_adddup2(&fa, pdes[1], STDIN_FILENO);
+		}
+	} else {
+		if (pdes[0] != STDIN_FILENO) {
+			posix_spawn_file_actions_adddup2(&fa, pdes[0], STDIN_FILENO);
+			posix_spawn_file_actions_addclose(&fa, pdes[0]);
+		}
+		posix_spawn_file_actions_addclose(&fa, pdes[1]);
+	}
+
+	/* Close all other pipes in the child (Posix.2 requirement). */
+	for (p = PidList; p; p = p->next)
+		posix_spawn_file_actions_addclose(&fa, p->fd);
+
+	/* Spawn the child process with retry on EAGAIN/ENOMEM. */
+	#if defined(__CYGWIN__)
+	const char *spawn_shell = (set.cygwinshloc == 0) ? "sh.exe" : "/bin/sh";
+	#else
+	const char *spawn_shell = "/bin/sh";
+	#endif
+
+	int spawn_err;
+	retry:
+	spawn_err = posix_spawn(&pid, spawn_shell, &fa, NULL, argv, environ);
+
+	if (spawn_err != 0) {
+		if ((spawn_err == EAGAIN || spawn_err == ENOMEM) && retry_count < 3) {
+			retry_count++;
+			usleep(50000);
+			goto retry;
+		}
+
+		SPINE_LOG(("ERROR: SCRIPT: posix_spawn failed: %s", strerror(spawn_err)));
+		posix_spawn_file_actions_destroy(&fa);
+		(void)close(pdes[0]);
+		(void)close(pdes[1]);
+		pthread_mutex_unlock(&ListMutex);
+		free(command_copy);
+		pthread_setcancelstate(cancel_state, NULL);
+		return -1;
+	}
+
+	posix_spawn_file_actions_destroy(&fa);
 
 	/* Parent. */
 	if (*type == 'r') {
@@ -269,6 +266,7 @@ int nft_popen(const char * command, const char * type) {
 
 	/* Unlock the mutex, and restore caller's cancellation state. */
 	pthread_mutex_unlock(&ListMutex);
+	free(command_copy);
 	pthread_setcancelstate(cancel_state, NULL);
 
 	return fd;
@@ -398,4 +396,3 @@ close_cleanup(void * arg)
 
 	free(cur);
 }
-

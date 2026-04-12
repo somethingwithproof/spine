@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -72,7 +72,7 @@ DEFINE_SPINE_LOCK(php_proc_14)
 DEFINE_SPINE_LOCK(thdet)
 DEFINE_SPINE_LOCK(host_time)
 
-void init_mutexes() {
+void init_mutexes(void) {
 	pthread_once((pthread_once_t*) get_attr(LOCK_SNMP_O),        init_snmp_lock);
 	pthread_once((pthread_once_t*) get_attr(LOCK_SETEUID_O),     init_seteuid_lock);
 	pthread_once((pthread_once_t*) get_attr(LOCK_GHBN_O),        init_ghbn_lock);
@@ -97,7 +97,7 @@ void init_mutexes() {
 	pthread_once((pthread_once_t*) get_attr(LOCK_HOST_TIME_O),   init_host_time_lock);
 }
 
-const char* get_name(int lock) {
+static const char *get_name(int lock) {
 	switch (lock) {
 		case LOCK_SNMP:        return "snmp";
 		case LOCK_SETEUID:     return "seteuid";
@@ -243,4 +243,3 @@ int thread_mutex_trylock(int mutex) {
 	SPINE_LOG_DEVDBG(("LOCKS: [END]   Mutex try lock for %s, result = %d", get_name(mutex), ret_val));
 	return ret_val;
 }
-

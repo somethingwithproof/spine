@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -115,7 +115,7 @@
  *
  * The conditional tests are modelled after the assert() mechanism, which
  * checks the first parameter, and if it's true, it evaluates the second
- * paramater. If the test is not true, then the second part is *guaranteed*
+ * parameter. If the test is not true, then the second part is *guaranteed*
  * not to be evaluated.
  *
  * The (void) prefix is to forestall compiler warnings about expressions
@@ -130,6 +130,7 @@
 
 /* general constants */
 #define MAX_THREADS 100
+#define MAX_DEBUG_DEVICES 100
 #define TINY_BUFSIZE 16
 #define SMALL_BUFSIZE 256
 #define MEDIUM_BUFSIZE 512
@@ -265,7 +266,7 @@
 #define GD_MAX 5
 #define GD_DEFAULT 5
 
-/* host availability statics */
+/* host availability statistics */
 #define AVAIL_NONE 0
 #define AVAIL_SNMP_AND_PING 1
 #define AVAIL_SNMP 2
@@ -273,6 +274,7 @@
 #define AVAIL_SNMP_OR_PING 4
 #define AVAIL_SNMP_GET_SYSDESC 5
 #define AVAIL_SNMP_GET_NEXT 6
+#define AVAIL_STREAM 7
 
 #define PING_ICMP 1
 #define PING_UDP 2
@@ -364,15 +366,16 @@ typedef struct config_struct {
 	int    end_host_id;
 	char   host_id_list[BIG_BUFSIZE];
 	int    has_device_0;
+	int    has_output_regex;
 	/* database connection information */
 	char   db_host[BUFSIZE];
 	char   db_db[BUFSIZE];
 	char   db_user[BUFSIZE];
 	char   db_pass[BUFSIZE];
 	int    db_ssl;
-	char   db_ssl_key[BIG_BUFSIZE];
-	char   db_ssl_cert[BIG_BUFSIZE];
-	char   db_ssl_ca[BIG_BUFSIZE];
+	char   db_ssl_key[BUFSIZE];
+	char   db_ssl_cert[BUFSIZE];
+	char   db_ssl_ca[BUFSIZE];
 	int    d_b;
 	unsigned int db_port;
 	char   dbversion[BUFSIZE];
@@ -424,9 +427,9 @@ typedef struct config_struct {
 	char   rdb_user[BUFSIZE];
 	char   rdb_pass[BUFSIZE];
 	int    rdb_ssl;
-	char   rdb_ssl_key[BIG_BUFSIZE];
-	char   rdb_ssl_cert[BIG_BUFSIZE];
-	char   rdb_ssl_ca[BIG_BUFSIZE];
+	char   rdb_ssl_key[BUFSIZE];
+	char   rdb_ssl_cert[BUFSIZE];
+	char   rdb_ssl_ca[BUFSIZE];
 	unsigned int rdb_port;
 	char   rdbversion[BUFSIZE];
 	int    rdbonupdate;
@@ -467,6 +470,7 @@ typedef struct target_struct {
 	char   arg1[1024];
 	char   arg2[255];
 	char   arg3[255];
+	char   output_regex[255];
 } target_t;
 
 /*! SNMP OID's Structure
@@ -495,7 +499,7 @@ typedef struct poller_thread {
 	int complete;
 	char host_time[40];
 	double host_time_double;
-	sem_t *thread_init_sem;
+	spine_sem_t *thread_init_sem;
 } poller_thread_t;
 
 /*! PHP Script Server Structure
@@ -601,7 +605,7 @@ typedef struct name_port {
 
 /*! MySQL Connection Pool Structure
  *
- * This structure holds the mysql connetion pool object.
+ * This structure holds the mysql connection pool object.
  */
 typedef struct db_connection {
 	int   id;
@@ -626,8 +630,8 @@ extern config_t set;
 extern php_t  *php_processes;
 extern char   start_datetime[20];
 extern char   config_paths[CONFIG_PATHS][BUFSIZE];
-extern sem_t  available_threads;
-extern sem_t  available_scripts;
+extern spine_sem_t  available_threads;
+extern spine_sem_t  available_scripts;
 extern pool_t *db_pool_remote;
 extern pool_t *db_pool_local;
 

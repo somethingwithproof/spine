@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -33,6 +33,9 @@
 
 #include "common.h"
 #include "spine.h"
+#include <spawn.h>
+
+extern char **environ;
 
 /*! \fn char *php_cmd(const char *php_command, int php_process)
  *  \brief calls the script server and executes a script command
@@ -300,9 +303,13 @@ int php_init(int php_process) {
 	int  cacti2php_pdes[2];
 	int  php2cacti_pdes[2];
 	pid_t  pid;
-	char poller_id[BUFSIZE];
-	char mode[BUFSIZE];
+	char poller_id[TINY_BUFSIZE];
 	char *argv[7];
+	char arg_q[] = "-q";
+	char arg_spine[] = "spine";
+	char arg_environ_spine[] = "--environ=spine";
+	char arg_mode_online[] = "--mode=online";
+	char arg_mode_offline[] = "--mode=offline";
 	int  cancel_state;
 	char *result_string = 0;
 	int num_processes;
@@ -338,75 +345,95 @@ int php_init(int php_process) {
 		/* establish arguments for script server execution */
 		if (set.cacti_version <= 1222) {
 			argv[0] = set.path_php;
-			argv[1] = "-q";
+			argv[1] = arg_q;
 			argv[2] = set.path_php_server;
-			argv[3] = "spine";
-			snprintf(poller_id, BUFSIZE, "%d", set.poller_id);
+			argv[3] = arg_spine;
+			snprintf(poller_id, TINY_BUFSIZE, "%d", set.poller_id);
 			argv[4] = poller_id;
 			argv[5] = NULL;
 		} else if (set.poller_id > 1) {
 			argv[0] = set.path_php;
-			argv[1] = "-q";
+			argv[1] = arg_q;
 			argv[2] = set.path_php_server;
-			argv[3] = "--environ=spine";
+			argv[3] = arg_environ_spine;
 
-			snprintf(poller_id, BUFSIZE, "--poller=%d", set.poller_id);
+			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
 			argv[4] = poller_id;
 
 			if (set.mode == REMOTE_ONLINE) {
-				snprintf(mode, BUFSIZE, "--mode=online");
+				argv[5] = arg_mode_online;
 			} else {
-				snprintf(mode, BUFSIZE, "--mode=offline");
+				argv[5] = arg_mode_offline;
 			}
-			argv[5] = mode;
 
 			argv[6] = NULL;
 		} else {
 			argv[0] = set.path_php;
-			argv[1] = "-q";
+			argv[1] = arg_q;
 			argv[2] = set.path_php_server;
-			argv[3] = "--environ=spine";
-			snprintf(poller_id, BUFSIZE, "--poller=%d", set.poller_id);
+			argv[3] = arg_environ_spine;
+			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
 			argv[4] = poller_id;
 
 			argv[5] = NULL;
 		}
 
-		/* fork a child process */
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server About to FORK Child Process", i));
+		/* spawn a child process */
+		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server About to spawn Child Process", i));
 
-		retry:
+		{
+			posix_spawn_file_actions_t fa;
+			int spawn_err;
 
-		pid = vfork();
+			if (posix_spawn_file_actions_init(&fa) != 0) {
+				SPINE_LOG(("ERROR: SS[%i] posix_spawn_file_actions_init failed", i));
+				close(cacti2php_pdes[0]);
+				close(cacti2php_pdes[1]);
+				close(php2cacti_pdes[0]);
+				close(php2cacti_pdes[1]);
+				pthread_setcancelstate(cancel_state, NULL);
+				return FALSE;
+			}
 
-		/* check the pid status and process as required */
-		switch (pid) {
-			case -1: /* ERROR: Could not fork() */
-				switch (errno) {
-				case EAGAIN:
-					if (retry_count < 3) {
-						retry_count++;
-						#ifndef SOLAR_THREAD
-						/* take a moment */
-						usleep(50000);
-						#endif
-						goto retry;
-					} else {
-						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Resources", i));
-					}
-				case ENOMEM:
-					if (retry_count < 3) {
-						retry_count++;
-						#ifndef SOLAR_THREAD
-						/* take a moment */
-						usleep(50000);
-						#endif
-						goto retry;
-					} else {
-						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Memory", i));
-					}
-				default:
-					SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Unknown Reason", i));
+			/* wire cacti->php read end to child stdin, php->cacti write end to child stdout */
+			if (posix_spawn_file_actions_adddup2(&fa, cacti2php_pdes[0], STDIN_FILENO) != 0 ||
+			    posix_spawn_file_actions_adddup2(&fa, php2cacti_pdes[1], STDOUT_FILENO) != 0 ||
+			    /* close all four pipe ends in the child after dup2 redirects are in place */
+			    posix_spawn_file_actions_addclose(&fa, cacti2php_pdes[0]) != 0 ||
+			    posix_spawn_file_actions_addclose(&fa, cacti2php_pdes[1]) != 0 ||
+			    posix_spawn_file_actions_addclose(&fa, php2cacti_pdes[0]) != 0 ||
+			    posix_spawn_file_actions_addclose(&fa, php2cacti_pdes[1]) != 0) {
+				SPINE_LOG(("ERROR: SS[%i] posix_spawn_file_actions setup failed", i));
+				posix_spawn_file_actions_destroy(&fa);
+				close(cacti2php_pdes[0]);
+				close(cacti2php_pdes[1]);
+				close(php2cacti_pdes[0]);
+				close(php2cacti_pdes[1]);
+				pthread_setcancelstate(cancel_state, NULL);
+				return FALSE;
+			}
+
+			do {
+				spawn_err = posix_spawn(&pid, argv[0], &fa, NULL, argv, environ);
+				if ((spawn_err == EAGAIN || spawn_err == ENOMEM) && retry_count < 3) {
+					retry_count++;
+					#ifndef SOLAR_THREAD
+					usleep(50000);
+					#endif
+					continue;
+				}
+				break;
+			} while (1);
+
+			posix_spawn_file_actions_destroy(&fa);
+
+			if (spawn_err != 0) {
+				if (spawn_err == EAGAIN) {
+					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Out of Resources", i));
+				} else if (spawn_err == ENOMEM) {
+					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Out of Memory", i));
+				} else {
+					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Unknown Reason", i));
 				}
 
 				close(php2cacti_pdes[0]);
@@ -414,28 +441,13 @@ int php_init(int php_process) {
 				close(cacti2php_pdes[0]);
 				close(cacti2php_pdes[1]);
 
-				SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server", i));
+				SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server", i));
 				pthread_setcancelstate(cancel_state, NULL);
 
 				return FALSE;
-				/* NOTREACHED */
-			case 0:	/* SUCCESS: I am now the child */
-				/* set the standard input/output channels of the new process.  */
-				dup2(cacti2php_pdes[0], STDIN_FILENO);
-				dup2(php2cacti_pdes[1], STDOUT_FILENO);
+			}
 
-				/* close unneeded Pipes */
-				(void)close(php2cacti_pdes[0]);
-				(void)close(php2cacti_pdes[1]);
-				(void)close(cacti2php_pdes[0]);
-				(void)close(cacti2php_pdes[1]);
-
-				/* start the php script server process */
-				execv(argv[0], argv);
-				_exit(127);
-				/* NOTREACHED */
-			default: /* I am the parent process */
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Child FORK Success", i));
+			SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Child spawn Success", i));
 		}
 
 		/* Parent */

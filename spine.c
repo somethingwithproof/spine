@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -41,7 +41,8 @@
  *
  *	Provide the name of the Spine configuration file, which contains
  *	the parameters for connecting to the database. In the absence of
- *	this, it looks [WHERE?]
+ *	this, it searches in order: the current directory, /etc/,
+ *	/etc/cacti/, and ../etc/ for a file named spine.conf.
  *
  * -f | --first=ID
  *
@@ -100,8 +101,8 @@
 /* Global Variables */
 int entries = 0;
 int num_hosts = 0;
-sem_t available_threads;
-sem_t available_scripts;
+spine_sem_t available_threads;
+spine_sem_t available_scripts;
 double start_time;
 double total_time;
 
@@ -117,7 +118,7 @@ poller_thread_t** details = NULL;
 
 static char *getarg(char *opt, char ***pargv);
 static void display_help(int only_version);
-void poller_push_data_to_main();
+void poller_push_data_to_main(void);
 
 #ifdef HAVE_LCAP
 /* This patch is adapted (copied) patch for ntpd from Jarno Huuskonen and
@@ -201,22 +202,13 @@ int main(int argc, char *argv[]) {
 	double host_time_double = 0;
 	int items_per_thread = 0;
 	int device_threads;
-	sem_t thread_init_sem;
+	spine_sem_t thread_init_sem;
 	int a_threads_value;
-
-	start_time = get_time_as_double();
-	total_time = 0;
-
-	#ifdef HAVE_LCAP
-	if (geteuid() == 0) {
-		drop_root(getuid(), getgid());
-	}
-	#endif /* HAVE_LCAP */
+	//struct timespec until_spec;
 
 	pthread_t* threads = NULL;
 	poller_thread_t* poller_details = NULL;
 	pthread_attr_t attr;
-
 	int* ids = NULL;
 	int mode = REMOTE;
 	MYSQL mysql;
@@ -234,9 +226,18 @@ int main(int argc, char *argv[]) {
 	int threads_final = 0;
 	int threads_missing = -1;
 	int threads_count;
-
-	/* we must initilize snmp in the main thread */
 	struct snmp_session session;
+
+	start_time = get_time_as_double();
+	total_time = 0;
+
+	#ifdef HAVE_LCAP
+	if (geteuid() == 0) {
+		drop_root(getuid(), getgid());
+	}
+	#endif /* HAVE_LCAP */
+
+	/* we must initialize snmp in the main thread */
 
 	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
 
@@ -250,7 +251,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* create the array of debug devices */
-	debug_devices = calloc(100, sizeof(int));
+	debug_devices = calloc(MAX_DEBUG_DEVICES, sizeof(int));
 
 	/* initialize icmp_avail */
 	set.icmp_avail = TRUE;
@@ -326,6 +327,7 @@ int main(int argc, char *argv[]) {
 	set.parent_fork       = SPINE_PARENT;
 	set.mode              = REMOTE_ONLINE;
 	set.has_device_0      = FALSE;
+	set.has_output_regex  = FALSE;
 
 	for (argv++; *argv; argv++) {
 		char	*arg = *argv;
@@ -333,7 +335,7 @@ int main(int argc, char *argv[]) {
 
 		if (opt) *opt++ = '\0';
 
-		if (STRMATCH(arg, "-f") || STRMATCH(arg, "--first")) {
+		if (STRIMATCH(arg, "-f") || STRMATCH(arg, "--first")) {
 			if (HOSTID_DEFINED(set.start_host_id)) {
 				die("ERROR: %s can only be used once", arg);
 			}
@@ -345,7 +347,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		else if (STRMATCH(arg, "-l") || STRIMATCH(arg, "--last")) {
+		else if (STRIMATCH(arg, "-l") || STRIMATCH(arg, "--last")) {
 			if (HOSTID_DEFINED(set.end_host_id)) {
 				die("ERROR: %s can only be used once", arg);
 			}
@@ -357,7 +359,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		else if (STRMATCH(arg, "-p") || STRIMATCH(arg, "--poller")) {
+		else if (STRIMATCH(arg, "-p") || STRIMATCH(arg, "--poller")) {
 			set.poller_id = atoi(getarg(opt, &argv));
 		}
 
@@ -382,15 +384,26 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		else if (STRMATCH(arg, "-H") || STRIMATCH(arg, "--hostlist")) {
+		else if (STRIMATCH(arg, "-H") || STRIMATCH(arg, "--hostlist")) {
 			snprintf(set.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, &argv));
+
+			/* Validate host_id_list contains only digits and commas */
+			{
+				const char *p = set.host_id_list;
+				while (*p) {
+					if (!isdigit((unsigned char)*p) && *p != ',' && *p != ' ') {
+						die("ERROR: --hostlist contains invalid characters. Only digits and commas are allowed.");
+					}
+					p++;
+				}
+			}
 		}
 
-		else if (STRMATCH(arg, "-M") || STRMATCH(arg, "--mibs")) {
+		else if (STRIMATCH(arg, "-M") || STRMATCH(arg, "--mibs")) {
 			set.mibs = 1;
 		}
 
-		else if (STRMATCH(arg, "-h") || STRMATCH(arg, "--help")) {
+		else if (STRIMATCH(arg, "-h") || STRMATCH(arg, "--help")) {
 			display_help(FALSE);
 
 			exit(EXIT_SUCCESS);
@@ -402,7 +415,7 @@ int main(int argc, char *argv[]) {
 			exit(EXIT_SUCCESS);
 		}
 
-		else if (STRMATCH(arg, "-O") || STRIMATCH(arg, "--option")) {
+		else if (STRIMATCH(arg, "-O") || STRIMATCH(arg, "--option")) {
 			char *setting = getarg(opt, &argv);
 			char *value   = strchr(setting, ':');
 
@@ -415,19 +428,19 @@ int main(int argc, char *argv[]) {
 			set_option(setting, value);
 		}
 
-		else if (STRMATCH(arg, "-R") || STRMATCH(arg, "--readonly") || STRMATCH(arg, "--read-only")) {
+		else if (STRIMATCH(arg, "-R") || STRMATCH(arg, "--readonly") || STRMATCH(arg, "--read-only")) {
 			set.SQL_readonly = TRUE;
 		}
 
-		else if (STRMATCH(arg, "-C") || STRMATCH(arg, "--conf")) {
+		else if (STRIMATCH(arg, "-C") || STRMATCH(arg, "--conf")) {
 			conf_file = strdup(getarg(opt, &argv));
 		}
 
-		else if (STRMATCH(arg, "-S") || STRMATCH(arg, "--stdout")) {
+		else if (STRIMATCH(arg, "-S") || STRMATCH(arg, "--stdout")) {
 			set_option("log_destination", "STDOUT");
 		}
 
-		else if (STRMATCH(arg, "-L") || STRMATCH(arg, "--log")) {
+		else if (STRIMATCH(arg, "-D") || STRMATCH(arg, "--log")) {
 			set_option("log_destination", getarg(opt, &argv));
 		}
 
@@ -468,7 +481,7 @@ int main(int argc, char *argv[]) {
 	}
 	#endif
 
-	/* we require either both the first and last hosts, or niether host */
+	/* we require either both the first and last hosts, or neither host */
 	if ((HOSTID_DEFINED(set.start_host_id) != HOSTID_DEFINED(set.end_host_id)) &&
 		(!strlen(set.host_id_list))) {
 		die("ERROR: must provide both -f/-l, a hostlist (-H/--hostlist), or neither");
@@ -486,12 +499,12 @@ int main(int argc, char *argv[]) {
 			valid_conf_file = TRUE;
 		}
 	} else {
-		if (!(conf_file = calloc(CONFIG_PATHS, LRG_BUFSIZE))) {
+		if (!(conf_file = calloc(CONFIG_PATHS, DBL_BUFSIZE))) {
 			die("ERROR: Fatal malloc error: spine.c conf_file!");
 		}
 
 		for (i=0; i<CONFIG_PATHS; i++) {
-			snprintf(conf_file, LRG_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
+			snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
 
 			if (read_spine_config(conf_file) >= 0) {
 				valid_conf_file = TRUE;
@@ -499,7 +512,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			if (i == CONFIG_PATHS-1) {
-				snprintf(conf_file, LRG_BUFSIZE, "%s%s", config_paths[0], DEFAULT_CONF_FILE);
+				snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[0], DEFAULT_CONF_FILE);
 			}
 		}
 	}
@@ -518,14 +531,15 @@ int main(int argc, char *argv[]) {
 
 	/* tokenize the debug devices */
 	if (strlen(set.selective_device_debug)) {
+		int debug_idx = 0;
+		char *token;
 		SPINE_LOG_DEBUG(("DEBUG: Selective Debug Devices %s", set.selective_device_debug));
-		int i = 0;
-		char *token = strtok(set.selective_device_debug, ",");
-		while(token) {
-			debug_devices[i]   = atoi(token);
-			debug_devices[i+1] = '\0';
+		token = strtok(set.selective_device_debug, ",");
+		while(token && debug_idx < MAX_DEBUG_DEVICES - 1) {
+			debug_devices[debug_idx]   = atoi(token);
+			debug_devices[debug_idx+1] = '\0';
 			token = strtok(NULL, ",");
-			i++;
+			debug_idx++;
 		}
 	} else {
 		debug_devices[0] = '\0';
@@ -559,6 +573,12 @@ int main(int argc, char *argv[]) {
 		set.has_device_0 = TRUE;
 	}
 	db_free_result(result);
+
+	/* check if poller_item has the output_regex column (added in Cacti 1.3.1) */
+	if (db_column_exists(&mysql, LOCAL, "poller_item", "output_regex")) {
+		set.has_output_regex = TRUE;
+		SPINE_LOG_DEBUG(("DEBUG: poller_item.output_regex column detected"));
+	}
 
 	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
 	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
@@ -624,19 +644,29 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* obtain the list of hosts to poll */
-	qp += sprintf(qp, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON host.id = pi.host_id");
-	qp += sprintf(qp, " WHERE disabled = ''");
+	{
+		int remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " WHERE disabled = ''");
 
-	if (!strlen(set.host_id_list)) {
-		qp += append_hostrange(qp, "id");	/* AND id BETWEEN a AND b */
-	} else {
-		qp += sprintf(qp, " AND id IN(%s)", set.host_id_list);
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " AND availability_method != %d", AVAIL_STREAM);
+
+		if (!strlen(set.host_id_list)) {
+			qp += append_hostrange(qp, "h.id");	/* AND id BETWEEN a AND b */
+		} else {
+			remaining = MEGA_BUFSIZE - (qp - querybuf);
+			qp += snprintf(qp, remaining, " AND h.id IN(%s)", set.host_id_list);
+		}
+
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " AND h.poller_id = %i", set.poller_id);
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " ORDER BY picount DESC");
 	}
 
-	qp += sprintf(qp, " AND host.poller_id = %i", set.poller_id);
-
-	qp += sprintf(qp, " ORDER BY picount DESC");
-
+	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
 	result = db_query(&mysql, LOCAL, querybuf);
 
 	if (set.poller_id == 1) {
@@ -649,23 +679,25 @@ int main(int argc, char *argv[]) {
 		num_rows = mysql_num_rows(result);
 	}
 
-	if (!(threads = (pthread_t *)malloc(num_rows * sizeof(pthread_t)))) {
-		die("ERROR: Fatal malloc error: spine.c threads!");
-	}
+	if (num_rows > 0) {
+		if (!(threads = (pthread_t *)malloc(num_rows * sizeof(pthread_t)))) {
+			die("ERROR: Fatal malloc error: spine.c threads!");
+		}
 
-	if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
-		die("ERROR: Fatal malloc error: spine.c details!");
-	}
+		if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
+			die("ERROR: Fatal malloc error: spine.c details!");
+		}
 
-	if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
-		die("ERROR: Fatal malloc error: spine.c host id's!");
-	}
+		if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
+			die("ERROR: Fatal malloc error: spine.c host id's!");
+		}
 
-	if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
-		die("ERROR: Fatal malloc error: util.c host_time");
-	}
+		if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
+			die("ERROR: Fatal malloc error: util.c host_time");
+		}
 
-	memset(host_time, 0, SMALL_BUFSIZE);
+		memset(host_time, 0, SMALL_BUFSIZE);
+	}
 
 	/* initialize winsock library on Windows */
 	SOCK_STARTUP;
@@ -687,15 +719,19 @@ int main(int argc, char *argv[]) {
 	init_mutexes();
 
 	/* initialize available_threads semaphore */
-	sem_init(&available_threads, 0, set.threads);
+	spine_sem_init(&available_threads, set.threads);
 
 	/* initialize available_scripts semaphore */
-	sem_init(&available_scripts, 0, MAX_SIMULTANEOUS_SCRIPTS);
+	spine_sem_init(&available_scripts, MAX_SIMULTANEOUS_SCRIPTS);
 
 	/* initialize thread initialization semaphore */
-	sem_init(&thread_init_sem, 0, 1);
+	spine_sem_init(&thread_init_sem, 1);
 
-	sem_getvalue(&available_threads, &a_threads_value);
+	/* specify the point of timeout for timedwait semaphores */
+	//until_spec.tv_sec = (time_t)(set.poller_interval + begin_time - 0.2);
+	//until_spec.tv_nsec = 0;
+
+	spine_sem_getvalue(&available_threads, &a_threads_value);
 	SPINE_LOG_HIGH(("DEBUG: Initial Value of Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
 
 	/* tell fork processes that they are now active */
@@ -714,8 +750,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	/**
-     * We must initilize the first snmp session
-     * in the main thread to initilize the mib files
+     * We must initialize the first snmp session
+     * in the main thread to initialize the mib files
      * and other structures.  After which it's snmp
      * is thread safe in threads
      */
@@ -723,6 +759,11 @@ int main(int argc, char *argv[]) {
 
 	/* loop through devices until done */
 	while (canexit == FALSE && device_counter < num_rows) {
+		int loop_count = 0;
+		double progress_time = 0;
+		int sem_err = 0;
+		int spine_timeout = FALSE;
+
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
 			host_id         = atoi(mysql_row[0]);
@@ -775,10 +816,10 @@ int main(int argc, char *argv[]) {
 
 				db_free_result(tresult);
 
-				sprintf(host_time, "%lu", (unsigned long) time(NULL));
+				snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				host_time_double = get_time_as_double();
 			} else if (host_time_double == 0 || host_time == 0 || host_time == NULL) {
-				sprintf(host_time, "%lu", (unsigned long) time(NULL));
+				snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				host_time_double = get_time_as_double();
 			}
 		} else {
@@ -790,7 +831,7 @@ int main(int argc, char *argv[]) {
 
 			db_free_result(tresult);
 
-			sprintf(host_time, "%lu", (unsigned long) time(NULL));
+			snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 			host_time_double = get_time_as_double();
 		}
 
@@ -817,23 +858,23 @@ int main(int argc, char *argv[]) {
 		thread_mutex_unlock(LOCK_THDET);
 
 		/* dev note - errno was never primed at this point in previous version of code */
-		int loop_count = 0;
-		double progress_time = 0;
-		unsigned int sem_err = 0;
-		int spine_timeout = FALSE;
+		loop_count = 0;
+		progress_time = 0;
+		sem_err = 0;
+		spine_timeout = FALSE;
 
 		while (TRUE) {
-			sem_err = sem_trywait(&available_threads);
+			sem_err = spine_sem_trywait(&available_threads);
 
 			if (sem_err == 0) {
-				// Acquired a thread
+				/* acquired a thread */
 				break;
-			} else if (sem_err == EINTR) {
-				// Interrupted by signal handler
-			} else if (sem_err == EDEADLK) {
+			} else if (errno == EINTR) {
+				/* interrupted by signal handler */
+			} else if (errno == EDEADLK) {
 				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] would have deadlocked acquiring Available Thread Lock", host_id, current_thread));
-			} else if (sem_err == EAGAIN) {
-				// Keep trying
+			} else if (errno == EAGAIN) {
+				/* keep trying */
 			}
 
 			loop_count++;
@@ -865,7 +906,7 @@ int main(int argc, char *argv[]) {
 		loop_count = 0;
 
 		while (!spine_timeout) {
-			sem_err = sem_trywait(&thread_init_sem);
+			sem_err = spine_sem_trywait(&thread_init_sem);
 
 			if (sem_err == 0) {
 				// Acquired a thread
@@ -919,10 +960,10 @@ int main(int argc, char *argv[]) {
 					device_counter++;
 				}
 
-				sem_getvalue(&available_threads, &a_threads_value);
+				spine_sem_getvalue(&available_threads, &a_threads_value);
 				SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", poller_details->host_id, a_threads_value, set.threads - a_threads_value));
 
-				sem_post(&thread_init_sem);
+				spine_sem_post(&thread_init_sem);
 
 				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
 					" host_threads = %d, host_data_ids = %d, complete = %d",
@@ -933,6 +974,7 @@ int main(int argc, char *argv[]) {
 					poller_details->host_data_ids,
 					poller_details->complete));
 			} else if (thread_status == EAGAIN) {
+				thread_mutex_unlock(LOCK_HOST_TIME);
 				usleep(10000);
 				goto thread_retry;
 			} else if (thread_status == EINVAL) {
@@ -941,12 +983,13 @@ int main(int argc, char *argv[]) {
 
 			/* Restore thread initialization semaphore if thread creation failed */
 			if (thread_status) {
-				sem_post(&thread_init_sem);
+				thread_mutex_unlock(LOCK_HOST_TIME);
+				spine_sem_post(&thread_init_sem);
 			}
 		}
 	}
 
-	sem_getvalue(&available_threads, &a_threads_value);
+	spine_sem_getvalue(&available_threads, &a_threads_value);
 
 	/* wait for all threads to 'complete'
  	 * using the mutex here as the semaphore will
@@ -961,7 +1004,7 @@ int main(int argc, char *argv[]) {
 
 		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
 		usleep(500000);
-		sem_getvalue(&available_threads, &a_threads_value);
+		spine_sem_getvalue(&available_threads, &a_threads_value);
 	}
 
 	threads_final = set.threads - a_threads_value;
@@ -1018,6 +1061,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller_id, getpid());
+
 		if (mode == REMOTE) {
 			db_insert(&mysqlr, REMOTE, querybuf);
 		} else {
@@ -1056,7 +1100,6 @@ int main(int argc, char *argv[]) {
 	SPINE_FREE(threads);
 	SPINE_FREE(ids);
 	SPINE_FREE(conf_file);
-	SPINE_FREE(debug_devices);
 	SPINE_FREE(host_time);
 	SPINE_FREE(php_processes);
 
@@ -1087,6 +1130,15 @@ int main(int argc, char *argv[]) {
 		if (!set.stdout_notty) {
 			fprintf(stdout, "Time: %.4f s, Threads: %i, Devices: %i\n", (end_time - begin_time), set.threads, num_rows);
 		}
+	}
+
+	/* zero sensitive credentials before exit */
+	{
+		volatile char *vp;
+		vp = (volatile char *)set.db_pass;
+		memset((char *)vp, 0, sizeof(set.db_pass));
+		vp = (volatile char *)set.rdb_pass;
+		memset((char *)vp, 0, sizeof(set.rdb_pass));
 	}
 
 	/* uninstall the spine signal handler */
@@ -1132,8 +1184,8 @@ static void display_help(int only_version) {
 		"Either both of --first/--last must be provided, a valid hostlist must be provided.",
         "In their absence, all hosts are processed.",
 		"",
-		"Without the --conf parameter, spine searches for its spine.conf",
-		"file in the usual places.",
+		"Without the --conf parameter, spine searches in order:",
+		"  current directory, /etc/, /etc/cacti/, ../etc/ for spine.conf.",
 		"",
 		"Verbosity is one of NONE/LOW/MEDIUM/HIGH/DEBUG or 1..5",
 		"",
@@ -1148,7 +1200,7 @@ static void display_help(int only_version) {
 		0 /* ENDMARKER */
 	};
 
-	printf("SPINE %s  Copyright 2004-2024 by The Cacti Group\n", VERSION);
+	printf("SPINE %s  Copyright 2004-2026 by The Cacti Group\n", VERSION);
 
 	if (only_version == FALSE) {
 		printf("\n");

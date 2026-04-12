@@ -1,5 +1,5 @@
 # +-------------------------------------------------------------------------+
-# | Copyright (C) 2004-2024 The Cacti Group                                 |
+# | Copyright (C) 2004-2026 The Cacti Group                                 |
 # |                                                                         |
 # | This program is free software; you can redistribute it and/or           |
 # | modify it under the terms of the GNU General Public License             |
@@ -31,5 +31,22 @@ bin_PROGRAMS = spine
 
 man_MANS = spine.1
 
-spine.1: $(bin_PROGRAMS)
-	$(HELP2MAN) --output=$@ --name='Data Collector for Cacti' --no-info --version-option='--version' ./spine
+EXTRA_DIST = spine.1 uthash.h spine_sem.h
+
+# Docker targets — require Dockerfile and Dockerfile.dev (from PR #401)
+.PHONY: docker docker-dev verify cppcheck
+
+docker:
+	docker build -t spine .
+
+docker-dev:
+	docker build -f Dockerfile.dev -t spine-dev .
+
+verify: docker-dev
+	docker run --rm spine-dev
+
+cppcheck: docker-dev
+	docker run --rm spine-dev bash -c \
+		"cppcheck --enable=all --std=c11 --error-exitcode=1 \
+		--suppress=missingIncludeSystem --suppress=unusedFunction \
+		--suppress=checkersReport --suppress=toomanyconfigs $(spine_SOURCES)"

@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:*
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -33,7 +33,7 @@
 
 /* cacti config reading functions */
 extern void read_config_options(void);
-extern int read_spine_config(char *file);
+extern int read_spine_config(const char *file);
 extern void config_defaults(void);
 
 /* cacti logging function */
@@ -65,11 +65,16 @@ extern char *trim(char *str);
 extern char *rtrim(char *str);
 extern char *ltrim(char *str);
 extern char *reverse(char *str);
-extern int strpos(char *haystack, char *needle) ;
+extern int strpos(const char *haystack, const char *needle);
 extern int char_count(const char *str, int chr);
 
 /* custom hex2dec that returns a string instead of a number */
 unsigned long long hex2dec(char *str);
+
+/* custom regex replace to return a value if matches */
+#define MAX_MATCHES 5
+#define REGEX_NUMBER "([-+]*)([0-9]*)([.][0-9]+)"
+const char *regex_replace(const char *exp, const char *value);
 
 /* macro to copy string to string with an ending null */
 #define STRNCOPY(dst, src)  strncopy((dst), (src), sizeof(dst))
@@ -87,13 +92,16 @@ extern double get_time_as_double(void);
 
 /* function to check to see if program has capability to use raw socket with
    out uid = 0 */
-extern int hasCaps();
+extern int hasCaps(void);
 
 /* see if we can do things as root */
-extern void checkAsRoot();
+extern void checkAsRoot(void);
 
 /* log format */
-extern char *get_date_format();
+extern char *get_date_format(void);
+
+/* remote/main server synchronization */
+extern void poller_push_data_to_main(void);
 
 /* start time for spine */
 extern double start_time;

@@ -1,5 +1,5 @@
 # +-------------------------------------------------------------------------+
-# | Copyright (C) 2004-2024 The Cacti Group                                 |
+# | Copyright (C) 2004-2026 The Cacti Group                                 |
 # |                                                                         |
 # | This program is free software; you can redistribute it and/or           |
 # | modify it under the terms of the GNU General Public License             |
@@ -19,8 +19,8 @@
 # | http://www.cacti.net/                                                   |
 # +-------------------------------------------------------------------------+
 
-AC_PREREQ([2.63])
-AC_INIT([Spine Poller],[1.2.31],[http://www.cacti.net/issues.php])
+AC_PREREQ([2.69])
+AC_INIT([Spine Poller],[1.3.0],[http://www.cacti.net/issues.php])
 
 AC_CONFIG_AUX_DIR(config)
 AC_SUBST(ac_aux_dir)
@@ -55,14 +55,6 @@ AC_ARG_WITH(snmp,
   AS_HELP_STRING([--with-snmp],[SNMP base directory [[/usr/(local/)include]]
   ]),
   [SNMP_DIR=$withval]
-)
-
-# reentrant
-MYSQL_REENTRANT=0
-AC_ARG_WITH(reentrant,
-  AS_HELP_STRING([--with-reentrant],[If using MySQL versions less than 5.5 you must choose this option
-  ]),
-  [MYSQL_REENTRANT=1]
 )
 
 # if host_alias is empty, ac_cv_host_alias may still have the info
@@ -148,25 +140,11 @@ AC_CHECK_HEADERS(
 )
 
 # Checks for typedefs, structures, and compiler characteristics.
-AC_CHECK_TYPES([unsigned long long, long long])
-AC_C_CONST
-AC_TYPE_SIZE_T
 AC_HEADER_TIME
-AC_STRUCT_TM
+AC_CHECK_TYPES([unsigned long long, long long])
+AC_TYPE_SIZE_T
 
 # Checks for library functions.
-AC_DIAGNOSE([obsolete],[your code may safely assume C89 semantics that RETSIGTYPE is void.
-Remove this warning and the `AC_CACHE_CHECK' when you adjust the code.])dnl
-AC_CACHE_CHECK([return type of signal handlers],[ac_cv_type_signal],[AC_COMPILE_IFELSE(
-[AC_LANG_PROGRAM([#include <sys/types.h>
-#include <signal.h>
-],
-		 [return *(signal (0, 0)) (0) == 1;])],
-		   [ac_cv_type_signal=int],
-		   [ac_cv_type_signal=void])])
-AC_DEFINE_UNQUOTED([RETSIGTYPE],[$ac_cv_type_signal],[Define as the return type of signal handlers
-		    (`int' or `void').])
-
 AC_CHECK_FUNCS(malloc calloc gettimeofday strerror strtoll)
 
 # ****************** Solaris Privileges Check ***********************
@@ -282,7 +260,7 @@ fi
   CFLAGS="-I$MYSQL_INC_DIR $CFLAGS"
 
 unamestr=$(uname)
-if test $unamestr == 'OpenBSD'; then
+if test $unamestr = 'OpenBSD'; then
   AC_CHECK_LIB(mysqlclient, mysql_init,
     [ LIBS="-lmysqlclient -lexecinfo -lm $LIBS"
       AC_DEFINE(HAVE_MYSQL, 1, MySQL Client API)
@@ -298,27 +276,23 @@ else
   )
 fi
 
-if test $MYSQL_REENTRANT = 1 ; then
+if test -f $MYSQL_LIB_DIR/libmysqlclient_r.a -o -f $MYSQL_LIB_DIR/libmysqlclient_r.$ShLib; then
   LIBS="-lmysqlclient_r -lm -ldl $LIBS"
 else
-  if test -f $MYSQL_LIB_DIR/libmysqlclient_r.a -o -f $MYSQL_LIB_DIR/libmysqlclient_r.$ShLib; then
+  if test -f $MYSQL_LIB_DIR/libmysqlclient_r.a -o -f $MYSQL_LIB_DIR/libmysqlclient_r.$ShLib ; then
     LIBS="-lmysqlclient_r -lm -ldl $LIBS"
   else
-    if test -f $MYSQL_LIB_DIR/libmysqlclient_r.a -o -f $MYSQL_LIB_DIR/libmysqlclient_r.$ShLib ; then
-      LIBS="-lmysqlclient_r -lm -ldl $LIBS"
-    else
-      if test "$HAVE_MYSQL" == "yes"; then
-        if test $unamestr == 'OpenBSD'; then
-          LIBS="-lmysqlclient -lm $LIBS"
-        else
-          LIBS="-lmysqlclient -lm -ldl $LIBS"
-        fi
+    if test "$HAVE_MYSQL" = "yes"; then
+      if test $unamestr = 'OpenBSD'; then
+        LIBS="-lmysqlclient -lm $LIBS"
       else
-        if test -f $MYSQL_LIB_DIR/libperconaserverclient.a -o -f $MYSQL_LIB_DIR/libperconaserverclient.$ShLib; then
-          LIBS="-lperconaserverclient -lm -ldl $LIBS"
-        else
-          LIBS="-lmariadbclient -lm -ldl $LIBS"
-        fi
+        LIBS="-lmysqlclient -lm -ldl $LIBS"
+      fi
+    else
+      if test -f $MYSQL_LIB_DIR/libperconaserverclient.a -o -f $MYSQL_LIB_DIR/libperconaserverclient.$ShLib; then
+        LIBS="-lperconaserverclient -lm -ldl $LIBS"
+      else
+        LIBS="-lmariadbclient -lm -ldl $LIBS"
       fi
     fi
   fi
@@ -330,11 +304,11 @@ if test "x$SNMP_DIR" != "x"; then
     test -f $SNMP_DIR/$i/net-snmp-config.h  && SNMP_INCDIR=$SNMP_DIR$i && break
   done
 
-  # Accomodate 64-Bit Libraries
+  # Accommodate 64-Bit Libraries
   test -f $SNMP_DIR/lib64/libnetsnmp.a -o -f $SNMP_DIR/lib64/libnetsnmp.$ShLib && SNMP_LIBDIR=$SNMP_DIR/lib64
 
   if test -z "$SNMP_LIBDIR"; then
-    # Accomodate 32-Bit Libraries
+    # Accommodate 32-Bit Libraries
     test -f $SNMP_DIR/lib/libnetsnmp.a -o -f $SNMP_DIR/lib/libnetsnmp.$ShLib && SNMP_LIBDIR=$SNMP_DIR/lib
   fi
 else
@@ -347,14 +321,14 @@ else
     test -f $i/snmp/include/net-snmp/net-snmp-config.h && SNMP_INCDIR=$i/snmp/include/net-snmp && break
   done
 
-  # Accomodate 64-Bit Libraries
+  # Accommodate 64-Bit Libraries
   for i in /usr /usr/local /usr/pkg /usr/snmp /opt /opt/net-snmp /opt/snmp /usr/local/snmp; do
     test -f $i/lib64/libnetsnmp.a -o -f $i/lib64/libnetsnmp.$ShLib && SNMP_LIBDIR=$i/lib64 && break
   done
 
   # Only check for 32 Bit libraries if the 64 bit are not found
   if test -z "$SNMP_LIBDIR"; then
-    # Accomodate 32-Bit Libraries
+    # Accommodate 32-Bit Libraries
     for i in /usr /usr/local /usr/pkg /usr/snmp /opt /opt/net-snmp /opt/snmp /usr/local/snmp; do
       test -f $i/lib/libnetsnmp.a -o -f $i/lib/libnetsnmp.$ShLib && SNMP_LIBDIR=$i/lib && break
     done
@@ -379,7 +353,8 @@ fi
 
 # Net-SNMP includes v3 support and insists on crypto unless compiled --without-openssl
 AC_MSG_CHECKING([if Net-SNMP needs crypto support])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <net-snmp-config.h>]], [[exit(NETSNMP_USE_OPENSSL != 1);]])],[  AC_MSG_RESULT(yes)
+AC_TRY_COMPILE([#include <net-snmp-config.h>], [return NETSNMP_USE_OPENSSL != 1;],
+  [  AC_MSG_RESULT(yes)
      SNMP_SSL=yes
   ],[AC_MSG_RESULT(no)
 ])
@@ -393,6 +368,26 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[ #include <net-snmp-config.h>
 AC_DEFINE_UNQUOTED(SNMP_LOCALNAME, $havelocalname, If snmp localname session structure member exists)
 
 AC_CHECK_LIB(netsnmp, snmp_timeout)
+
+# ****************** SNMPv3 USM Error Constants Check ***********************
+AC_MSG_CHECKING([for SNMPv3 USM error constants])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+  #include <net-snmp/net-snmp-config.h>
+  #include <net-snmp/net-snmp-includes.h>
+]], [[
+  int x;
+#if defined(SNMPERR_NOT_IN_TIME_WINDOW)
+  x = SNMPERR_NOT_IN_TIME_WINDOW;
+#elif defined(SNMPERR_USM_NOTINTIMEWINDOW)
+  x = SNMPERR_USM_NOTINTIMEWINDOW;
+#else
+  #error no USM error constants
+#endif
+  (void)x;
+]])],
+  [AC_MSG_RESULT([yes])],
+  [AC_MSG_RESULT([no (USM error decoding disabled)])]
+)
 
 # ****************** Spine Result Buffer Check ***********************
 # Check for the default spine output buffer size
@@ -449,7 +444,7 @@ AC_ARG_ENABLE(strict-snmp,
     )
 if test "$ENABLED_SNMP_VERSION" = "yes"; then
   AC_MSG_RESULT([yes])
-  AC_DEFINE(VERIFY_PACKAGE_VERSION, 1, If we are going to force Net-SNMP library and header versons to be the same)
+  AC_DEFINE(VERIFY_PACKAGE_VERSION, 1, If we are going to force Net-SNMP library and header versions to be the same)
 else
   AC_MSG_RESULT([no])
 fi

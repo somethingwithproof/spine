@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -41,7 +41,8 @@ extern void db_create_connection_pool(int type);
 extern void db_close_connection_pool(int type);
 extern pool_t *db_get_connection(int type);
 extern void db_release_connection(int type, int id);
-extern int  db_reconnect(MYSQL *mysql, int error, char *location);
+extern int  db_reconnect(MYSQL *mysql, int type, int error, const char *location);
+extern int db_column_exists(MYSQL *mysql, int type, const char *table, const char *column);
 
 extern int append_hostrange(char *obuf, const char *colname);
 
@@ -52,4 +53,3 @@ extern int append_hostrange(char *obuf, const char *colname);
 	        die("FATAL: MySQL options unable to set %s option", desc);\
 	}\
 }\
-

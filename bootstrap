@@ -1,6 +1,6 @@
 #!/bin/sh
 # +-------------------------------------------------------------------------+
-# | Copyright (C) 2004-2024 The Cacti Group                                 |
+# | Copyright (C) 2004-2026 The Cacti Group                                 |
 # |                                                                         |
 # | This program is free software; you can redistribute it and/or           |
 # | modify it under the terms of the GNU General Public License             |
@@ -27,7 +27,7 @@
 # Function: build spine from scratch
 #
 # Description: This script will take a vanilla Spine source
-#              package and attempt to compile it.  It will 
+#              package and attempt to compile it.  It will
 #              attempt to handle nasty things like dos2unix
 #              issues in all files and searching for the
 #              presence of required modules.
@@ -45,7 +45,7 @@ display_help () {
   echo "  install things in non-common locations you may have to use"
   echo "  the install instructions to build."
   echo "--------------------------------------------------------------"
-  echo 
+  echo
 }
 
 # Check for parameters
@@ -60,7 +60,7 @@ echo "INFO: Starting Spine build process"
 echo "INFO: Removing cache directories"
 rm -rf autom4te.cache .deps
 
-# Make sure all files are unix formatted files 
+# Make sure all files are unix formatted files
 which dos2unix > /dev/null 2>&1
 if [ $? -eq 0 ]; then
   for e in $(echo "ac am c h in md mdlrc rb sh yml"); do
@@ -86,19 +86,10 @@ echo "  These instructions assume the default install location for spine"
 echo "  of /usr/local/spine.  If you choose to use another prefix, make"
 echo "  sure you update the commands as required for that new path."
 echo ""
-echo "  To compile and install Spine using MySQL versions 5.5 or higher"
+echo "  To compile and install Spine using MySQL or MariaDB"
 echo "  please do the following:"
 echo ""
 echo "  ./configure"
-echo "  make"
-echo "  make install"
-echo "  chown root:root /usr/local/spine/bin/spine"
-echo "  chmod +s /usr/local/spine/bin/spine"
-echo ""
-echo "  To compile and install Spine using MySQL versions previous to 5.5"
-echo "  please do the following:"
-echo ""
-echo "  ./configure --with-reentrant"
 echo "  make"
 echo "  make install"
 echo "  chown root:root /usr/local/spine/bin/spine"

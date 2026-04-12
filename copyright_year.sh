@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #  +-------------------------------------------------------------------------+
-#  | Copyright (C) 2004-2024 The Cacti Group                                 |
+#  | Copyright (C) 2004-2026 The Cacti Group                                 |
 #  |                                                                         |
 #  | This program is free software; you can redistribute it and/or           |
 #  | modify it under the terms of the GNU General Public License             |
@@ -53,7 +53,7 @@ update_copyright() {
 			printf "%60s %s\n" "==============================" "===================="
 			printf "%60s %s\n" "$old_data" "=>"
 			printf "%60s %s\n" "$new_data" ""
-			sed -i -r s/"$old_reg"/"$new_reg"/g $1
+			sed -i -r s/"$old_reg"/"$new_reg"/g "$1"
 			printf "%60s %s\n" "==============================" "===================="
 		fi
 	else

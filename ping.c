@@ -1,7 +1,7 @@
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
- | Copyright (C) 2004-2024 The Cacti Group                                 |
+ | Copyright (C) 2004-2026 The Cacti Group                                 |
  |                                                                         |
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
@@ -25,7 +25,7 @@
  |   - Larry Adams (current development and enhancements)                  |
  |   - Rivo Nurges (rrd support, mysql poller cache, misc functions)       |
  |   - RTG (core poller code, pthreads, snmp, autoconf examples)           |
- |   - Brady Alleman/Doug Warner (threading ideas, implimentation details) |
+ |   - Brady Alleman/Doug Warner (threading ideas, implementation details) |
  +-------------------------------------------------------------------------+
  | - Cacti - http://www.cacti.net/                                         |
  +-------------------------------------------------------------------------+
@@ -47,8 +47,8 @@
 int ping_host(host_t *host, ping_t *ping) {
 	int ping_result;
 	int snmp_result;
-	double start_time;
-	double end_time;
+	double snmp_start_time;
+	double snmp_end_time;
 
 	/* snmp pinging has been selected at a minimum */
 	ping_result = 0;
@@ -104,21 +104,21 @@ int ping_host(host_t *host, ping_t *ping) {
 			snmp_result = HOST_UP;
 			if ((host->availability_method != AVAIL_SNMP_OR_PING) &&
 				((strlen(host->snmp_community) > 0) || (host->snmp_version >= 3))) {
-				start_time = get_time_as_double();
+				snmp_start_time = get_time_as_double();
 				snmp_result = ping_snmp(host, ping);
-				end_time = get_time_as_double();
+				snmp_end_time = get_time_as_double();
 
 				if (snmp_result == HOST_UP) {
 					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - start_time));
+						SPINE_LOG(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, snmp_end_time - snmp_start_time));
 					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - start_time));
+						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, snmp_end_time - snmp_start_time));
 					}
 				} else {
 					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - start_time));
+						SPINE_LOG(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, snmp_end_time - snmp_start_time));
 					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - start_time));
+						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, snmp_end_time - snmp_start_time));
 					}
 				}
 			}
@@ -268,7 +268,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	struct sockaddr_in fromname;
 	char   socket_reply[BUFSIZE];
 	int    retry_count;
-	char   *cacti_msg = "cacti-monitoring-system\0";
+	const char *cacti_msg = "cacti-monitoring-system\0";
 	int    packet_len;
 	socklen_t    fromlen;
 	ssize_t    return_code;
@@ -315,8 +315,6 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				#endif
 
 				return HOST_DOWN;
-
-				break;
 			}
 		} else {
 			break;
@@ -374,10 +372,6 @@ int ping_icmp(host_t *host, ping_t *ping) {
 			total_time  = 0;
 			begin_time  = get_time_as_double();
 
-			/* initialize file descriptor to review for input/output */
-			FD_ZERO(&socket_fds);
-			FD_SET(icmp_socket,&socket_fds);
-
 			while (1) {
 				if (retry_count > host->ping_retries) {
 					snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping timed out");
@@ -407,13 +401,23 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				fromlen = sizeof(fromname);
 
 				/* wait for a response on the socket */
+				/* reinitialize fd_set -- select(2) clears bits in place on return */
 				keep_listening:
-				return_code = select(FD_SETSIZE, &socket_fds, NULL, NULL, &timeout);
+				FD_ZERO(&socket_fds);
+				if (icmp_socket >= FD_SETSIZE) {
+					SPINE_LOG(("ERROR: Device[%i] ICMP socket %d exceeds FD_SETSIZE %d", host->id, icmp_socket, FD_SETSIZE));
+					snprintf(ping->ping_status, 50, "down");
+					snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: fd exceeds FD_SETSIZE");
+					close(icmp_socket);
+					return HOST_DOWN;
+				}
+				FD_SET(icmp_socket,&socket_fds);
+				return_code = select(icmp_socket + 1, &socket_fds, NULL, NULL, &timeout);
 
 				/* record end time */
 				end_time = get_time_as_double();
 
-				/* caculate total time */
+				/* calculate total time */
 				total_time = (end_time - begin_time) * one_thousand;
 
 				if (total_time < host_timeout) {
@@ -586,7 +590,7 @@ int ping_udp(host_t *host, ping_t *ping) {
 	/* convert the host timeout to a double precision number in seconds */
 	host_timeout = host->ping_timeout;
 
-	/* initilize the socket */
+	/* initialize the socket */
 	udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
 	/* hostname must be nonblank */
@@ -646,12 +650,12 @@ int ping_udp(host_t *host, ping_t *ping) {
 
 				/* wait for a response on the socket */
 				wait_more:
-				return_code = select(FD_SETSIZE, &socket_fds, NULL, NULL, &timeout);
+				return_code = select(udp_socket + 1, &socket_fds, NULL, NULL, &timeout);
 
 				/* record end time */
 				end_time = get_time_as_double();
 
-				/* caculate total time */
+				/* calculate total time */
 				total_time = (end_time - begin_time) * one_thousand;
 
 				/* check to see which socket talked */
@@ -743,7 +747,7 @@ int ping_tcp(host_t *host, ping_t *ping) {
 	/* convert the host timeout to a double precision number in seconds */
 	host_timeout = host->ping_timeout;
 
-	/* initilize the socket */
+	/* initialize the socket */
 	tcp_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
 	/* initialize total time */
@@ -778,7 +782,7 @@ int ping_tcp(host_t *host, ping_t *ping) {
 				/* record end time */
 				end_time = get_time_as_double();
 
-				/* caculate total time */
+				/* calculate total time */
 				total_time = (end_time - begin_time) * one_thousand;
 
 				if ((return_code == -1 && errno == ECONNREFUSED && host->ping_method == PING_TCP_CLOSED) || return_code == 0) {
@@ -993,7 +997,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 	}
 
 	memset(stack, '\0', strlen(hostname)+1);
-	strncopy(stack, hostname, strlen(stack));
+	strncopy(stack, hostname, strlen(hostname));
 	token = strtok(stack, ":");
 
 	if (token == NULL) {
