@@ -1750,11 +1750,27 @@ char *strncopy(char *dst, const char *src, size_t obuf) {
  *  \return system time (at microsecond resolution) as a double
  */
 double get_time_as_double(void) {
-	struct timeval now;
+	#if defined(CLOCK_MONOTONIC_FAST)
+	struct timespec now_ts;
 
-	gettimeofday(&now, NULL);
+	if (clock_gettime(CLOCK_MONOTONIC_FAST, &now_ts) == 0) {
+		return (double) now_ts.tv_sec + ((double) now_ts.tv_nsec / 1000000000.0);
+	}
+	#elif defined(CLOCK_MONOTONIC)
+	struct timespec now_ts;
 
-	return (now).tv_sec + ((double) (now).tv_usec / 1000000);
+	if (clock_gettime(CLOCK_MONOTONIC, &now_ts) == 0) {
+		return (double) now_ts.tv_sec + ((double) now_ts.tv_nsec / 1000000000.0);
+	}
+	#endif
+
+	{
+		struct timeval now;
+
+		gettimeofday(&now, NULL);
+
+		return (double) now.tv_sec + ((double) now.tv_usec / 1000000.0);
+	}
 }
 
 /*! \fn trim()
