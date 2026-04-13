@@ -744,40 +744,48 @@ void read_config_options (void)
 		set.snmp_max_get_size = 25;
 	}
 
+#define STRCAT_SAFE(dst, src, size)                                                                                    \
+	do {                                                                                                               \
+		size_t current_len = strlen (dst);                                                                             \
+		if (current_len < size - 1) {                                                                                  \
+			strncat (dst, src, size - current_len - 1);                                                                \
+		}                                                                                                              \
+	} while (0)
+
 	/* log the snmp_max_get_size variable */
 	SPINE_LOG_DEBUG (("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp_max_get_size));
 
 #ifndef NETSNMP_DISABLE_MD5
-	strcat (spine_auth, "MD5");
+	STRCAT_SAFE (spine_auth, "MD5", BUFSIZE);
 #endif
 
-	strcat (spine_auth, (strlen (spine_auth) > 0 ? ",SHA" : "SHA"));
+	STRCAT_SAFE (spine_auth, (strlen (spine_auth) > 0 ? ",SHA" : "SHA"), BUFSIZE);
 
 #if defined(NETSNMP_USMAUTH_HMAC128SHA224)
-	strcat (spine_auth, ",SHA224,SHA256");
+	STRCAT_SAFE (spine_auth, ",SHA224,SHA256", BUFSIZE);
 #endif
 
 #if defined(NETSNMP_USMAUTH_HMAC192SHA256)
-	strcat (spine_auth, ",SHA384,SHA512");
+	STRCAT_SAFE (spine_auth, ",SHA384,SHA512", BUFSIZE);
 #endif
 
 #ifndef NETSNMP_DISABLE_DES
-	strcat (spine_priv, "DES");
+	STRCAT_SAFE (spine_priv, "DES", BUFSIZE);
 #endif
 
 #ifdef HAVE_AES
 	// cppcheck-suppress knownConditionTrueFalse
-	strcat (spine_priv, (strlen (spine_priv) > 0 ? ",AES128" : "AES128"));
+	STRCAT_SAFE (spine_priv, (strlen (spine_priv) > 0 ? ",AES128" : "AES128"), BUFSIZE);
 #endif
 
 #if defined(NETSNMP_DRAFT_BLUMENTHAL_AES_04)
 	// cppcheck-suppress knownConditionTrueFalse
-	strcat (spine_priv, (strlen (spine_priv) > 0 ? ",AES192" : "AES192"));
+	STRCAT_SAFE (spine_priv, (strlen (spine_priv) > 0 ? ",AES192" : "AES192"), BUFSIZE);
 #endif
 
 #if defined(NETSNMP_DRAFT_BLUMENTHAL_AES_04)
 	// cppcheck-suppress knownConditionTrueFalse
-	strcat (spine_priv, (strlen (spine_priv) > 0 ? ",AES256" : "AES256"));
+	STRCAT_SAFE (spine_priv, (strlen (spine_priv) > 0 ? ",AES256" : "AES256"), BUFSIZE);
 #endif
 
 	snprintf (spine_capabilities, BUFSIZE, "{ authProtocols: \"%s\", privProtocols: \"%s\" }", spine_auth, spine_priv);
@@ -1450,7 +1458,7 @@ int spine_log (const char *format, ...)
 
 	/* append a line feed to the log message if needed */
 	if (!strstr (flogmessage, "\n")) {
-		strcat (flogmessage, "\n");
+		STRCAT_SAFE (flogmessage, "\n", BIG_BUFSIZE);
 	}
 
 	if ((IS_LOGGING_TO_FILE () && (set.log_level != POLLER_VERBOSITY_NONE) && (strlen (set.path_logfile) != 0))) {
@@ -1666,6 +1674,7 @@ bool is_hexadecimal (const char *str, const short ignore_special)
 			if (ignore_special) {
 				break;
 			}
+			return false;
 		default:
 			return false;
 		}
