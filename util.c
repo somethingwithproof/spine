@@ -130,9 +130,9 @@ static char *getsetting (MYSQL *psql, int mode, const char *setting)
  *  \return true for successful or false for failed
  *
  */
-static int putsetting (MYSQL *psql, int mode, const char *mysetting, const char *myvalue)
+static bool putsetting (MYSQL *psql, int mode, const char *mysetting, const char *myvalue)
 {
-	char qstring[BUFSIZE];
+	char qstring[LRG_BUFSIZE];
 	int result = 0;
 
 	assert (psql != 0);
@@ -155,7 +155,7 @@ static int putsetting (MYSQL *psql, int mode, const char *mysetting, const char 
 
 	result = db_insert (psql, mode, qstring);
 
-	return result;
+	return result != 0;
 }
 
 /*! \fn static char *getpsetting(MYSQL *psql, const char *setting)
@@ -223,7 +223,7 @@ static char *getpsetting (MYSQL *psql, int mode, const char *setting)
  *	meaning true/false, and if we don't get a value, or if we don't
  *	understand what we fetched, we use the default value provided.
  *
- *  \return boolean TRUE or FALSE based upon database setting or the DEFAULT if not found
+ *  \return boolean true or false based upon database setting or the DEFAULT if not found
  */
 static int getboolsetting (MYSQL *psql, int mode, const char *setting, int dflt)
 {
@@ -239,12 +239,12 @@ static int getboolsetting (MYSQL *psql, int mode, const char *setting, int dflt)
 
 	if (STRIMATCH (rc, "on") || STRIMATCH (rc, "yes") || STRIMATCH (rc, "true") || STRIMATCH (rc, "1")) {
 		free (rc);
-		return TRUE;
+		return true;
 	}
 
 	if (STRIMATCH (rc, "off") || STRIMATCH (rc, "no") || STRIMATCH (rc, "false") || STRIMATCH (rc, "0")) {
 		free (rc);
-		return FALSE;
+		return false;
 	}
 
 	/* doesn't really match one of our keywords: what to do? */
@@ -307,11 +307,11 @@ static char *getglobalvariable (MYSQL *psql, int mode, const char *setting)
 	}
 }
 
-/*! \fn int is_debug_device(int device_id)
+/*! \fn bool is_debug_device(int device_id)
  *  \brief Determine if a device is a debug device
  *
  */
-int is_debug_device (int device_id)
+bool is_debug_device (int device_id)
 {
 	extern int *debug_devices;
 	int i = 0;
@@ -320,13 +320,13 @@ int is_debug_device (int device_id)
 		if (debug_devices[i] == '\0')
 			break;
 		if (debug_devices[i] == device_id) {
-			return TRUE;
+			return true;
 		}
 
 		i++;
 	}
 
-	return FALSE;
+	return false;
 }
 
 /*! \fn void read_config_options(void)
@@ -456,7 +456,7 @@ void read_config_options (void)
 	SPINE_LOG_DEBUG (("DEBUG: The log_destination variable is %i (%s)", set.log_destination,
 		printable_logdest (set.log_destination)));
 
-	set.logfile_processed = TRUE;
+	set.logfile_processed = true;
 
 	/* get PHP Path Information for Scripting */
 	if ((res = getsetting (&mysql, LOCAL, "path_php_binary")) != 0) {
@@ -535,37 +535,37 @@ void read_config_options (void)
 	SPINE_LOG_DEBUG (("DEBUG: The snmp_retries variable is %i", set.snmp_retries));
 
 	/* set logging option for errors */
-	set.log_perror = getboolsetting (&mysql, LOCAL, "log_perror", FALSE);
+	set.log_perror = getboolsetting (&mysql, LOCAL, "log_perror", false);
 
 	/* log the log_perror variable */
 	SPINE_LOG_DEBUG (("DEBUG: The log_perror variable is %i", set.log_perror));
 
 	/* set logging option for errors */
-	set.log_pwarn = getboolsetting (&mysql, LOCAL, "log_pwarn", FALSE);
+	set.log_pwarn = getboolsetting (&mysql, LOCAL, "log_pwarn", false);
 
 	/* log the log_pwarn variable */
 	SPINE_LOG_DEBUG (("DEBUG: The log_pwarn variable is %i", set.log_pwarn));
 
 	/* set option to increase insert performance */
-	set.boost_redirect = getboolsetting (&mysql, LOCAL, "boost_redirect", FALSE);
+	set.boost_redirect = getboolsetting (&mysql, LOCAL, "boost_redirect", false);
 
 	/* log the boost_redirect variable */
 	SPINE_LOG_DEBUG (("DEBUG: The boost_redirect variable is %i", set.boost_redirect));
 
 	/* set option for determining if boost is enabled */
-	set.boost_enabled = getboolsetting (&mysql, LOCAL, "boost_rrd_update_enable", FALSE);
+	set.boost_enabled = getboolsetting (&mysql, LOCAL, "boost_rrd_update_enable", false);
 
 	/* log the boost_rrd_update_enable variable */
 	SPINE_LOG_DEBUG (("DEBUG: The boost_rrd_update_enable variable is %i", set.boost_enabled));
 
 	/* set logging option for statistics */
-	set.log_pstats = getboolsetting (&mysql, LOCAL, "log_pstats", FALSE);
+	set.log_pstats = getboolsetting (&mysql, LOCAL, "log_pstats", false);
 
 	/* log the log_pstats variable */
 	SPINE_LOG_DEBUG (("DEBUG: The log_pstats variable is %i", set.log_pstats));
 
 	/* get Cacti defined max threads override spine.conf */
-	if (set.threads_set == FALSE) {
+	if (set.threads_set == false) {
 		if ((res = getpsetting (&mysql, mode, "threads")) != 0) {
 			set.threads = atoi (res);
 			free (res);
@@ -692,7 +692,7 @@ void read_config_options (void)
 	 * server.
 	 *
 	 */
-	set.php_required = FALSE; /* assume no */
+	set.php_required = false; /* assume no */
 
 	/* log the requirement for the script server */
 	if (!strlen (set.host_id_list)) {
@@ -708,7 +708,7 @@ void read_config_options (void)
 		db_free_result (result);
 
 		if (num_rows > 0)
-			set.php_required = TRUE;
+			set.php_required = true;
 
 		SPINE_LOG_DEBUG (("DEBUG: StartDevice='%i', EndDevice='%i', TotalPHPScripts='%i'", set.start_host_id,
 			set.end_host_id, num_rows));
@@ -725,7 +725,7 @@ void read_config_options (void)
 		db_free_result (result);
 
 		if (num_rows > 0)
-			set.php_required = TRUE;
+			set.php_required = true;
 
 		SPINE_LOG_DEBUG (("DEBUG: Device List to be polled='%s', TotalPHPScripts='%i'", set.host_id_list, num_rows));
 	}
@@ -1271,7 +1271,7 @@ char *get_date_format (void)
 	char *log_fmt;
 	char log_sep = '/';
 
-	if (!(log_fmt = (char *)malloc (GD_FMT_SIZE))) {
+	if (!(log_fmt = malloc (GD_FMT_SIZE))) {
 		die ("ERROR: Fatal malloc error: util.c get_date_format!");
 	}
 
@@ -1340,7 +1340,7 @@ int spine_log (const char *format, ...)
 	struct tm *now_ptr;
 
 	/* keep track of an errored log file */
-	static int log_error = FALSE;
+	static int log_error = false;
 
 	int of = 20;
 	char logprefix[LOGSIZE]; /* Formatted Log Prefix */
@@ -1376,7 +1376,7 @@ int spine_log (const char *format, ...)
 		cur_time = get_time_as_double ();
 		snprintf (stdoutmessage, LOGSIZE + of, "Total[%3.4f] %s", cur_time - start_time, ulogmessage);
 		puts (stdoutmessage);
-		return TRUE;
+		return true;
 	}
 
 	log_fmt = get_date_format ();
@@ -1467,7 +1467,7 @@ int spine_log (const char *format, ...)
 			} else {
 				if (!log_error) {
 					printf ("ERROR: Spine Log File Could Not Be Opened/Created\n");
-					log_error = TRUE;
+					log_error = true;
 				}
 			}
 		}
@@ -1493,24 +1493,24 @@ int spine_log (const char *format, ...)
 
 	free (log_fmt);
 
-	return TRUE;
+	return true;
 }
 
-/*! \fn int file_exists(const char *filename)
+/*! \fn bool file_exists(const char *filename)
  *  \brief checks for the existence of a file.
  *  \param *filename the name of the file to check for.
  *
- *  \return TRUE if found FALSE if not.
+ *  \return true if found false if not.
  *
  */
-int file_exists (const char *filename)
+bool file_exists (const char *filename)
 {
 	struct stat file_stat;
 
 	if (stat (filename, &file_stat)) {
-		return FALSE;
+		return false;
 	} else {
-		return TRUE;
+		return true;
 	}
 }
 
@@ -1522,14 +1522,14 @@ int file_exists (const char *filename)
  *  are not digits, and an empty string is (by convention) not
  *  all-digits too.
  *
- *  \return TRUE if not alpha or special characters found, FALSE if non numeric found
+ *  \return true if not alpha or special characters found, false if non numeric found
  *
  */
-int all_digits (const char *string)
+bool all_digits (const char *string)
 {
 	/* empty string is not all digits */
 	if (*string == '\0')
-		return FALSE;
+		return false;
 
 	while (isdigit ((int)*string))
 		string++;
@@ -1544,10 +1544,10 @@ int all_digits (const char *string)
  *  This function simply checks to see if a string object is an ip address.
  *  If it is, it returns true else false.
  *
- *  \return TRUE if an ip address, or FALSE if non
+ *  \return true if an ip address, or false if non
  *
  */
-int is_ipaddress (const char *string)
+bool is_ipaddress (const char *string)
 {
 	while (*string) {
 		if ((isdigit ((int)*string)) || (*string == '.') || (*string == ':')) {
@@ -1556,20 +1556,20 @@ int is_ipaddress (const char *string)
 			continue;
 		}
 
-		return FALSE;
+		return false;
 	}
 
-	return TRUE;
+	return true;
 }
 
-/*! \fn int is_numeric(const char *string)
+/*! \fn bool is_numeric(const char *string)
  *  \brief check to see if a string is long or double
  *  \param string the string to check
  *
- *  \return TRUE if long or double, FALSE if not
+ *  \return true if long or double, false if not
  *
  */
-int is_numeric (char *string)
+bool is_numeric (char *string)
 {
 	char *end_ptr_long, *end_ptr_double;
 	int conv_base = 10;
@@ -1578,7 +1578,7 @@ int is_numeric (char *string)
 	length = strlen (trim (string));
 
 	if (!length) {
-		return FALSE;
+		return false;
 	}
 
 	/* check for an integer */
@@ -1587,11 +1587,11 @@ int is_numeric (char *string)
 
 	if (errno != ERANGE) {
 		if (end_ptr_long == string + length) { /* integer string */
-			return TRUE;
+			return true;
 		} else if (end_ptr_long == string) {
 			if (*end_ptr_long != '\0' && *end_ptr_long != '.' && *end_ptr_long != '-'
 				&& *end_ptr_long != '+') { /* ignore partial string matches but doubles can begin with '+', '-', '.' */
-				return FALSE;
+				return false;
 			}
 		}
 	} else {
@@ -1603,33 +1603,33 @@ int is_numeric (char *string)
 	strtod (string, &end_ptr_double);
 	if (errno != ERANGE) {
 		if (end_ptr_double == string + length) { /* floating point string */
-			return TRUE;
+			return true;
 		}
 	} else {
 		end_ptr_double = NULL;
 	}
 
-	return FALSE;
+	return false;
 }
 
-/*! \fn int is_hexadecimal(const char *str, const short ignore_space)
+/*! \fn bool is_hexadecimal(const char *str, const short ignore_space)
  *  \brief test whether a string represents a hex number.
  *  \param str string to test
  *  \param ignore_space nonzero to skip tabs and spaces
  *
- *  \return TRUE if the string is valid hex, FALSE otherwise
+ *  \return true if the string is valid hex, false otherwise
  *
  *  The function is modified where the string needs to include
  *  at least one of the following string ' ', '-', or ':'
  *
  */
-int is_hexadecimal (const char *str, const short ignore_special)
+bool is_hexadecimal (const char *str, const short ignore_special)
 {
 	int i = 0;
-	int delim_found = FALSE;
+	bool delim_found = false;
 
 	if (!str)
-		return FALSE;
+		return false;
 
 	while (*str) {
 		switch (*str) {
@@ -1660,25 +1660,25 @@ int is_hexadecimal (const char *str, const short ignore_special)
 		case '-':
 		case ':':
 		case ' ':
-			delim_found = TRUE;
+			delim_found = true;
 			break;
 		case '\t':
 			if (ignore_special) {
 				break;
 			}
 		default:
-			return FALSE;
+			return false;
 		}
 
 		str++;
 		i++;
 	}
 
-	if ((i < 3) || delim_found == FALSE) {
-		return FALSE;
+	if ((i < 3) || delim_found == false) {
+		return false;
 	}
 
-	return TRUE;
+	return true;
 }
 
 /*! \fn char *strip_alpha(char *string)
@@ -1740,7 +1740,7 @@ char *add_slashes (char *string)
 
 	length = strlen (string);
 
-	if (!(return_str = (char *)malloc (length * 2 + 1))) {
+	if (!(return_str = malloc (length * 2 + 1))) {
 		die ("ERROR: Fatal malloc error: util.c add_slashes!");
 	}
 	return_str[0] = '\0';
@@ -2065,26 +2065,26 @@ int hasCaps (void)
 	caps = cap_get_proc ();
 	if (caps == NULL) {
 		SPINE_LOG (("ERROR: cap_get_proc failed."));
-		return FALSE;
+		return false;
 	}
 
 	/* check if cap_net_raw is in effective set */
 	if (cap_get_flag (caps, CAP_NET_RAW, CAP_EFFECTIVE, &capflag)) {
 		SPINE_LOG (("ERROR: cap_get_flag for CAP_NET_RAW failed. ICMP ping will not work as non-root user."));
-		return FALSE;
+		return false;
 	}
 
 	if (capflag != CAP_SET) {
 		SPINE_LOG (("ERROR: Capability CAP_NET_RAW is not set. ICMP ping will not work as non-root user."));
-		return FALSE;
+		return false;
 	}
 
 	SPINE_LOG_DEBUG (("DEBUG: Capability CAP_NET_RAW is set."));
 	cap_free (caps);
 
-	return TRUE;
+	return true;
 #else
-	return FALSE;
+	return false;
 #endif
 }
 
@@ -2132,7 +2132,7 @@ void checkAsRoot (void)
 	priv_freeset (privset);
 	free (p);
 #else
-	if (hasCaps () != TRUE) {
+	if (hasCaps () != true) {
 		int ret;
 		SPINE_LOG_DEBUG (("DEBUG: Spine running as %d UID, %d EUID", getuid (), geteuid ()));
 		ret = seteuid (0);
@@ -2143,10 +2143,10 @@ void checkAsRoot (void)
 		if (geteuid () != 0) {
 			SPINE_LOG_DEBUG (("WARNING: Spine NOT running as root.  This is required if using ICMP.  Please run "
 							  "\"chown root:root spine;chmod u+s spine\" to resolve."));
-			set.icmp_avail = FALSE;
+			set.icmp_avail = false;
 		} else {
 			SPINE_LOG_DEBUG (("DEBUG: Spine is running as root."));
-			set.icmp_avail = TRUE;
+			set.icmp_avail = true;
 
 			if (seteuid (getuid ()) == -1) {
 				SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
@@ -2154,7 +2154,7 @@ void checkAsRoot (void)
 		}
 	} else {
 		SPINE_LOG_DEBUG (("DEBUG: Spine has cap_net_raw capability."));
-		set.icmp_avail = TRUE;
+		set.icmp_avail = true;
 	}
 	SPINE_LOG_DEBUG (("DEBUG: Spine has %sgot ICMP", set.icmp_avail ? "" : "not "));
 #endif

@@ -35,12 +35,7 @@
 #define _SPINE_H_
 
 /* Defines */
-#ifndef FALSE
-#define FALSE 0
-#endif
-#ifndef TRUE
-#define TRUE 1
-#endif
+#include <stdbool.h>
 
 #define LOCAL 0
 #define REMOTE 1
@@ -48,6 +43,23 @@
 #define SPINE_NONE 0
 #define SPINE_IPV4 1
 #define SPINE_IPV6 2
+
+/* Attribute macros for Modern C17 / GCC Strong Typing */
+#if defined(__GNUC__) || defined(__clang__)
+#define SPINE_NODISCARD __attribute__ ((warn_unused_result))
+#define SPINE_NONNULL(...) __attribute__ ((nonnull (__VA_ARGS__)))
+#define SPINE_PURE __attribute__ ((pure))
+#define SPINE_CONST __attribute__ ((const))
+#define SPINE_PRINTF(fmt, args) __attribute__ ((format (printf, fmt, args)))
+#define SPINE_NORETURN __attribute__ ((noreturn))
+#else
+#define SPINE_NODISCARD
+#define SPINE_NONNULL(...)
+#define SPINE_PURE
+#define SPINE_CONST
+#define SPINE_PRINTF(fmt, args)
+#define SPINE_NORETURN
+#endif
 
 #ifndef __GNUC__
 #define __attribute__(x) /* NOTHING */

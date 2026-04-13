@@ -89,7 +89,7 @@ static const struct keyword actions[] = {
 };
 
 /*! \fn find_keyword_by_word(const struct keyword *tbl, const char *word, int dflt)
- *  \brief takes a generic word and returns either TRUE or FALSE
+ *  \brief takes a generic word and returns either true or false
  *  \param tbl the table that contains the translation from text to boolean
  *  \param word the word to compare against the table for the result
  *  \param dflt the default value to be returned if the string can not be found
@@ -105,7 +105,7 @@ static const struct keyword actions[] = {
  *	NOTE: if the given word is all digits, it's parsed as a number and
  *	returned numerically.
  *
- *  \return TRUE, FALSE, or dflt depending on results of search
+ *  \return true, false, or dflt depending on results of search
  *
  */
 static int find_keyword_by_word (const struct keyword *tbl, const char *word, int dflt)

@@ -194,7 +194,7 @@ int main (int argc, char *argv[])
 	double begin_time, end_time, cur_time;
 	int num_rows = 0;
 	int device_counter = 0;
-	int valid_conf_file = FALSE;
+	int valid_conf_file = false;
 	char querybuf[MEGA_BUFSIZE], *qp = querybuf;
 	char *host_time = NULL;
 	double host_time_double = 0;
@@ -214,12 +214,12 @@ int main (int argc, char *argv[])
 	MYSQL_RES *result = NULL;
 	MYSQL_RES *tresult = NULL;
 	MYSQL_ROW mysql_row;
-	int canexit = FALSE;
+	int canexit = false;
 	int host_id = 0;
 	int i;
 	int thread_status = 0;
 	int total_items = 0;
-	int change_host = TRUE;
+	int change_host = true;
 	int current_thread;
 	int threads_final = 0;
 	int threads_missing = -1;
@@ -243,7 +243,7 @@ int main (int argc, char *argv[])
 	install_spine_signal_handler ();
 
 	/* establish php processes and initialize space */
-	php_processes = (php_t *)calloc (MAX_PHP_SERVERS, sizeof (php_t));
+	php_processes = calloc (MAX_PHP_SERVERS, sizeof (php_t));
 	for (i = 0; i < MAX_PHP_SERVERS; i++) {
 		php_processes[i].php_state = PHP_BUSY;
 	}
@@ -252,23 +252,23 @@ int main (int argc, char *argv[])
 	debug_devices = calloc (MAX_DEBUG_DEVICES, sizeof (int));
 
 	/* initialize icmp_avail */
-	set.icmp_avail = TRUE;
+	set.icmp_avail = true;
 
 	/* initialize number of threads */
 	set.threads = 1;
-	set.threads_set = FALSE;
+	set.threads_set = false;
 
 	/* detect and compensate for stdin/stderr ttys */
 	if (!isatty (fileno (stdout))) {
-		set.stdout_notty = TRUE;
+		set.stdout_notty = true;
 	} else {
-		set.stdout_notty = FALSE;
+		set.stdout_notty = false;
 	}
 
 	if (!isatty (fileno (stderr))) {
-		set.stderr_notty = TRUE;
+		set.stderr_notty = true;
 	} else {
-		set.stderr_notty = FALSE;
+		set.stderr_notty = false;
 	}
 
 	/* set start time for cacti */
@@ -320,12 +320,12 @@ int main (int argc, char *argv[])
 	set.start_host_id = -1;
 	set.end_host_id = -1;
 	set.host_id_list[0] = '\0';
-	set.php_initialized = FALSE;
-	set.logfile_processed = FALSE;
+	set.php_initialized = false;
+	set.logfile_processed = false;
 	set.parent_fork = SPINE_PARENT;
 	set.mode = REMOTE_ONLINE;
-	set.has_device_0 = FALSE;
-	set.has_output_regex = FALSE;
+	set.has_device_0 = false;
+	set.has_output_regex = false;
 
 	for (argv++; *argv; argv++) {
 		char *arg = *argv;
@@ -364,11 +364,11 @@ int main (int argc, char *argv[])
 
 		else if (STRMATCH (arg, "-t") || STRIMATCH (arg, "--threads")) {
 			set.threads = atoi (getarg (opt, &argv));
-			set.threads_set = TRUE;
+			set.threads_set = true;
 		}
 
 		else if (STRMATCH (arg, "-P") || STRIMATCH (arg, "--pingonly")) {
-			set.ping_only = TRUE;
+			set.ping_only = true;
 		}
 
 		else if (STRMATCH (arg, "-N") || STRIMATCH (arg, "--mode")) {
@@ -404,13 +404,13 @@ int main (int argc, char *argv[])
 		}
 
 		else if (STRIMATCH (arg, "-h") || STRMATCH (arg, "--help")) {
-			display_help (FALSE);
+			display_help (false);
 
 			exit (EXIT_SUCCESS);
 		}
 
 		else if (STRMATCH (arg, "-v") || STRMATCH (arg, "--version")) {
-			display_help (TRUE);
+			display_help (true);
 
 			exit (EXIT_SUCCESS);
 		}
@@ -429,7 +429,7 @@ int main (int argc, char *argv[])
 		}
 
 		else if (STRIMATCH (arg, "-R") || STRMATCH (arg, "--readonly") || STRMATCH (arg, "--read-only")) {
-			set.SQL_readonly = TRUE;
+			set.SQL_readonly = true;
 		}
 
 		else if (STRIMATCH (arg, "-C") || STRMATCH (arg, "--conf")) {
@@ -495,7 +495,7 @@ int main (int argc, char *argv[])
 		if ((read_spine_config (conf_file)) < 0) {
 			die ("ERROR: Could not read config file: %s", conf_file);
 		} else {
-			valid_conf_file = TRUE;
+			valid_conf_file = true;
 		}
 	} else {
 		if (!(conf_file = calloc (CONFIG_PATHS, DBL_BUFSIZE))) {
@@ -506,7 +506,7 @@ int main (int argc, char *argv[])
 			snprintf (conf_file, DBL_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
 
 			if (read_spine_config (conf_file) >= 0) {
-				valid_conf_file = TRUE;
+				valid_conf_file = true;
 				break;
 			}
 
@@ -551,7 +551,7 @@ int main (int argc, char *argv[])
 	db_connect (LOCAL, &mysql);
 
 	/* setup local connection pool for hosts */
-	db_pool_local = (pool_t *)calloc (set.threads, sizeof (pool_t));
+	db_pool_local = calloc (set.threads, sizeof (pool_t));
 	db_create_connection_pool (LOCAL);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
@@ -559,7 +559,7 @@ int main (int argc, char *argv[])
 		mode = REMOTE;
 
 		/* setup remote connection pool for hosts */
-		db_pool_remote = (pool_t *)calloc (set.threads, sizeof (pool_t));
+		db_pool_remote = calloc (set.threads, sizeof (pool_t));
 		db_create_connection_pool (REMOTE);
 	} else {
 		mode = LOCAL;
@@ -570,13 +570,13 @@ int main (int argc, char *argv[])
 		"SELECT * FROM (SELECT COUNT(*) AS items FROM poller_item WHERE host_id = 0 AND poller_id = 1) AS rs WHERE "
 		"rs.items > 0");
 	if (mysql_num_rows (result)) {
-		set.has_device_0 = TRUE;
+		set.has_device_0 = true;
 	}
 	db_free_result (result);
 
 	/* check if poller_item has the output_regex column (added in Cacti 1.3.1) */
 	if (db_column_exists (&mysql, LOCAL, "poller_item", "output_regex")) {
-		set.has_output_regex = TRUE;
+		set.has_output_regex = true;
 		SPINE_LOG_DEBUG (("DEBUG: poller_item.output_regex column detected"));
 	}
 
@@ -639,7 +639,7 @@ int main (int argc, char *argv[])
 	/* initialize the script server */
 	if (set.php_required && !set.ping_only) {
 		php_init (PHP_INIT);
-		set.php_initialized = TRUE;
+		set.php_initialized = true;
 		set.php_current_server = 0;
 	}
 
@@ -682,7 +682,7 @@ int main (int argc, char *argv[])
 	}
 
 	if (num_rows > 0) {
-		if (!(threads = (pthread_t *)malloc (num_rows * sizeof (pthread_t)))) {
+		if (!(threads = malloc (num_rows * sizeof (pthread_t)))) {
 			die ("ERROR: Fatal malloc error: spine.c threads!");
 		}
 
@@ -690,11 +690,11 @@ int main (int argc, char *argv[])
 			die ("ERROR: Fatal malloc error: spine.c details!");
 		}
 
-		if (!(ids = (int *)malloc (num_rows * sizeof (int)))) {
+		if (!(ids = malloc (num_rows * sizeof (int)))) {
 			die ("ERROR: Fatal malloc error: spine.c host id's!");
 		}
 
-		if (!(host_time = (char *)malloc (SMALL_BUFSIZE))) {
+		if (!(host_time = malloc (SMALL_BUFSIZE))) {
 			die ("ERROR: Fatal malloc error: util.c host_time");
 		}
 
@@ -748,11 +748,11 @@ int main (int argc, char *argv[])
 	current_thread = 0;
 
 	/* poller 1 always polls host 0 but only if it exists */
-	if (set.poller_id == 1 && set.has_device_0 == TRUE) {
+	if (set.poller_id == 1 && set.has_device_0 == true) {
 		host_id = 0;
-		change_host = FALSE;
+		change_host = false;
 	} else {
-		change_host = TRUE;
+		change_host = true;
 	}
 
 	/**
@@ -764,11 +764,11 @@ int main (int argc, char *argv[])
 	snmp_sess_init (&session);
 
 	/* loop through devices until done */
-	while (canexit == FALSE && device_counter < num_rows) {
+	while (canexit == false && device_counter < num_rows) {
 		int loop_count = 0;
 		double progress_time = 0;
 		int sem_err = 0;
-		int spine_timeout = FALSE;
+		int spine_timeout = false;
 
 		if (change_host) {
 			mysql_row = mysql_fetch_row (result);
@@ -807,7 +807,7 @@ int main (int argc, char *argv[])
 			device_threads = 1;
 		}
 
-		change_host = (current_thread >= device_threads) ? TRUE : FALSE;
+		change_host = (current_thread >= device_threads) ? true : false;
 
 		/* determine how many items will be polled per thread */
 		if (device_threads > 1) {
@@ -852,7 +852,7 @@ int main (int argc, char *argv[])
 		}
 
 		/* populate the thread structure */
-		if (!(poller_details = (poller_thread_t *)malloc (sizeof (poller_thread_t)))) {
+		if (!(poller_details = malloc (sizeof (poller_thread_t)))) {
 			die ("ERROR: Fatal malloc error: spine.c poller_details!");
 		}
 
@@ -866,7 +866,7 @@ int main (int argc, char *argv[])
 
 		poller_details->host_time_double = host_time_double;
 		poller_details->thread_init_sem = &thread_init_sem;
-		poller_details->complete = FALSE;
+		poller_details->complete = false;
 		poller_details->threads_complete = 0;
 
 		thread_mutex_lock (LOCK_THDET);
@@ -875,9 +875,9 @@ int main (int argc, char *argv[])
 
 		/* dev note - errno was never primed at this point in previous version of code */
 		loop_count = 0;
-		spine_timeout = FALSE;
+		spine_timeout = false;
 
-		while (TRUE) {
+		while (true) {
 			sem_err = spine_sem_trywait (&available_threads);
 
 			if (sem_err == 0) {
@@ -900,7 +900,7 @@ int main (int argc, char *argv[])
 				if (progress_time + 1 > set.poller_interval) {
 					SPINE_LOG (("ERROR: Device[%i] HT[%i] polling timed out while acquiring Available Thread Lock",
 						host_id, current_thread));
-					spine_timeout = TRUE;
+					spine_timeout = true;
 					break;
 				}
 
@@ -914,8 +914,8 @@ int main (int argc, char *argv[])
 			if (total_time - start_time > set.poller_interval) {
 				SPINE_LOG (("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices External", host_id,
 					current_thread));
-				spine_timeout = TRUE;
-				canexit = TRUE;
+				spine_timeout = true;
+				canexit = true;
 				break;
 			}
 		}
@@ -948,7 +948,7 @@ int main (int argc, char *argv[])
 				if (progress_time + 1 > set.poller_interval) {
 					SPINE_LOG (("ERROR: Device[%i] HT[%i] polling timed out while acquiring Thread Init Lock", host_id,
 						current_thread));
-					spine_timeout = TRUE;
+					spine_timeout = true;
 					break;
 				}
 
@@ -962,8 +962,8 @@ int main (int argc, char *argv[])
 			if (total_time - start_time > set.poller_interval) {
 				SPINE_LOG (("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices Internal", host_id,
 					current_thread));
-				spine_timeout = TRUE;
-				canexit = TRUE;
+				spine_timeout = true;
+				canexit = true;
 				break;
 			}
 		}
@@ -1208,7 +1208,7 @@ static void display_help (int only_version)
 
 	printf ("SPINE %s  Copyright 2004-2026 by The Cacti Group\n", VERSION);
 
-	if (only_version == FALSE) {
+	if (only_version == false) {
 		printf ("\n");
 		for (p = helptext; *p; p++) {
 			puts (*p); /* automatically adds a newline */

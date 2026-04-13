@@ -58,7 +58,7 @@ int ping_host (host_t *host, ping_t *ping)
 		|| (host->availability_method == AVAIL_SNMP_OR_PING)) {
 
 		if (host->ping_method == PING_ICMP) {
-			if (set.icmp_avail == FALSE) {
+			if (set.icmp_avail == false) {
 				SPINE_LOG (("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
 				host->ping_method = PING_UDP;
 			}
@@ -292,9 +292,9 @@ int ping_icmp (host_t *host, ping_t *ping)
 
 	/* get ICMP socket */
 	retry_count = 0;
-	while (TRUE) {
+	while (true) {
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-		if (hasCaps () != TRUE) {
+		if (hasCaps () != true) {
 			thread_mutex_lock (LOCK_SETEUID);
 			if (seteuid (0) == -1) {
 				SPINE_LOG_DEBUG (("WARNING: Spine unable to obtain root privileges."));
@@ -310,7 +310,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 				snprintf (ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping unable to create ICMP Socket");
 				snprintf (ping->ping_status, 50, "down");
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-				if (hasCaps () != TRUE) {
+				if (hasCaps () != true) {
 					if (seteuid (getuid ()) == -1) {
 						SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
 					}
@@ -326,7 +326,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 	}
 
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-	if (hasCaps () != TRUE) {
+	if (hasCaps () != true) {
 		if (seteuid (getuid ()) == -1) {
 			SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
 		}
@@ -466,7 +466,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 								snprintf (ping->ping_status, 50, "%.5f", total_time);
 								free (packet);
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-								if (hasCaps () != TRUE) {
+								if (hasCaps () != true) {
 									thread_mutex_lock (LOCK_SETEUID);
 									if (seteuid (0) == -1) {
 										SPINE_LOG_DEBUG (("WARNING: Spine unable to obtain root privileges."));
@@ -475,7 +475,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 #endif
 								close (icmp_socket);
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-								if (hasCaps () != TRUE) {
+								if (hasCaps () != true) {
 									if (seteuid (getuid ()) == -1) {
 										SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
 									}
@@ -517,7 +517,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 			snprintf (ping->ping_status, 50, "down");
 			free (packet);
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps () != TRUE) {
+			if (hasCaps () != true) {
 				thread_mutex_lock (LOCK_SETEUID);
 				if (seteuid (0) == -1) {
 					SPINE_LOG_DEBUG (("WARNING: Spine unable to obtain root privileges."));
@@ -526,7 +526,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 #endif
 			close (icmp_socket);
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps () != TRUE) {
+			if (hasCaps () != true) {
 				if (seteuid (getuid ()) == -1) {
 					SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
 				}
@@ -541,7 +541,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 		free (packet);
 		if (icmp_socket != -1) {
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps () != TRUE) {
+			if (hasCaps () != true) {
 				thread_mutex_lock (LOCK_SETEUID);
 				if (seteuid (0) == -1) {
 					SPINE_LOG_DEBUG (("WARNING: Spine unable to obtain root privileges."));
@@ -550,7 +550,7 @@ int ping_icmp (host_t *host, ping_t *ping)
 #endif
 			close (icmp_socket);
 #if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps () != TRUE) {
+			if (hasCaps () != true) {
 				if (seteuid (getuid ()) == -1) {
 					SPINE_LOG_DEBUG (("WARNING: Spine unable to drop from root to local user."));
 				}
@@ -860,7 +860,7 @@ int get_address_type (host_t *host)
 	struct addrinfo hints, *res, *res_list;
 	char addrstr[255];
 	void *ptr = NULL;
-	int addr_found = FALSE;
+	int addr_found = false;
 
 	memset (&hints, 0, sizeof (hints));
 
@@ -880,11 +880,11 @@ int get_address_type (host_t *host)
 		switch (res->ai_family) {
 		case AF_INET:
 			ptr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
-			addr_found = TRUE;
+			addr_found = true;
 			break;
 		case AF_INET6:
 			ptr = &((struct sockaddr_in6 *)res->ai_addr)->sin6_addr;
-			addr_found = TRUE;
+			addr_found = true;
 			break;
 		}
 
@@ -912,7 +912,7 @@ int get_address_type (host_t *host)
 /*! \fn int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port)
  *  \brief converts a hostname to an internet address
  *
- *  \return TRUE if successful, FALSE otherwise.
+ *  \return true if successful, false otherwise.
  *
  */
 int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned short int port)
@@ -928,7 +928,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 	retry_count = 0;
 	rv = 0;
 
-	while (TRUE) {
+	while (true) {
 		rv = getaddrinfo (hostname, NULL, &hints, &hostinfo);
 
 		if (rv == 0) {
@@ -952,7 +952,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 					if (hostinfo != NULL) {
 						freeaddrinfo (hostinfo);
 					}
-					return FALSE;
+					return false;
 				}
 
 				break;
@@ -962,7 +962,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 				if (hostinfo != NULL) {
 					freeaddrinfo (hostinfo);
 				}
-				return FALSE;
+				return false;
 
 				break;
 			case EAI_MEMORY:
@@ -970,7 +970,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 				if (hostinfo != NULL) {
 					freeaddrinfo (hostinfo);
 				}
-				return FALSE;
+				return false;
 
 				break;
 			default:
@@ -978,7 +978,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 				if (hostinfo != NULL) {
 					freeaddrinfo (hostinfo);
 				}
-				return FALSE;
+				return false;
 
 				break;
 			}
@@ -987,7 +987,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 
 	if (hostinfo == NULL) {
 		SPINE_LOG (("WARNING: Unknown host %s", hostname));
-		return FALSE;
+		return false;
 	} else {
 		// Copy socket details
 		name->sin_family = hostinfo->ai_family;
@@ -996,7 +996,7 @@ int init_sockaddr (struct sockaddr_in *name, const char *hostname, unsigned shor
 
 		// Free results var
 		freeaddrinfo (hostinfo);
-		return TRUE;
+		return true;
 	}
 }
 
@@ -1011,7 +1011,7 @@ name_t *get_namebyhost (char *hostname, name_t *name)
 	if (name == NULL) {
 		SPINE_LOG_DEBUG (("DEBUG: get_namebyhost(%s) - Allocating name_t", hostname));
 
-		if (!(name = (name_t *)malloc (sizeof (name_t)))) {
+		if (!(name = malloc (sizeof (name_t)))) {
 			die ("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
 		}
 
@@ -1022,7 +1022,7 @@ name_t *get_namebyhost (char *hostname, name_t *name)
 	char *stack = NULL;
 	char *token = NULL;
 
-	if (!(stack = (char *)malloc (strlen (hostname) + 1))) {
+	if (!(stack = malloc (strlen (hostname) + 1))) {
 		die ("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
 	}
 
@@ -1151,7 +1151,7 @@ unsigned short int get_checksum (void *buf, int len)
  */
 void update_host_status (int status, host_t *host, ping_t *ping, int availability_method)
 {
-	int issue_log_message = FALSE;
+	int issue_log_message = false;
 	double ping_time;
 	double hundred_percent = 100.00;
 	char current_date[40];
@@ -1196,7 +1196,7 @@ void update_host_status (int status, host_t *host, ping_t *ping, int availabilit
 				/* host is now down, flag it that way */
 				host->status = HOST_DOWN;
 
-				issue_log_message = TRUE;
+				issue_log_message = true;
 
 				/* update the failure date only if the failure count is 1 */
 				if (set.ping_failure_count == 1) {
@@ -1276,7 +1276,7 @@ void update_host_status (int status, host_t *host, ping_t *ping, int availabilit
 				/* host is up, flag it that way */
 				host->status = HOST_UP;
 
-				issue_log_message = TRUE;
+				issue_log_message = true;
 
 				/* update the recovery date only if the recovery count is 1 */
 				if (set.ping_recovery_count == 1) {

@@ -432,7 +432,7 @@ char *snmp_get_base (host_t *current_host, const char *snmp_oid, bool should_fai
 	char *result_string;
 	char temp_result[RESULTS_BUFFER];
 
-	if (!(result_string = (char *)malloc (RESULTS_BUFFER))) {
+	if (!(result_string = malloc (RESULTS_BUFFER))) {
 		die ("ERROR: Fatal malloc error: snmp.c snmp_get!");
 	}
 	result_string[0] = '\0';
@@ -664,7 +664,7 @@ char *snmp_get_base (host_t *current_host, const char *snmp_oid, bool should_fai
 	}
 
 	if (status != STAT_SUCCESS && should_fail) {
-		current_host->ignore_host = TRUE;
+		current_host->ignore_host = true;
 
 		SET_UNDEFINED (result_string);
 	}
@@ -699,7 +699,7 @@ char *snmp_getnext (host_t *current_host, const char *snmp_oid)
 	char *result_string;
 	char temp_result[RESULTS_BUFFER];
 
-	if (!(result_string = (char *)malloc (RESULTS_BUFFER))) {
+	if (!(result_string = malloc (RESULTS_BUFFER))) {
 		die ("ERROR: Fatal malloc error: snmp.c snmp_get!");
 	}
 	result_string[0] = '\0';
@@ -847,7 +847,7 @@ char *snmp_getnext (host_t *current_host, const char *snmp_oid)
 	}
 
 	if (status != STAT_SUCCESS) {
-		current_host->ignore_host = TRUE;
+		current_host->ignore_host = true;
 
 		SET_UNDEFINED (result_string);
 	}
@@ -959,7 +959,7 @@ int snmp_count (host_t *current_host, const char *snmp_oid)
 	}
 
 	if (status != STAT_SUCCESS) {
-		current_host->ignore_host = TRUE;
+		current_host->ignore_host = true;
 	}
 
 	return count;
@@ -983,7 +983,7 @@ void snmp_snprint_value (char *obuf, size_t buf_len, const oid *objid, size_t ob
 	UNUSED_PARAMETER (objidlen);
 
 	if (buf_len > 0) {
-		if ((buf = (u_char *)calloc (buf_len, 1)) != 0) {
+		if ((buf = calloc (buf_len, 1)) != 0) {
 			sprint_realloc_by_type (&buf, &buf_len, &out_len, 0, variable, NULL, NULL, NULL);
 			snprintf (obuf, buf_len, "%s", buf);
 		} else {

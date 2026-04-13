@@ -175,9 +175,9 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 	char *error_string;
 
 	int num_rows;
-	int assert_fail = FALSE;
-	int reindex_err = FALSE;
-	int spike_kill = FALSE;
+	int assert_fail = false;
+	int reindex_err = false;
+	int spike_kill = false;
 	int rows_processed = 0;
 	int i = 0;
 	int j = 0;
@@ -207,11 +207,11 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 	double thread_end = 0;
 
 	/* reindex shortcuts to speed polling */
-	int previous_assert_failure = FALSE;
+	int previous_assert_failure = false;
 	int last_data_query_id = 0;
-	int perform_assert = TRUE;
-	int new_buffer = TRUE;
-	int ignore_sysinfo = TRUE;
+	int perform_assert = true;
+	int new_buffer = true;
+	int ignore_sysinfo = true;
 	int buf_length = 0;
 
 	extern poller_thread_t **details;
@@ -263,21 +263,21 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 	}
 
 	/* allocate host and ping structures with appropriate values */
-	if (!(host = (host_t *)malloc (sizeof (host_t)))) {
+	if (!(host = malloc (sizeof (host_t)))) {
 		die ("ERROR: Fatal malloc error: poller.c host struct!");
 	}
 
 	/* set zeros */
 	memset (host, 0, sizeof (host_t));
 
-	if (!(ping = (ping_t *)malloc (sizeof (ping_t)))) {
+	if (!(ping = malloc (sizeof (ping_t)))) {
 		die ("ERROR: Fatal malloc error: poller.c ping struct!");
 	}
 
 	/* set zeros */
 	memset (ping, 0, sizeof (ping_t));
 
-	if (!(reindex = (reindex_t *)malloc (sizeof (reindex_t)))) {
+	if (!(reindex = malloc (sizeof (reindex_t)))) {
 		die ("ERROR: Fatal malloc error: poller.c reindex poll!");
 	}
 	memset (reindex, 0, sizeof (reindex_t));
@@ -699,7 +699,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 				host->snmp_sysLocation[0] = '\0'; // 36
 
 				/* populate host structure */
-				host->ignore_host = FALSE;
+				host->ignore_host = false;
 				if (row[0] != NULL)
 					host->id = atoi (row[0]);
 
@@ -816,7 +816,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 				 * function sets the ignore_host bit */
 				if ((host->availability_method == AVAIL_SNMP) && (strlen (host->snmp_community) == 0)
 					&& (host->snmp_version < 3)) {
-					host->ignore_host = FALSE;
+					host->ignore_host = false;
 					update_host_status (HOST_UP, host, ping, host->availability_method);
 
 					if (is_debug_device (host->id)) {
@@ -830,7 +830,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 					update_host_status (HOST_UP, host, ping, host->availability_method);
 				} else {
 					if (ping_host (host, ping) == HOST_UP) {
-						host->ignore_host = FALSE;
+						host->ignore_host = false;
 						if (host_thread == 1) {
 							update_host_status (HOST_UP, host, ping, host->availability_method);
 
@@ -838,12 +838,12 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 								&& (host->availability_method != AVAIL_NONE)) {
 								if (host->snmp_session != NULL && set.mibs) {
 									get_system_information (host, &mysql, 1);
-									ignore_sysinfo = FALSE;
+									ignore_sysinfo = false;
 								}
 							}
 						}
 					} else {
-						host->ignore_host = TRUE;
+						host->ignore_host = true;
 						if (host_thread == 1) {
 							update_host_status (HOST_DOWN, host, ping, host->availability_method);
 						}
@@ -856,7 +856,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 					db_escape (&mysql, escaped_last_error, sizeof (escaped_last_error), host->status_last_error);
 
 					if (!ignore_sysinfo) {
-						if (host->ignore_host != TRUE) {
+						if (host->ignore_host != true) {
 							snprintf (update_sql, BIG_BUFSIZE,
 								"UPDATE host "
 								"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
@@ -901,17 +901,17 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 			} else {
 				SPINE_LOG (("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, host_thread));
 				num_rows = 0;
-				host->ignore_host = TRUE;
+				host->ignore_host = true;
 			}
 		} else {
 			num_rows = 0;
-			host->ignore_host = TRUE;
+			host->ignore_host = true;
 		}
 	} else {
 		host->id = 0;
 		host->max_oids = 1;
 		host->snmp_session = NULL;
-		host->ignore_host = FALSE;
+		host->ignore_host = false;
 	}
 
 	if (set.ping_only) {
@@ -962,8 +962,8 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 				// Cache uptime in case we need it again
 				sysUptime[0] = '\0';
 				while ((row = mysql_fetch_row (result))) {
-					assert_fail = FALSE;
-					reindex_err = FALSE;
+					assert_fail = false;
+					reindex_err = false;
 
 					/* initialize the reindex struction */
 					reindex->data_query_id = 0;
@@ -988,13 +988,13 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 					/* shortcut assertion checks if a data query reindex has already been queued */
 					if ((last_data_query_id == reindex->data_query_id) && (!previous_assert_failure)) {
-						perform_assert = TRUE;
+						perform_assert = true;
 					} else if (last_data_query_id != reindex->data_query_id) {
 						last_data_query_id = reindex->data_query_id;
-						perform_assert = TRUE;
-						previous_assert_failure = FALSE;
+						perform_assert = true;
+						previous_assert_failure = false;
 					} else {
-						perform_assert = FALSE;
+						perform_assert = false;
 					}
 
 					poll_result = NULL;
@@ -1004,7 +1004,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 						case POLLER_ACTION_SNMP: /* snmp */
 							/* if there is no snmp session, don't probe */
 							if (host->snmp_session == NULL) {
-								reindex_err = TRUE;
+								reindex_err = true;
 							}
 
 							/* check to see if you are checking uptime */
@@ -1013,7 +1013,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 										|| strstr (reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0"))
 									&& strlen (sysUptime) > 0) {
 
-									if (!(poll_result = (char *)malloc (BUFSIZE))) {
+									if (!(poll_result = malloc (BUFSIZE))) {
 										die ("ERROR: Fatal malloc error: poller.c poll_result");
 									}
 
@@ -1054,7 +1054,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 									SPINE_FREE (poll_result);
 
 									/* allocate and populate with whichever uptime was valid */
-									if (!(poll_result = (char *)malloc (BUFSIZE))) {
+									if (!(poll_result = malloc (BUFSIZE))) {
 										die ("ERROR: Fatal malloc error: poller.c poll_result");
 									}
 									snprintf (poll_result, BUFSIZE, "%s", sysUptime);
@@ -1125,7 +1125,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 							break;
 						case POLLER_ACTION_SNMP_COUNT: /* snmp; count items */
-							if (!(poll_result = (char *)malloc (BUFSIZE))) {
+							if (!(poll_result = malloc (BUFSIZE))) {
 								die ("ERROR: Fatal malloc error: poller.c poll_result");
 							}
 							poll_result[0] = '\0';
@@ -1142,7 +1142,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 							break;
 						case POLLER_ACTION_SCRIPT_COUNT: /* script (popen); count items by counting line feeds */
-							if (!(poll_result = (char *)malloc (BUFSIZE))) {
+							if (!(poll_result = malloc (BUFSIZE))) {
 								die ("ERROR: Fatal malloc error: poller.c poll_result");
 							}
 							poll_result[0] = '\0';
@@ -1164,7 +1164,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 							break;
 						case POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT: /* script (php script server); count number of lines
 																	 */
-							if (!(poll_result = (char *)malloc (BUFSIZE))) {
+							if (!(poll_result = malloc (BUFSIZE))) {
 								die ("ERROR: Fatal malloc error: poller.c poll_result");
 							}
 							poll_result[0] = '\0';
@@ -1191,7 +1191,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 						}
 
 						if (!reindex_err) {
-							if (!(query3 = (char *)malloc (LRG_BUFSIZE))) {
+							if (!(query3 = malloc (LRG_BUFSIZE))) {
 								die ("ERROR: Fatal malloc error: poller.c reindex insert!");
 							}
 							query3[0] = '\0';
@@ -1204,7 +1204,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 										host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
 								}
 
-								assert_fail = FALSE;
+								assert_fail = false;
 							} else if ((!strcmp (reindex->op, "=")) && (strcmp (reindex->assert_value, poll_result))) {
 								if (is_debug_device (host->id) || set.spine_log_level == 2) {
 									SPINE_LOG (("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s=%s'", host->id,
@@ -1234,8 +1234,8 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 									memset (query3, 0, LRG_BUFSIZE);
 								}
 
-								assert_fail = TRUE;
-								previous_assert_failure = TRUE;
+								assert_fail = true;
+								previous_assert_failure = true;
 							} else if ((!strcmp (reindex->op, ">"))
 								&& (atoll (reindex->assert_value) < atoll (poll_result))) {
 								if (is_debug_device (host->id) || set.spine_log_level == 2) {
@@ -1266,8 +1266,8 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 									memset (query3, 0, LRG_BUFSIZE);
 								}
 
-								assert_fail = TRUE;
-								previous_assert_failure = TRUE;
+								assert_fail = true;
+								previous_assert_failure = true;
 								/* if uptime is set to '0' don't fail out */
 							} else if (strcmp (reindex->assert_value, "0")) {
 								if ((!strcmp (reindex->op, "<"))
@@ -1300,8 +1300,8 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 										memset (query3, 0, LRG_BUFSIZE);
 									}
 
-									assert_fail = TRUE;
-									previous_assert_failure = TRUE;
+									assert_fail = true;
+									previous_assert_failure = true;
 								}
 							}
 
@@ -1329,7 +1329,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 									&& ((!strcmp (reindex->op, "<"))
 										|| (!strcmp (reindex->arg1, ".1.3.6.1.2.1.1.3.0")
 											|| !strcmp (reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")))) {
-									spike_kill = TRUE;
+									spike_kill = true;
 
 									if (is_debug_device (host->id) || set.spine_log_level == 2) {
 										SPINE_LOG (("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", host_id,
@@ -1392,7 +1392,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 	if (num_rows > 0) {
 		/* retrieve each hosts polling items from poller cache and load into array */
-		poller_items = (target_t *)calloc (num_rows, sizeof (target_t));
+		poller_items = calloc (num_rows, sizeof (target_t));
 
 		i = 0;
 		while ((row = mysql_fetch_row (result))) {
@@ -1483,7 +1483,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 		db_free_result (result);
 
 		/* create an array for snmp oids */
-		snmp_oids = (snmp_oids_t *)calloc (host->max_oids, sizeof (snmp_oids_t));
+		snmp_oids = calloc (host->max_oids, sizeof (snmp_oids_t));
 
 		/* initialize all the memory to insure we don't get issues */
 		memset (snmp_oids, 0, sizeof (snmp_oids_t) * host->max_oids);
@@ -1530,7 +1530,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 				/* catch snmp initialization issues */
 				if (host->snmp_session == NULL) {
-					host->ignore_host = TRUE;
+					host->ignore_host = true;
 					break;
 				}
 
@@ -1575,7 +1575,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 							} else if ((is_numeric (snmp_oids[j].result))
 								|| (is_multipart_output (snmp_oids[j].result))) {
 								/* continue */
-							} else if (is_hexadecimal (snmp_oids[j].result, TRUE)) {
+							} else if (is_hexadecimal (snmp_oids[j].result, true)) {
 								snprintf (snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec (snmp_oids[j].result));
 							} else if ((STRIMATCH (snmp_oids[j].result, "U"))
 								|| (STRIMATCH (snmp_oids[j].result, "Nan"))) {
@@ -1701,7 +1701,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 							/* continue */
 						} else if ((is_numeric (snmp_oids[j].result)) || (is_multipart_output (snmp_oids[j].result))) {
 							/* continue */
-						} else if (is_hexadecimal (snmp_oids[j].result, TRUE)) {
+						} else if (is_hexadecimal (snmp_oids[j].result, true)) {
 							snprintf (snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec (snmp_oids[j].result));
 						} else if ((STRIMATCH (snmp_oids[j].result, "U")) || (STRIMATCH (snmp_oids[j].result, "Nan"))) {
 							buffer_output_errors (error_string, buf_size, buf_errors, host_id, host_thread,
@@ -1818,7 +1818,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 					}
 				} else if ((is_numeric (poll_result)) || (is_multipart_output (trim (poll_result)))) {
 					snprintf (poller_items[i].result, RESULTS_BUFFER, "%s", poll_result);
-				} else if (is_hexadecimal (poll_result, TRUE)) {
+				} else if (is_hexadecimal (poll_result, true)) {
 					snprintf (poller_items[i].result, RESULTS_BUFFER, "%llu", hex2dec (poll_result));
 				} else {
 					/* remove double or single quotes from string */
@@ -1891,7 +1891,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 					}
 				} else if ((is_numeric (poll_result)) || (is_multipart_output (trim (poll_result)))) {
 					snprintf (poller_items[i].result, RESULTS_BUFFER, "%s", poll_result);
-				} else if (is_hexadecimal (poll_result, TRUE)) {
+				} else if (is_hexadecimal (poll_result, true)) {
 					snprintf (poller_items[i].result, RESULTS_BUFFER, "%llu", hex2dec (poll_result));
 				} else {
 					/* remove double or single quotes from string */
@@ -1974,7 +1974,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 					/* continue */
 				} else if ((is_numeric (snmp_oids[j].result)) || (is_multipart_output (snmp_oids[j].result))) {
 					/* continue */
-				} else if (is_hexadecimal (snmp_oids[j].result, TRUE)) {
+				} else if (is_hexadecimal (snmp_oids[j].result, true)) {
 					snprintf (snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec (snmp_oids[j].result));
 				} else if ((STRIMATCH (snmp_oids[j].result, "U")) || (STRIMATCH (snmp_oids[j].result, "Nan"))) {
 					buffer_output_errors (error_string, buf_size, buf_errors, host_id, host_thread,
@@ -2047,7 +2047,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 		buf_length = MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER;
 
 		/* insert the query results into the database */
-		if (!(query3 = (char *)malloc (buf_length))) {
+		if (!(query3 = malloc (buf_length))) {
 			die ("ERROR: Fatal malloc error: poller.c query3 output buffer!");
 		}
 
@@ -2061,7 +2061,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 
 		if (set.boost_redirect && set.boost_enabled) {
 			/* insert the query results into the database */
-			if (!(query12 = (char *)malloc (buf_length))) {
+			if (!(query12 = malloc (buf_length))) {
 				die ("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
 			}
 
@@ -2125,7 +2125,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 				out_buffer = strlen (query3);
 
 				/* set binary, let the system know we are a new buffer */
-				new_buffer = TRUE;
+				new_buffer = true;
 			}
 
 			/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
@@ -2142,7 +2142,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 			}
 
 			out_buffer = out_buffer + strlen (result_string);
-			new_buffer = FALSE;
+			new_buffer = false;
 			i++;
 		}
 
@@ -2204,7 +2204,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 	thread_mutex_lock (LOCK_THDET);
 	details[device_counter]->threads_complete++;
 	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
-		details[device_counter]->complete = TRUE;
+		details[device_counter]->complete = true;
 
 		poll_time = get_time_as_double ();
 		query1[0] = '\0';
@@ -2216,7 +2216,7 @@ void poll_host (int device_counter, int host_id, int host_thread, int host_threa
 	if (errors > 0) {
 		int error_query_len = strlen (error_string) + BUFSIZE;
 		char *error_query;
-		if (!(error_query = (char *)malloc (error_query_len))) {
+		if (!(error_query = malloc (error_query_len))) {
 			die ("ERROR: Fatal malloc error: poller.c error_query!");
 		}
 
@@ -2313,7 +2313,7 @@ void buffer_output_errors (
  *	This function will poll a specific host using the script pointed to by
  *  the command variable.
  *
- *  \return TRUE if the result is valid, otherwise FALSE.
+ *  \return true if the result is valid, otherwise false.
  *
  */
 int is_multipart_output (char *result)
@@ -2327,7 +2327,7 @@ int is_multipart_output (char *result)
 		/* it must have delimiters */
 		if ((strstr (result, ":")) || (strstr (result, "!"))) {
 			if (!strstr (result, " ")) {
-				return TRUE;
+				return true;
 			} else {
 				const int len = strlen (result);
 
@@ -2340,15 +2340,15 @@ int is_multipart_output (char *result)
 				}
 
 				if (space_cnt + 1 == delim_cnt) {
-					return TRUE;
+					return true;
 				} else {
-					return FALSE;
+					return false;
 				}
 			}
 		}
 	}
 
-	return FALSE;
+	return false;
 }
 
 void get_system_information (host_t *host, MYSQL *mysql, int system)
@@ -2479,7 +2479,7 @@ void get_system_information (host_t *host, MYSQL *mysql, int system)
  *	This function will poll a specific host using the script pointed to by
  *  the command variable.
  *
- *  \return TRUE if the result is valid, otherwise FALSE.
+ *  \return true if the result is valid, otherwise false.
  *
  */
 int validate_result (char *result)
@@ -2487,17 +2487,17 @@ int validate_result (char *result)
 	/* check the easy cases first */
 	if (result) {
 		if (is_numeric (result)) {
-			return TRUE;
+			return true;
 		} else {
 			if (is_multipart_output (trim (result))) {
-				return TRUE;
+				return true;
 			} else {
-				return FALSE;
+				return false;
 			}
 		}
 	}
 
-	return FALSE;
+	return false;
 }
 
 /*! \fn char *exec_poll(host_t *current_host, char *command, int id, const char *type)
@@ -2522,7 +2522,7 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 
 #ifdef USING_TPOPEN
 	FILE *fd;
-	int close_fd = TRUE;
+	int close_fd = true;
 #endif
 
 	int bytes_read;
@@ -2542,7 +2542,7 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 	proc_command = command;
 #endif
 
-	if (!(result_string = (char *)malloc (RESULTS_BUFFER))) {
+	if (!(result_string = malloc (RESULTS_BUFFER))) {
 		die ("ERROR: Fatal malloc error: poller.c exec_poll!");
 	}
 
@@ -2655,7 +2655,7 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 						SET_UNDEFINED (result_string);
 
 #ifdef USING_TPOPEN
-						close_fd = FALSE;
+						close_fd = false;
 #endif
 
 						break;
@@ -2686,7 +2686,7 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 							SPINE_LOG (("WARNING: A script timed out while processing EINTR's."));
 							SET_UNDEFINED (result_string);
 #ifdef USING_TPOPEN
-							close_fd = FALSE;
+							close_fd = false;
 #endif
 						}
 						break;
@@ -2695,14 +2695,14 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 							current_host->id));
 						SET_UNDEFINED (result_string);
 #ifdef USING_TPOPEN
-						close_fd = FALSE;
+						close_fd = false;
 #endif
 						break;
 					default:
 						SPINE_LOG (("Device[%i] ERROR: The script/command select() failed", current_host->id));
 						SET_UNDEFINED (result_string);
 #ifdef USING_TPOPEN
-						close_fd = FALSE;
+						close_fd = false;
 #endif
 						break;
 					}
@@ -2712,7 +2712,7 @@ char *exec_poll (host_t *current_host, char *command, int id, const char *type)
 #ifdef USING_TPOPEN
 					SPINE_LOG_MEDIUM (("Device[%i] ERROR: The POPEN timed out", current_host->id));
 
-					close_fd = FALSE;
+					close_fd = false;
 #else
 					SPINE_LOG_MEDIUM (("Device[%i] ERROR: The NIFTY POPEN timed out", current_host->id));
 

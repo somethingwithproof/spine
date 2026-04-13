@@ -242,7 +242,7 @@ char *php_readpipe (int php_process, char *command)
 	char *cp;
 	char *bptr;
 
-	if (!(result_string = (char *)malloc (RESULTS_BUFFER))) {
+	if (!(result_string = malloc (RESULTS_BUFFER))) {
 		die ("ERROR: Fatal malloc error: php.c php_readpipe!");
 	}
 	result_string[0] = '\0';
@@ -369,7 +369,7 @@ retry:
  *  will check the status of the process to verify that it is ready to process
  *  scripts as well.
  *
- *  \return TRUE if the PHP Script Server is know running or FALSE otherwise
+ *  \return true if the PHP Script Server is know running or false otherwise
  */
 int php_init (int php_process)
 {
@@ -404,14 +404,14 @@ int php_init (int php_process)
 		if (pipe (cacti2php_pdes) < 0) {
 			SPINE_LOG (("ERROR: SS[%i] Could not allocate php server pipes", i));
 			free (command);
-			return FALSE;
+			return false;
 		}
 
 		/* create the input pipes from php to Spine */
 		if (pipe (php2cacti_pdes) < 0) {
 			SPINE_LOG (("ERROR: SS[%i] Could not allocate php server pipes", i));
 			free (command);
-			return FALSE;
+			return false;
 		}
 
 		/* disable thread cancellation from this point forward. */
@@ -468,7 +468,7 @@ int php_init (int php_process)
 				close (php2cacti_pdes[1]);
 				free (command);
 				pthread_setcancelstate (cancel_state, NULL);
-				return FALSE;
+				return false;
 			}
 
 			/* wire cacti->php read end to child stdin, php->cacti write end to child stdout */
@@ -487,7 +487,7 @@ int php_init (int php_process)
 				close (php2cacti_pdes[1]);
 				free (command);
 				pthread_setcancelstate (cancel_state, NULL);
-				return FALSE;
+				return false;
 			}
 
 			do {
@@ -522,7 +522,7 @@ int php_init (int php_process)
 				free (command);
 				pthread_setcancelstate (cancel_state, NULL);
 
-				return FALSE;
+				return false;
 			}
 
 			SPINE_LOG_DEBUG (("DEBUG: SS[%i] PHP Script Server Child spawn Success", i));
@@ -584,7 +584,7 @@ int php_init (int php_process)
 
 	free (command);
 
-	return TRUE;
+	return true;
 }
 
 /*! \fn void php_close(int php_process)

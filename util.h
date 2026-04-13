@@ -37,41 +37,41 @@ extern int read_spine_config (const char *file);
 extern void config_defaults (void);
 
 /* cacti logging function */
-extern int spine_log (const char *format, ...) __attribute__ ((format (printf, 1, 2)));
+extern int spine_log (const char *format, ...) SPINE_PRINTF (1, 2);
 
-extern void die (const char *format, ...) __attribute__ ((noreturn)) __attribute__ ((format (printf, 1, 2)));
+extern void die (const char *format, ...) SPINE_NORETURN SPINE_PRINTF (1, 2);
 
 /* option processing function */
 extern void set_option (const char *setting, const char *value);
 
 /* number validation functions */
-extern int is_numeric (char *string);
-extern int is_ipaddress (const char *string);
-extern int all_digits (const char *str);
-extern int is_hexadecimal (const char *str, const short ignore_special);
+extern bool is_numeric (char *string) SPINE_PURE SPINE_NONNULL (1);
+extern bool is_ipaddress (const char *string) SPINE_PURE SPINE_NONNULL (1);
+extern bool all_digits (const char *str) SPINE_PURE SPINE_NONNULL (1);
+extern bool is_hexadecimal (const char *str, const short ignore_special) SPINE_PURE SPINE_NONNULL (1);
 
 /* determine if a device is a debug device */
-extern int is_debug_device (int device_id);
+extern bool is_debug_device (int device_id) SPINE_PURE;
 
 /* string and file functions */
-extern char *add_slashes (char *string);
-extern int file_exists (const char *filename);
-extern char *strip_alpha (char *string);
-extern char *strncopy (char *dst, const char *src, size_t n);
-extern char *trim (char *str);
-extern char *rtrim (char *str);
-extern char *ltrim (char *str);
-extern char *reverse (char *str);
-extern int strpos (const char *haystack, const char *needle);
-extern int char_count (const char *str, int chr);
+extern char *add_slashes (char *string) SPINE_NODISCARD SPINE_NONNULL (1);
+extern bool file_exists (const char *filename) SPINE_PURE SPINE_NONNULL (1);
+extern char *strip_alpha (char *string) SPINE_NODISCARD SPINE_NONNULL (1);
+extern char *strncopy (char *dst, const char *src, size_t n) SPINE_NONNULL (1, 2);
+extern char *trim (char *str) SPINE_NONNULL (1);
+extern char *rtrim (char *str) SPINE_NONNULL (1);
+extern char *ltrim (char *str) SPINE_NONNULL (1);
+extern char *reverse (char *str) SPINE_NONNULL (1);
+extern int strpos (const char *haystack, const char *needle) SPINE_PURE SPINE_NONNULL (1, 2);
+extern int char_count (const char *str, int chr) SPINE_PURE SPINE_NONNULL (1);
 
 /* custom hex2dec that returns a string instead of a number */
-unsigned long long hex2dec (char *str);
+unsigned long long hex2dec (char *str) SPINE_PURE SPINE_NONNULL (1);
 
 /* custom regex replace to return a value if matches */
 #define MAX_MATCHES 5
 #define REGEX_NUMBER "([-+]*)([0-9]*)([.][0-9]+)"
-const char *regex_replace (const char *exp, const char *value);
+const char *regex_replace (const char *exp, const char *value) SPINE_NODISCARD SPINE_NONNULL (1, 2);
 
 /* macro to copy string to string with an ending null */
 #define STRNCOPY(dst, src) strncopy ((dst), (src), sizeof (dst))

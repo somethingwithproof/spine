@@ -131,10 +131,10 @@ static void log_redacted_sql_query (const char *query_frag)
  *  \param type  the database to connect to local or remote
  *  \param query the database query to execute
  *
- *	Unless the SQL_readonly boolean is set to TRUE, the function will execute
+ *	Unless the SQL_readonly boolean is set to true, the function will execute
  *	the SQL statement specified in the query variable.
  *
- *  \return TRUE if successful, or FALSE if not.
+ *  \return true if successful, or false if not.
  *
  */
 int db_insert (MYSQL *mysql, int type, const char *query)
@@ -151,7 +151,7 @@ int db_insert (MYSQL *mysql, int type, const char *query)
 	log_redacted_sql_query (query_frag);
 
 	while (1) {
-		if (set.SQL_readonly == FALSE) {
+		if (set.SQL_readonly == false) {
 			if (mysql_query (mysql, query)) {
 				error = mysql_errno (mysql);
 
@@ -178,20 +178,20 @@ int db_insert (MYSQL *mysql, int type, const char *query)
 
 					if (error_count > 30) {
 						SPINE_LOG (("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
-						return FALSE;
+						return false;
 					}
 
 					continue;
 				} else {
 					SPINE_LOG (("ERROR: SQL Failed! Error:'%i', Message:'%s', SQL Fragment:'%s'", error,
 						mysql_error (mysql), query_frag));
-					return FALSE;
+					return false;
 				}
 			} else {
-				return TRUE;
+				return true;
 			}
 		} else {
-			return TRUE;
+			return true;
 		}
 	}
 }
@@ -218,7 +218,7 @@ int db_reconnect (MYSQL *mysql, int type, int error, const char *function)
 
 		sleep (1);
 
-		return TRUE;
+		return true;
 	}
 
 	/* mysql_ping() did not reconnect; do it explicitly */
@@ -230,11 +230,11 @@ int db_reconnect (MYSQL *mysql, int type, int error, const char *function)
 
 	if (mysql_thread_id (mysql) > 0) {
 		SPINE_LOG (("WARNING: Explicit reconnect successful in Function %s.", function));
-		return TRUE;
+		return true;
 	}
 
 	SPINE_LOG (("WARNING: Connection Broken with Error %i.  Reconnect failed.", error));
-	return FALSE;
+	return false;
 }
 
 /*! \fn MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query)
@@ -378,7 +378,7 @@ void db_connect (int type, MYSQL *mysql)
 
 	/* initialalize variables */
 	tries = 2;
-	success = FALSE;
+	success = false;
 	timeout = 5;
 	rtimeout = 30;
 	wtimeout = 30;
@@ -455,23 +455,23 @@ void db_connect (int type, MYSQL *mysql)
 			if ((error == 2002 || error == 2003 || error == 2006 || error == 2013) && errno == EINTR) {
 				usleep (5000);
 				tries++;
-				success = FALSE;
+				success = false;
 			} else if (error == 2002) {
 				printf ("Database: Connection Failed: Attempt:'%d', Error:'%u', Message:'%s'\n", attempts,
 					mysql_errno (mysql), mysql_error (mysql));
 				sleep (1);
-				success = FALSE;
+				success = false;
 			} else if (error != 1049 && error != 2005 && error != 1045) {
 				printf ("Database: Connection Failed: Error:'%d', Message:'%s'\n", error, mysql_error (mysql));
-				success = FALSE;
+				success = false;
 				usleep (50000);
 			} else {
 				tries = 0;
-				success = FALSE;
+				success = false;
 			}
 		} else {
 			tries = 0;
-			success = TRUE;
+			success = true;
 			break;
 		}
 
@@ -554,7 +554,7 @@ void db_create_connection_pool (int type)
 			db_insert (&db_pool_local[id].mysql, LOCAL,
 				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
 
-			db_pool_local[id].free = TRUE;
+			db_pool_local[id].free = true;
 			db_pool_local[id].id = id;
 		}
 	} else {
@@ -580,7 +580,7 @@ void db_create_connection_pool (int type)
 			db_insert (&db_pool_remote[id].mysql, LOCAL,
 				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
 
-			db_pool_remote[id].free = TRUE;
+			db_pool_remote[id].free = true;
 			db_pool_remote[id].id = id;
 		}
 	}
@@ -627,9 +627,9 @@ pool_t *db_get_connection (int type)
 		SPINE_LOG_DEBUG (("DEBUG: Traversing Local Connection Pool for free connection."));
 		for (id = 0; id < set.threads; id++) {
 			SPINE_LOG_DEBUG (("DEBUG: Checking Local Pool ID %i.", id));
-			if (db_pool_local[id].free == TRUE) {
+			if (db_pool_local[id].free == true) {
 				SPINE_LOG_DEBUG (("DEBUG: Allocating Local Pool ID %i.", id));
-				db_pool_local[id].free = FALSE;
+				db_pool_local[id].free = false;
 				thread_mutex_unlock (LOCK_POOL);
 				return &db_pool_local[id];
 			}
@@ -638,9 +638,9 @@ pool_t *db_get_connection (int type)
 		SPINE_LOG_DEBUG (("DEBUG: Traversing Remote Connection Pool for free connection."));
 		for (id = 0; id < set.threads; id++) {
 			SPINE_LOG_DEBUG (("DEBUG: Checking Remote Pool ID %i.", id));
-			if (db_pool_remote[id].free == TRUE) {
+			if (db_pool_remote[id].free == true) {
 				SPINE_LOG_DEBUG (("DEBUG: Allocating Remote Pool ID %i.", id));
-				db_pool_remote[id].free = FALSE;
+				db_pool_remote[id].free = false;
 				thread_mutex_unlock (LOCK_POOL);
 				return &db_pool_remote[id];
 			}
@@ -665,10 +665,10 @@ void db_release_connection (int type, int id)
 
 	if (type == LOCAL) {
 		SPINE_LOG_DEBUG (("DEBUG: Freeing Local Pool ID %i", id));
-		db_pool_local[id].free = TRUE;
+		db_pool_local[id].free = true;
 	} else {
 		SPINE_LOG_DEBUG (("DEBUG: Freeing Remote Pool ID %i", id));
-		db_pool_remote[id].free = TRUE;
+		db_pool_remote[id].free = true;
 	}
 
 	thread_mutex_unlock (LOCK_POOL);
@@ -752,9 +752,9 @@ int db_column_exists (MYSQL *mysql, int type, const char *table, const char *col
 
 	result = db_query (mysql, type, query_frag);
 	if (mysql_num_rows (result)) {
-		exists = TRUE;
+		exists = true;
 	} else {
-		exists = FALSE;
+		exists = false;
 	}
 
 	db_free_result (result);
