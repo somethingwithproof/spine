@@ -1,3 +1,4 @@
+#include "spine.h"
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
@@ -36,15 +37,13 @@
    version 2.8.
 */
 
-#include "common.h"
-#include "spine.h"
-
 /*! \fn static void spine_signal_handler(int spine_signal)
  *  \brief interrupts the os default signal handler as appropriate.
  *
  */
-static void spine_signal_handler(int spine_signal) {
-	signal(spine_signal, SIG_DFL);
+static void spine_signal_handler (int spine_signal)
+{
+	signal (spine_signal, SIG_DFL);
 
 	set.exit_code = spine_signal;
 
@@ -54,82 +53,74 @@ static void spine_signal_handler(int spine_signal) {
 	struct tm *now_ptr;
 
 	/* get time for poller_output table */
-	nowbin = time(&nowbin);
+	nowbin = time (&nowbin);
 
-	localtime_r(&nowbin,&now_time);
+	localtime_r (&nowbin, &now_time);
 	now_ptr = &now_time;
 
-	char *log_fmt = get_date_format();
+	char *log_fmt = get_date_format ();
 	char logtime[50];
 
-	strftime(logtime, 50, log_fmt, now_ptr);
+	strftime (logtime, 50, log_fmt, now_ptr);
 
 	switch (spine_signal) {
-		case SIGABRT:
-			fprintf(stderr, "%s FATAL: Spine Interrupted by Abort Signal\n", logtime);
-			break;
-		case SIGINT:
-			fprintf(stderr, "%s FATAL: Spine Interrupted by Console Operator\n", logtime);
-			break;
-		case SIGSEGV:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Segmentation Fault\n", logtime);
-			exit(1);
-			break;
-		case SIGBUS:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Bus Error\n", logtime);
-			break;
-		case SIGFPE:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Floating Point Exception\n", logtime);
-			break;
-		case SIGQUIT:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Keyboard Quit Command\n", logtime);
-			break;
-		case SIGPIPE:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Broken Pipe\n", logtime);
-			break;
-		default:
-			fprintf(stderr, "%s FATAL: Spine Encountered An Unhandled Exception Signal Number: '%d'\n", logtime, spine_signal);
-			break;
+	case SIGABRT:
+		fprintf (stderr, "%s FATAL: Spine Interrupted by Abort Signal\n", logtime);
+		break;
+	case SIGINT:
+		fprintf (stderr, "%s FATAL: Spine Interrupted by Console Operator\n", logtime);
+		break;
+	case SIGSEGV:
+		fprintf (stderr, "%s FATAL: Spine Encountered a Segmentation Fault\n", logtime);
+		exit (1);
+		break;
+	case SIGBUS:
+		fprintf (stderr, "%s FATAL: Spine Encountered a Bus Error\n", logtime);
+		break;
+	case SIGFPE:
+		fprintf (stderr, "%s FATAL: Spine Encountered a Floating Point Exception\n", logtime);
+		break;
+	case SIGQUIT:
+		fprintf (stderr, "%s FATAL: Spine Encountered a Keyboard Quit Command\n", logtime);
+		break;
+	case SIGPIPE:
+		fprintf (stderr, "%s FATAL: Spine Encountered a Broken Pipe\n", logtime);
+		break;
+	default:
+		fprintf (
+			stderr, "%s FATAL: Spine Encountered An Unhandled Exception Signal Number: '%d'\n", logtime, spine_signal);
+		break;
 	}
 }
 
-static int spine_fatal_signals[] = {
-	SIGINT,
-	SIGPIPE,
-	SIGSEGV,
-	SIGBUS,
-	SIGFPE,
-	SIGQUIT,
-	SIGSYS,
-	SIGABRT,
-	0
-};
+static int spine_fatal_signals[] = { SIGINT, SIGPIPE, SIGSEGV, SIGBUS, SIGFPE, SIGQUIT, SIGSYS, SIGABRT, 0 };
 
 /*! \fn void install_spine_signal_handler(void)
  *  \brief installs the spine signal handler to stop certain calls from
  *         abending Spine.
  *
  */
-void install_spine_signal_handler(void) {
+void install_spine_signal_handler (void)
+{
 	/* Set a handler for any fatal signal not already handled */
 	int i;
 	struct sigaction sa;
-	void (*ohandler)(int);
+	void (*ohandler) (int);
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		sigaction(spine_fatal_signals[i], NULL, &sa);
+	for (i = 0; spine_fatal_signals[i]; ++i) {
+		sigaction (spine_fatal_signals[i], NULL, &sa);
 		if (sa.sa_handler == SIG_DFL) {
 			sa.sa_handler = spine_signal_handler;
-			sigemptyset(&sa.sa_mask);
+			sigemptyset (&sa.sa_mask);
 			sa.sa_flags = SA_RESTART;
-			sigaction(spine_fatal_signals[i], &sa, NULL);
+			sigaction (spine_fatal_signals[i], &sa, NULL);
 		}
 	}
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		ohandler = signal(spine_fatal_signals[i], spine_signal_handler);
+	for (i = 0; spine_fatal_signals[i]; ++i) {
+		ohandler = signal (spine_fatal_signals[i], spine_signal_handler);
 		if (ohandler != SIG_DFL) {
-			signal(spine_fatal_signals[i], ohandler);
+			signal (spine_fatal_signals[i], ohandler);
 		}
 	}
 
@@ -140,24 +131,25 @@ void install_spine_signal_handler(void) {
  *  \brief uninstalls the spine signal handler.
  *
  */
-void uninstall_spine_signal_handler(void) {
+void uninstall_spine_signal_handler (void)
+{
 	/* Remove a handler for any fatal signal handled */
 	int i;
 	struct sigaction sa;
-	void (*ohandler)(int);
+	void (*ohandler) (int);
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		sigaction(spine_fatal_signals[i], NULL, &sa);
+	for (i = 0; spine_fatal_signals[i]; ++i) {
+		sigaction (spine_fatal_signals[i], NULL, &sa);
 		if (sa.sa_handler == spine_signal_handler) {
 			sa.sa_handler = SIG_DFL;
-			sigaction(spine_fatal_signals[i], &sa, NULL);
+			sigaction (spine_fatal_signals[i], &sa, NULL);
 		}
 	}
 
-	for ( i=0; spine_fatal_signals[i]; ++i ) {
-		ohandler = signal(spine_fatal_signals[i], SIG_DFL);
+	for (i = 0; spine_fatal_signals[i]; ++i) {
+		ohandler = signal (spine_fatal_signals[i], SIG_DFL);
 		if (ohandler != spine_signal_handler) {
-			signal(spine_fatal_signals[i], ohandler);
+			signal (spine_fatal_signals[i], ohandler);
 		}
 	}
 }

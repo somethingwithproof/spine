@@ -1,3 +1,4 @@
+#include "spine.h"
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
@@ -31,8 +32,6 @@
  +-------------------------------------------------------------------------+
 */
 
-#include "common.h"
-#include "spine.h"
 #include <spawn.h>
 
 extern char **environ;
@@ -50,47 +49,82 @@ extern char **environ;
  *  \return pointer to the string results.  Must be freed by the parent.
  *
  */
-char *php_cmd(const char *php_command, int php_process) {
-	char *result_string;
+char *php_cmd (const char *php_command, int php_process)
+{
+	char *result_string = NULL;
 	char command[BUFSIZE];
 	ssize_t bytes;
 	int retries = 0;
 
-	assert(php_command != 0);
+	assert (php_command != 0);
 
 	/* pad command with CR-LF */
-	snprintf(command, BUFSIZE, "%s\r\n", php_command);
+	snprintf (command, BUFSIZE, "%s\r\n", php_command);
 
 	/* place lock around mutex */
 	switch (php_process) {
-	case 0:  thread_mutex_lock(LOCK_PHP_PROC_0);  break;
-	case 1:  thread_mutex_lock(LOCK_PHP_PROC_1);  break;
-	case 2:  thread_mutex_lock(LOCK_PHP_PROC_2);  break;
-	case 3:  thread_mutex_lock(LOCK_PHP_PROC_3);  break;
-	case 4:  thread_mutex_lock(LOCK_PHP_PROC_4);  break;
-	case 5:  thread_mutex_lock(LOCK_PHP_PROC_5);  break;
-	case 6:  thread_mutex_lock(LOCK_PHP_PROC_6);  break;
-	case 7:  thread_mutex_lock(LOCK_PHP_PROC_7);  break;
-	case 8:  thread_mutex_lock(LOCK_PHP_PROC_8);  break;
-	case 9:  thread_mutex_lock(LOCK_PHP_PROC_9);  break;
-	case 10: thread_mutex_lock(LOCK_PHP_PROC_10); break;
-	case 11: thread_mutex_lock(LOCK_PHP_PROC_11); break;
-	case 12: thread_mutex_lock(LOCK_PHP_PROC_12); break;
-	case 13: thread_mutex_lock(LOCK_PHP_PROC_13); break;
-	case 14: thread_mutex_lock(LOCK_PHP_PROC_14); break;
+	case 0:
+		thread_mutex_lock (LOCK_PHP_PROC_0);
+		break;
+	case 1:
+		thread_mutex_lock (LOCK_PHP_PROC_1);
+		break;
+	case 2:
+		thread_mutex_lock (LOCK_PHP_PROC_2);
+		break;
+	case 3:
+		thread_mutex_lock (LOCK_PHP_PROC_3);
+		break;
+	case 4:
+		thread_mutex_lock (LOCK_PHP_PROC_4);
+		break;
+	case 5:
+		thread_mutex_lock (LOCK_PHP_PROC_5);
+		break;
+	case 6:
+		thread_mutex_lock (LOCK_PHP_PROC_6);
+		break;
+	case 7:
+		thread_mutex_lock (LOCK_PHP_PROC_7);
+		break;
+	case 8:
+		thread_mutex_lock (LOCK_PHP_PROC_8);
+		break;
+	case 9:
+		thread_mutex_lock (LOCK_PHP_PROC_9);
+		break;
+	case 10:
+		thread_mutex_lock (LOCK_PHP_PROC_10);
+		break;
+	case 11:
+		thread_mutex_lock (LOCK_PHP_PROC_11);
+		break;
+	case 12:
+		thread_mutex_lock (LOCK_PHP_PROC_12);
+		break;
+	case 13:
+		thread_mutex_lock (LOCK_PHP_PROC_13);
+		break;
+	case 14:
+		thread_mutex_lock (LOCK_PHP_PROC_14);
+		break;
 	}
 
-	/* send command to the script server */
-	retry:
-	bytes = write(php_processes[php_process].php_write_fd, command, strlen(command));
+/* send command to the script server */
+retry:
+	bytes = write (php_processes[php_process].php_write_fd, command, strlen (command));
 
 	/* if write status is <= 0 then the script server may be hung */
 	if (bytes <= 0) {
-		result_string = strdup("U");
-		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server", php_process, command));
+		if (result_string)
+			free (result_string);
+		result_string = strdup ("U");
+		SPINE_LOG (
+			("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server",
+				php_process, command));
 
-		php_close(php_process);
-		php_init(php_process);
+		php_close (php_process);
+		php_init (php_process);
 		/* increment and retry a few times on the next item */
 		retries++;
 		if (retries < 3) {
@@ -98,31 +132,63 @@ char *php_cmd(const char *php_command, int php_process) {
 		}
 	} else {
 		/* read the result from the php_command */
-		result_string = php_readpipe(php_process, command);
+		if (result_string)
+			free (result_string);
+		result_string = php_readpipe (php_process, command);
 
 		/* check for a null */
-		if (!strlen(result_string)) {
-			SET_UNDEFINED(result_string);
+		if (!strlen (result_string)) {
+			SET_UNDEFINED (result_string);
 		}
 	}
 
 	/* unlock around php process */
 	switch (php_process) {
-	case 0:  thread_mutex_unlock(LOCK_PHP_PROC_0);  break;
-	case 1:  thread_mutex_unlock(LOCK_PHP_PROC_1);  break;
-	case 2:  thread_mutex_unlock(LOCK_PHP_PROC_2);  break;
-	case 3:  thread_mutex_unlock(LOCK_PHP_PROC_3);  break;
-	case 4:  thread_mutex_unlock(LOCK_PHP_PROC_4);  break;
-	case 5:  thread_mutex_unlock(LOCK_PHP_PROC_5);  break;
-	case 6:  thread_mutex_unlock(LOCK_PHP_PROC_6);  break;
-	case 7:  thread_mutex_unlock(LOCK_PHP_PROC_7);  break;
-	case 8:  thread_mutex_unlock(LOCK_PHP_PROC_8);  break;
-	case 9:  thread_mutex_unlock(LOCK_PHP_PROC_9);  break;
-	case 10: thread_mutex_unlock(LOCK_PHP_PROC_10); break;
-	case 11: thread_mutex_unlock(LOCK_PHP_PROC_11); break;
-	case 12: thread_mutex_unlock(LOCK_PHP_PROC_12); break;
-	case 13: thread_mutex_unlock(LOCK_PHP_PROC_13); break;
-	case 14: thread_mutex_unlock(LOCK_PHP_PROC_14); break;
+	case 0:
+		thread_mutex_unlock (LOCK_PHP_PROC_0);
+		break;
+	case 1:
+		thread_mutex_unlock (LOCK_PHP_PROC_1);
+		break;
+	case 2:
+		thread_mutex_unlock (LOCK_PHP_PROC_2);
+		break;
+	case 3:
+		thread_mutex_unlock (LOCK_PHP_PROC_3);
+		break;
+	case 4:
+		thread_mutex_unlock (LOCK_PHP_PROC_4);
+		break;
+	case 5:
+		thread_mutex_unlock (LOCK_PHP_PROC_5);
+		break;
+	case 6:
+		thread_mutex_unlock (LOCK_PHP_PROC_6);
+		break;
+	case 7:
+		thread_mutex_unlock (LOCK_PHP_PROC_7);
+		break;
+	case 8:
+		thread_mutex_unlock (LOCK_PHP_PROC_8);
+		break;
+	case 9:
+		thread_mutex_unlock (LOCK_PHP_PROC_9);
+		break;
+	case 10:
+		thread_mutex_unlock (LOCK_PHP_PROC_10);
+		break;
+	case 11:
+		thread_mutex_unlock (LOCK_PHP_PROC_11);
+		break;
+	case 12:
+		thread_mutex_unlock (LOCK_PHP_PROC_12);
+		break;
+	case 13:
+		thread_mutex_unlock (LOCK_PHP_PROC_13);
+		break;
+	case 14:
+		thread_mutex_unlock (LOCK_PHP_PROC_14);
+		break;
 	}
 
 	return result_string;
@@ -137,16 +203,17 @@ char *php_cmd(const char *php_command, int php_process) {
  *  \return the integer number of the next script server to use
  *
  */
-int php_get_process(void) {
+int php_get_process (void)
+{
 	int i;
 
-	thread_mutex_lock(LOCK_PHP);
+	thread_mutex_lock (LOCK_PHP);
 	if (set.php_current_server >= set.php_servers) {
 		set.php_current_server = 0;
 	}
 	i = set.php_current_server;
 	set.php_current_server++;
-	thread_mutex_unlock(LOCK_PHP);
+	thread_mutex_unlock (LOCK_PHP);
 
 	return i;
 }
@@ -162,7 +229,8 @@ int php_get_process(void) {
  *
  *  \return a string pointer to the PHP Script Server response
  */
-char *php_readpipe(int php_process, char *command) {
+char *php_readpipe (int php_process, char *command)
+{
 	fd_set fds;
 	struct timeval timeout;
 	double begin_time = 0;
@@ -170,116 +238,120 @@ char *php_readpipe(int php_process, char *command) {
 	double remaining_usec = 0;
 	char *result_string;
 
-	int  i;
+	int i;
 	char *cp;
 	char *bptr;
 
-	if (!(result_string = (char *)malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: php.c php_readpipe!");
+	if (!(result_string = (char *)malloc (RESULTS_BUFFER))) {
+		die ("ERROR: Fatal malloc error: php.c php_readpipe!");
 	}
 	result_string[0] = '\0';
 
 	/* record start time */
-	begin_time = get_time_as_double();
+	begin_time = get_time_as_double ();
 
 	/* establish timeout value for the PHP script server to respond */
 	timeout.tv_sec = set.script_timeout;
 	timeout.tv_usec = 0;
 
-	/* check to see which pipe talked and take action
-	 * should only be the READ pipe */
-	retry:
+/* check to see which pipe talked and take action
+ * should only be the READ pipe */
+retry:
 
 	/* initialize file descriptors to review for input/output */
-	FD_ZERO(&fds);
-	FD_SET(php_processes[php_process].php_read_fd,&fds);
+	FD_ZERO (&fds);
+	FD_SET (php_processes[php_process].php_read_fd, &fds);
 
-	switch (select(php_processes[php_process].php_read_fd+1, &fds, NULL, NULL, &timeout)) {
+	switch (select (php_processes[php_process].php_read_fd + 1, &fds, NULL, NULL, &timeout)) {
 	case -1:
 		switch (errno) {
-			case EBADF:
-				SPINE_LOG(("ERROR: SS[%i] An invalid file descriptor was given in one of the sets.", php_process));
-				break;
-			case EINTR:
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				usleep(2000);
-				#endif
+		case EBADF:
+			SPINE_LOG (("ERROR: SS[%i] An invalid file descriptor was given in one of the sets.", php_process));
+			break;
+		case EINTR:
+#ifndef SOLAR_THREAD
+			/* take a moment */
+			usleep (2000);
+#endif
 
-				/* record end time */
-				end_time = get_time_as_double();
+			/* record end time */
+			end_time = get_time_as_double ();
 
-				/* re-establish new timeout value */
-				timeout.tv_sec  = rint(floor(set.script_timeout-(end_time-begin_time)));
-				remaining_usec  = set.script_timeout - timeout.tv_sec - (end_time - begin_time);
+			/* re-establish new timeout value */
+			timeout.tv_sec = rint (floor (set.script_timeout - (end_time - begin_time)));
+			remaining_usec = set.script_timeout - timeout.tv_sec - (end_time - begin_time);
 
-				if (remaining_usec > 0) {
-					timeout.tv_usec = rint(remaining_usec * 1000000);
-				} else {
-					timeout.tv_usec = 0;
-				}
+			if (remaining_usec > 0) {
+				timeout.tv_usec = rint (remaining_usec * 1000000);
+			} else {
+				timeout.tv_usec = 0;
+			}
 
-				if (timeout.tv_sec + timeout.tv_usec > 0) {
-					goto retry;
-				} else {
-					SPINE_LOG(("WARNING: SS[%i] The Script Server script timed out while processing EINTR's.", php_process));
-				}
+			if (timeout.tv_sec + timeout.tv_usec > 0) {
+				goto retry;
+			} else {
+				SPINE_LOG (
+					("WARNING: SS[%i] The Script Server script timed out while processing EINTR's.", php_process));
+			}
 
-				break;
-			case EINVAL:
-				SPINE_LOG(("ERROR: SS[%i] N is negative or the value contained within timeout is invalid.", php_process));
-				break;
-			case ENOMEM:
-				SPINE_LOG(("ERROR: SS[%i] Select was unable to allocate memory for internal tables.", php_process));
-				break;
-			default:
-				SPINE_LOG(("ERROR: SS[%i] Unknown fatal select() error", php_process));
-				break;
+			break;
+		case EINVAL:
+			SPINE_LOG (("ERROR: SS[%i] N is negative or the value contained within timeout is invalid.", php_process));
+			break;
+		case ENOMEM:
+			SPINE_LOG (("ERROR: SS[%i] Select was unable to allocate memory for internal tables.", php_process));
+			break;
+		default:
+			SPINE_LOG (("ERROR: SS[%i] Unknown fatal select() error", php_process));
+			break;
 		}
 
-		SET_UNDEFINED(result_string);
+		SET_UNDEFINED (result_string);
 
 		/* kill script server because it is misbehaving */
-		php_close(php_process);
-		php_init(php_process);
+		php_close (php_process);
+		php_init (php_process);
 		break;
 	case 0:
 		/* record end time */
-		end_time = get_time_as_double();
-		SPINE_LOG(("WARNING: SS[%i] The PHP Script Server did not respond in time for Timeout[%0.2f], Command[%s] and will therefore be restarted", php_process, end_time - begin_time, command));
-		SET_UNDEFINED(result_string);
+		end_time = get_time_as_double ();
+		SPINE_LOG (("WARNING: SS[%i] The PHP Script Server did not respond in time for Timeout[%0.2f], Command[%s] and "
+					"will therefore be restarted",
+			php_process, end_time - begin_time, command));
+		SET_UNDEFINED (result_string);
 
 		/* kill script server because it is misbehaving */
-		php_close(php_process);
-		php_init(php_process);
+		php_close (php_process);
+		php_init (php_process);
 		break;
 	default:
-		if (FD_ISSET(php_processes[php_process].php_read_fd, &fds)) {
+		if (FD_ISSET (php_processes[php_process].php_read_fd, &fds)) {
 			bptr = result_string;
 
 			while (1) {
-				i = read(php_processes[php_process].php_read_fd, bptr, RESULTS_BUFFER-(bptr-result_string));
+				i = read (php_processes[php_process].php_read_fd, bptr, RESULTS_BUFFER - (bptr - result_string));
 
 				if (i <= 0) {
-					SET_UNDEFINED(result_string);
+					SET_UNDEFINED (result_string);
 					break;
 				}
 
 				bptr += i;
-				*bptr = '\0';	/* make what we've got into a string */
+				*bptr = '\0'; /* make what we've got into a string */
 
-				if ((cp = strstr(result_string,"\n")) != 0) {
+				if ((cp = strstr (result_string, "\n")) != 0) {
 					break;
 				}
 
-				if (bptr >= result_string+RESULTS_BUFFER) {
-					SPINE_LOG(("ERROR: SS[%i] The Script Server result was longer than the acceptable range", php_process));
-					SET_UNDEFINED(result_string);
+				if (bptr >= result_string + RESULTS_BUFFER) {
+					SPINE_LOG (
+						("ERROR: SS[%i] The Script Server result was longer than the acceptable range", php_process));
+					SET_UNDEFINED (result_string);
 				}
 			}
 		} else {
-			SPINE_LOG(("ERROR: SS[%i] The FD was not set as expected", php_process));
-			SET_UNDEFINED(result_string);
+			SPINE_LOG (("ERROR: SS[%i] The FD was not set as expected", php_process));
+			SET_UNDEFINED (result_string);
 		}
 
 		php_processes[php_process].php_state = PHP_READY;
@@ -299,10 +371,11 @@ char *php_readpipe(int php_process, char *command) {
  *
  *  \return TRUE if the PHP Script Server is know running or FALSE otherwise
  */
-int php_init(int php_process) {
-	int  cacti2php_pdes[2];
-	int  php2cacti_pdes[2];
-	pid_t  pid;
+int php_init (int php_process)
+{
+	int cacti2php_pdes[2];
+	int php2cacti_pdes[2];
+	pid_t pid;
 	char poller_id[TINY_BUFSIZE];
 	char *argv[7];
 	char arg_q[] = "-q";
@@ -310,12 +383,12 @@ int php_init(int php_process) {
 	char arg_environ_spine[] = "--environ=spine";
 	char arg_mode_online[] = "--mode=online";
 	char arg_mode_offline[] = "--mode=offline";
-	int  cancel_state;
+	int cancel_state;
 	char *result_string = 0;
 	int num_processes;
 	int i;
 	int retry_count = 0;
-	char *command = strdup("INIT");
+	char *command = strdup ("INIT");
 
 	/* special code to start all PHP Servers */
 	if (php_process == PHP_INIT) {
@@ -324,23 +397,25 @@ int php_init(int php_process) {
 		num_processes = 1;
 	}
 
-	for (i=0; i < num_processes; i++) {
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Routine Starting", i));
+	for (i = 0; i < num_processes; i++) {
+		SPINE_LOG_DEBUG (("DEBUG: SS[%i] PHP Script Server Routine Starting", i));
 
 		/* create the output pipes from Spine to php*/
-		if (pipe(cacti2php_pdes) < 0) {
-			SPINE_LOG(("ERROR: SS[%i] Could not allocate php server pipes", i));
+		if (pipe (cacti2php_pdes) < 0) {
+			SPINE_LOG (("ERROR: SS[%i] Could not allocate php server pipes", i));
+			free (command);
 			return FALSE;
 		}
 
 		/* create the input pipes from php to Spine */
-		if (pipe(php2cacti_pdes) < 0) {
-			SPINE_LOG(("ERROR: SS[%i] Could not allocate php server pipes", i));
+		if (pipe (php2cacti_pdes) < 0) {
+			SPINE_LOG (("ERROR: SS[%i] Could not allocate php server pipes", i));
+			free (command);
 			return FALSE;
 		}
 
 		/* disable thread cancellation from this point forward. */
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
+		pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &cancel_state);
 
 		/* establish arguments for script server execution */
 		if (set.cacti_version <= 1222) {
@@ -348,7 +423,7 @@ int php_init(int php_process) {
 			argv[1] = arg_q;
 			argv[2] = set.path_php_server;
 			argv[3] = arg_spine;
-			snprintf(poller_id, TINY_BUFSIZE, "%d", set.poller_id);
+			snprintf (poller_id, TINY_BUFSIZE, "%d", set.poller_id);
 			argv[4] = poller_id;
 			argv[5] = NULL;
 		} else if (set.poller_id > 1) {
@@ -357,7 +432,7 @@ int php_init(int php_process) {
 			argv[2] = set.path_php_server;
 			argv[3] = arg_environ_spine;
 
-			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
+			snprintf (poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
 			argv[4] = poller_id;
 
 			if (set.mode == REMOTE_ONLINE) {
@@ -372,88 +447,91 @@ int php_init(int php_process) {
 			argv[1] = arg_q;
 			argv[2] = set.path_php_server;
 			argv[3] = arg_environ_spine;
-			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
+			snprintf (poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
 			argv[4] = poller_id;
 
 			argv[5] = NULL;
 		}
 
 		/* spawn a child process */
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server About to spawn Child Process", i));
+		SPINE_LOG_DEBUG (("DEBUG: SS[%i] PHP Script Server About to spawn Child Process", i));
 
 		{
 			posix_spawn_file_actions_t fa;
 			int spawn_err;
 
-			if (posix_spawn_file_actions_init(&fa) != 0) {
-				SPINE_LOG(("ERROR: SS[%i] posix_spawn_file_actions_init failed", i));
-				close(cacti2php_pdes[0]);
-				close(cacti2php_pdes[1]);
-				close(php2cacti_pdes[0]);
-				close(php2cacti_pdes[1]);
-				pthread_setcancelstate(cancel_state, NULL);
+			if (posix_spawn_file_actions_init (&fa) != 0) {
+				SPINE_LOG (("ERROR: SS[%i] posix_spawn_file_actions_init failed", i));
+				close (cacti2php_pdes[0]);
+				close (cacti2php_pdes[1]);
+				close (php2cacti_pdes[0]);
+				close (php2cacti_pdes[1]);
+				free (command);
+				pthread_setcancelstate (cancel_state, NULL);
 				return FALSE;
 			}
 
 			/* wire cacti->php read end to child stdin, php->cacti write end to child stdout */
-			if (posix_spawn_file_actions_adddup2(&fa, cacti2php_pdes[0], STDIN_FILENO) != 0 ||
-			    posix_spawn_file_actions_adddup2(&fa, php2cacti_pdes[1], STDOUT_FILENO) != 0 ||
-			    /* close all four pipe ends in the child after dup2 redirects are in place */
-			    posix_spawn_file_actions_addclose(&fa, cacti2php_pdes[0]) != 0 ||
-			    posix_spawn_file_actions_addclose(&fa, cacti2php_pdes[1]) != 0 ||
-			    posix_spawn_file_actions_addclose(&fa, php2cacti_pdes[0]) != 0 ||
-			    posix_spawn_file_actions_addclose(&fa, php2cacti_pdes[1]) != 0) {
-				SPINE_LOG(("ERROR: SS[%i] posix_spawn_file_actions setup failed", i));
-				posix_spawn_file_actions_destroy(&fa);
-				close(cacti2php_pdes[0]);
-				close(cacti2php_pdes[1]);
-				close(php2cacti_pdes[0]);
-				close(php2cacti_pdes[1]);
-				pthread_setcancelstate(cancel_state, NULL);
+			if (posix_spawn_file_actions_adddup2 (&fa, cacti2php_pdes[0], STDIN_FILENO) != 0
+				|| posix_spawn_file_actions_adddup2 (&fa, php2cacti_pdes[1], STDOUT_FILENO) != 0 ||
+				/* close all four pipe ends in the child after dup2 redirects are in place */
+				posix_spawn_file_actions_addclose (&fa, cacti2php_pdes[0]) != 0
+				|| posix_spawn_file_actions_addclose (&fa, cacti2php_pdes[1]) != 0
+				|| posix_spawn_file_actions_addclose (&fa, php2cacti_pdes[0]) != 0
+				|| posix_spawn_file_actions_addclose (&fa, php2cacti_pdes[1]) != 0) {
+				SPINE_LOG (("ERROR: SS[%i] posix_spawn_file_actions setup failed", i));
+				posix_spawn_file_actions_destroy (&fa);
+				close (cacti2php_pdes[0]);
+				close (cacti2php_pdes[1]);
+				close (php2cacti_pdes[0]);
+				close (php2cacti_pdes[1]);
+				free (command);
+				pthread_setcancelstate (cancel_state, NULL);
 				return FALSE;
 			}
 
 			do {
-				spawn_err = posix_spawn(&pid, argv[0], &fa, NULL, argv, environ);
+				spawn_err = posix_spawn (&pid, argv[0], &fa, NULL, argv, environ);
 				if ((spawn_err == EAGAIN || spawn_err == ENOMEM) && retry_count < 3) {
 					retry_count++;
-					#ifndef SOLAR_THREAD
-					usleep(50000);
-					#endif
+#ifndef SOLAR_THREAD
+					usleep (50000);
+#endif
 					continue;
 				}
 				break;
 			} while (1);
 
-			posix_spawn_file_actions_destroy(&fa);
+			posix_spawn_file_actions_destroy (&fa);
 
 			if (spawn_err != 0) {
 				if (spawn_err == EAGAIN) {
-					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Out of Resources", i));
+					SPINE_LOG (("ERROR: SS[%i] Could not spawn PHP Script Server Out of Resources", i));
 				} else if (spawn_err == ENOMEM) {
-					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Out of Memory", i));
+					SPINE_LOG (("ERROR: SS[%i] Could not spawn PHP Script Server Out of Memory", i));
 				} else {
-					SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server Unknown Reason", i));
+					SPINE_LOG (("ERROR: SS[%i] Could not spawn PHP Script Server Unknown Reason", i));
 				}
 
-				close(php2cacti_pdes[0]);
-				close(php2cacti_pdes[1]);
-				close(cacti2php_pdes[0]);
-				close(cacti2php_pdes[1]);
+				close (php2cacti_pdes[0]);
+				close (php2cacti_pdes[1]);
+				close (cacti2php_pdes[0]);
+				close (cacti2php_pdes[1]);
 
-				SPINE_LOG(("ERROR: SS[%i] Could not spawn PHP Script Server", i));
-				pthread_setcancelstate(cancel_state, NULL);
+				SPINE_LOG (("ERROR: SS[%i] Could not spawn PHP Script Server", i));
+				free (command);
+				pthread_setcancelstate (cancel_state, NULL);
 
 				return FALSE;
 			}
 
-			SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Child spawn Success", i));
+			SPINE_LOG_DEBUG (("DEBUG: SS[%i] PHP Script Server Child spawn Success", i));
 		}
 
 		/* Parent */
 		/* close unneeded pipes */
-		close(cacti2php_pdes[0]);
-		close(php2cacti_pdes[1]);
+		close (cacti2php_pdes[0]);
+		close (php2cacti_pdes[1]);
 
 		if (php_process == PHP_INIT) {
 			php_processes[i].php_pid = pid;
@@ -466,41 +544,45 @@ int php_init(int php_process) {
 		}
 
 		/* restore caller's cancellation state. */
-		pthread_setcancelstate(cancel_state, NULL);
+		pthread_setcancelstate (cancel_state, NULL);
 
 		/* check pipe to insure startup took place */
 		if (php_process == PHP_INIT) {
-			result_string = php_readpipe(i, command);
+			result_string = php_readpipe (i, command);
 		} else {
-			result_string = php_readpipe(php_process, command);
+			result_string = php_readpipe (php_process, command);
 		}
 
-		if (strstr(result_string, "Started")) {
+		if (strstr (result_string, "Started")) {
 			if (php_process == PHP_INIT) {
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]", i, php2cacti_pdes[0], cacti2php_pdes[1]));
+				SPINE_LOG_DEBUG (("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]", i,
+					php2cacti_pdes[0], cacti2php_pdes[1]));
 
 				php_processes[i].php_state = PHP_READY;
 			} else {
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]", php_process, php2cacti_pdes[0], cacti2php_pdes[1]));
+				SPINE_LOG_DEBUG (("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]",
+					php_process, php2cacti_pdes[0], cacti2php_pdes[1]));
 
 				php_processes[php_process].php_state = PHP_READY;
 			}
 		} else {
 			if (php_process == PHP_INIT) {
-				SPINE_LOG(("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", i, result_string));
+				SPINE_LOG (
+					("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", i, result_string));
 
 				php_processes[i].php_state = PHP_BUSY;
 			} else {
-				SPINE_LOG(("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", php_process, result_string));
+				SPINE_LOG (("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", php_process,
+					result_string));
 
 				php_processes[php_process].php_state = PHP_BUSY;
 			}
 		}
 
-		free(result_string);
+		free (result_string);
 	}
 
-	free(command);
+	free (command);
 
 	return TRUE;
 }
@@ -518,7 +600,8 @@ int php_init(int php_process) {
  *  where the child process is hung for one reason or another.
  *
  */
-void php_close(int php_process) {
+void php_close (int php_process)
+{
 	int i;
 	int num_processes;
 	int len;
@@ -529,10 +612,10 @@ void php_close(int php_process) {
 		num_processes = 1;
 	}
 
-	for(i = 0; i < num_processes; i++) {
+	for (i = 0; i < num_processes; i++) {
 		php_t *phpp;
 
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Script Server Shutdown Started", i));
+		SPINE_LOG_DEBUG (("DEBUG: SS[%i] Script Server Shutdown Started", i));
 
 		/* tell the script server to close */
 		if (php_process == PHP_INIT) {
@@ -551,32 +634,32 @@ void php_close(int php_process) {
 		if (phpp->php_write_fd >= 0) {
 			static const char quit[] = "quit\r\n";
 
-			len = write(phpp->php_write_fd, quit, strlen(quit));
+			len = write (phpp->php_write_fd, quit, strlen (quit));
 
 			if (len >= 0) {
-				close(phpp->php_write_fd);
+				close (phpp->php_write_fd);
 				phpp->php_write_fd = -1;
 			}
 
-			/* wait before killing php */
-			#ifndef SOLAR_THREAD
-			usleep(50000);			/* 50 msec */
-			#endif
+/* wait before killing php */
+#ifndef SOLAR_THREAD
+			usleep (50000); /* 50 msec */
+#endif
 		}
 
 		/* only try to kill the process if the PID looks valid.
 		 * Trying to kill a negative number is bad news (it's
-	 	 * a process group leader), and PID 1 is "init".
-	  	 */
+		 * a process group leader), and PID 1 is "init".
+		 */
 		if (phpp->php_pid > 1) {
 			/* end the php script server process */
-			kill(phpp->php_pid, SIGTERM);
+			kill (phpp->php_pid, SIGTERM);
 
 			/* reset this PID variable? */
 		}
 
 		/* close file descriptors */
-		close(phpp->php_read_fd);
-		phpp->php_read_fd  = -1;
+		close (phpp->php_read_fd);
+		phpp->php_read_fd = -1;
 	}
 }

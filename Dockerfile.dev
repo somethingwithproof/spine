@@ -19,6 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     zlib1g-dev \
     cppcheck \
+    clang-format \
+    iwyu \
+    flawfinder \
+    libcmocka-dev \
+    doxygen \
+    graphviz \
     clang-tools \
     valgrind \
     gdb \

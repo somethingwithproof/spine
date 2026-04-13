@@ -1,3 +1,4 @@
+#include "spine.h"
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
@@ -41,14 +42,11 @@
  *	both directions word<-->value. Lookups are case insensitive, and
  *	both direction
  *
-*/
-
-#include "common.h"
-#include "spine.h"
+ */
 
 struct keyword {
 	const char *word;
-	int         value;
+	int value;
 };
 
 /*! Log Level Structure
@@ -58,13 +56,10 @@ struct keyword {
  *
  */
 static const struct keyword log_level[] = {
-	{ "NONE",   POLLER_VERBOSITY_NONE   },
-	{ "LOW",    POLLER_VERBOSITY_LOW    },
-	{ "MEDIUM", POLLER_VERBOSITY_MEDIUM },
-	{ "HIGH",   POLLER_VERBOSITY_HIGH   },
-	{ "DEBUG",  POLLER_VERBOSITY_DEBUG  },
+	{ "NONE", POLLER_VERBOSITY_NONE }, { "LOW", POLLER_VERBOSITY_LOW }, { "MEDIUM", POLLER_VERBOSITY_MEDIUM },
+	{ "HIGH", POLLER_VERBOSITY_HIGH }, { "DEBUG", POLLER_VERBOSITY_DEBUG },
 
-	{ 0, 0 }	/* ENDMARKER */
+	{ 0, 0 } /* ENDMARKER */
 };
 
 /*! Log Destination Structure
@@ -74,12 +69,9 @@ static const struct keyword log_level[] = {
  *
  */
 static const struct keyword logdest[] = {
-	{ "FILE",   LOGDEST_FILE   },
-	{ "SYSLOG", LOGDEST_SYSLOG },
-	{ "BOTH",   LOGDEST_BOTH   },
-	{ "STDOUT", LOGDEST_STDOUT },
+	{ "FILE", LOGDEST_FILE }, { "SYSLOG", LOGDEST_SYSLOG }, { "BOTH", LOGDEST_BOTH }, { "STDOUT", LOGDEST_STDOUT },
 
-	{ 0, 0 }	/* ENDMARKER */
+	{ 0, 0 } /* ENDMARKER */
 };
 
 /*! Poller Action Structure
@@ -89,14 +81,11 @@ static const struct keyword logdest[] = {
  *
  */
 static const struct keyword actions[] = {
-	{ "SNMP",       POLLER_ACTION_SNMP               },
-	{ "SCRIPT",     POLLER_ACTION_SCRIPT             },
-	{ "PHPSCRIPT",	POLLER_ACTION_PHP_SCRIPT_SERVER  },
-	{ "SNMP_CT",        POLLER_ACTION_SNMP_COUNT               },
-	{ "SCRIPT_CT",      POLLER_ACTION_SCRIPT_COUNT             },
-	{ "PHPSCRIPT_CT",	POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT  },
+	{ "SNMP", POLLER_ACTION_SNMP }, { "SCRIPT", POLLER_ACTION_SCRIPT },
+	{ "PHPSCRIPT", POLLER_ACTION_PHP_SCRIPT_SERVER }, { "SNMP_CT", POLLER_ACTION_SNMP_COUNT },
+	{ "SCRIPT_CT", POLLER_ACTION_SCRIPT_COUNT }, { "PHPSCRIPT_CT", POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT },
 
-	{ 0, 0 }	/* ENDMARKER */
+	{ 0, 0 } /* ENDMARKER */
 };
 
 /*! \fn find_keyword_by_word(const struct keyword *tbl, const char *word, int dflt)
@@ -119,17 +108,17 @@ static const struct keyword actions[] = {
  *  \return TRUE, FALSE, or dflt depending on results of search
  *
  */
-static int find_keyword_by_word(const struct keyword *tbl, const char *word, int dflt)
+static int find_keyword_by_word (const struct keyword *tbl, const char *word, int dflt)
 {
-	assert(tbl  != 0);
-	assert(word != 0);
+	assert (tbl != 0);
+	assert (word != 0);
 
-	if (all_digits(word)) {
-		return atoi(word);
+	if (all_digits (word)) {
+		return atoi (word);
 	}
 
 	for (; tbl->word; tbl++) {
-		if (STRIMATCH(word, tbl->word)) {
+		if (STRIMATCH (word, tbl->word)) {
 			return tbl->value;
 		}
 	}
@@ -153,10 +142,11 @@ static int find_keyword_by_word(const struct keyword *tbl, const char *word, int
  *  \return a string pointer to that matches the search criteria, or dflt
  *
  */
-static const char *find_keyword_by_value(const struct keyword *tbl, int value, const char *dflt) {
-	assert(tbl != 0);
+static const char *find_keyword_by_value (const struct keyword *tbl, int value, const char *dflt)
+{
+	assert (tbl != 0);
 
-	for (; tbl->word; tbl++ ) {
+	for (; tbl->word; tbl++) {
 		if (tbl->value == value) {
 			return tbl->word;
 		}
@@ -165,26 +155,32 @@ static const char *find_keyword_by_value(const struct keyword *tbl, int value, c
 	return dflt;
 }
 
-const char *printable_log_level(int token) {
-	return find_keyword_by_value(log_level, token, "-unknown-");
+const char *printable_log_level (int token)
+{
+	return find_keyword_by_value (log_level, token, "-unknown-");
 }
 
-int parse_log_level(const char *word, int dflt) {
-	return find_keyword_by_word(log_level, word, dflt);
+int parse_log_level (const char *word, int dflt)
+{
+	return find_keyword_by_word (log_level, word, dflt);
 }
 
-const char *printable_logdest(int token) {
-	return find_keyword_by_value(logdest, token, "-unknown-");
+const char *printable_logdest (int token)
+{
+	return find_keyword_by_value (logdest, token, "-unknown-");
 }
 
-int parse_logdest(const char *word, int dflt) {
-	return find_keyword_by_word(logdest, word, dflt);
+int parse_logdest (const char *word, int dflt)
+{
+	return find_keyword_by_word (logdest, word, dflt);
 }
 
-const char *printable_action(int token) {
-	return find_keyword_by_value(actions, token, "-unknown-");
+const char *printable_action (int token)
+{
+	return find_keyword_by_value (actions, token, "-unknown-");
 }
 
-int parse_action(const char *word, int dflt) {
-	return find_keyword_by_word(actions, word, dflt);
+int parse_action (const char *word, int dflt)
+{
+	return find_keyword_by_word (actions, word, dflt);
 }

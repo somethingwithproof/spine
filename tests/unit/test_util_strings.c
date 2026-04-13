@@ -7,7 +7,6 @@
 #include <stdio.h>
 
 #define UNIT_TESTING
-#include "../../common.h"
 #include "../../spine.h"
 
 /* Define globals that Spine expects */

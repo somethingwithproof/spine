@@ -1,3 +1,4 @@
+#include "spine.h"
 /*
  +-------------------------------------------------------------------------+
  | Copyright (C) 2004-2026 The Cacti Group                                 |
@@ -84,22 +85,19 @@
  * SUCH DAMAGE.
  */
 
-#include "common.h"
-#include "spine.h"
 #include <spawn.h>
 
 /* An instance of this struct is created for each popen() fd. */
-static struct pid
-{
-    struct pid *next;
-    int		fd;
-    pid_t	pid;
+static struct pid {
+	struct pid *next;
+	int fd;
+	pid_t pid;
 } * PidList;
 
 /* Serialize access to PidList. */
 static pthread_mutex_t ListMutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void	close_cleanup(void *);
+static void close_cleanup (void *);
 
 /*! ------------------------------------------------------------------------------
  *
@@ -126,27 +124,28 @@ static void	close_cleanup(void *);
 /* WARNING: command is passed to /bin/sh -c without shell escaping.
  * The caller MUST ensure command originates from a trusted source
  * (the Cacti database). Do not pass user-controlled input directly. */
-int nft_popen(const char * command, const char * type) {
+int nft_popen (const char *command, const char *type)
+{
 	struct pid *cur;
 	struct pid *p;
-	int    pdes[2];
-	int    fd, twoway;
-	pid_t  pid;
-	char   *argv[4];
-	char   *command_copy;
-	char   shell_cmd[] = "sh";
-	char   shell_flag[] = "-c";
-	int    cancel_state;
+	int pdes[2];
+	int fd, twoway;
+	pid_t pid;
+	char *argv[4];
+	char *command_copy;
+	char shell_cmd[] = "sh";
+	char shell_flag[] = "-c";
+	int cancel_state;
 	extern char **environ;
-	int    retry_count = 0;
+	int retry_count = 0;
 
 	/* On platforms where pipe() is bidirectional,
 	 * "r+" gives two-way communication.
 	 */
-	if (strchr(type, '+')) {
+	if (strchr (type, '+')) {
 		twoway = 1;
 		type = "r+";
-	}else {
+	} else {
 		twoway = 0;
 		if ((*type != 'r' && *type != 'w') || type[1]) {
 			errno = EINVAL;
@@ -154,24 +153,24 @@ int nft_popen(const char * command, const char * type) {
 		}
 	}
 
-	if (pipe(pdes) < 0)
+	if (pipe (pdes) < 0)
 		return -1;
 
 	/* Disable thread cancellation from this point forward. */
-	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
+	pthread_setcancelstate (PTHREAD_CANCEL_DISABLE, &cancel_state);
 
-	if ((cur = malloc(sizeof(struct pid))) == NULL) {
-		(void)close(pdes[0]);
-		(void)close(pdes[1]);
-		pthread_setcancelstate(cancel_state, NULL);
+	if ((cur = malloc (sizeof (struct pid))) == NULL) {
+		(void)close (pdes[0]);
+		(void)close (pdes[1]);
+		pthread_setcancelstate (cancel_state, NULL);
 		return -1;
 	}
 
-	if ((command_copy = strdup(command)) == NULL) {
-		(void)close(pdes[0]);
-		(void)close(pdes[1]);
-		free(cur);
-		pthread_setcancelstate(cancel_state, NULL);
+	if ((command_copy = strdup (command)) == NULL) {
+		(void)close (pdes[0]);
+		(void)close (pdes[1]);
+		free (cur);
+		pthread_setcancelstate (cancel_state, NULL);
 		return -1;
 	}
 
@@ -183,91 +182,92 @@ int nft_popen(const char * command, const char * type) {
 	/* Lock the list mutex prior to forking, to ensure that
 	 * the child process sees PidList in a consistent list state.
 	 */
-	pthread_mutex_lock(&ListMutex);
+	pthread_mutex_lock (&ListMutex);
 
 	/* Build file actions for posix_spawn to replace vfork+execve. */
 	posix_spawn_file_actions_t fa;
-	if (posix_spawn_file_actions_init(&fa) != 0) {
-		SPINE_LOG(("ERROR: SCRIPT: posix_spawn_file_actions_init failed"));
-		(void)close(pdes[0]);
-		(void)close(pdes[1]);
-		pthread_mutex_unlock(&ListMutex);
-		free(command_copy);
-		pthread_setcancelstate(cancel_state, NULL);
+	if (posix_spawn_file_actions_init (&fa) != 0) {
+		SPINE_LOG (("ERROR: SCRIPT: posix_spawn_file_actions_init failed"));
+		(void)close (pdes[0]);
+		(void)close (pdes[1]);
+		pthread_mutex_unlock (&ListMutex);
+		free (command_copy);
+		free (cur);
+		pthread_setcancelstate (cancel_state, NULL);
 		return -1;
 	}
 
 	if (*type == 'r') {
-		posix_spawn_file_actions_addclose(&fa, pdes[0]);
+		posix_spawn_file_actions_addclose (&fa, pdes[0]);
 		if (pdes[1] != STDOUT_FILENO) {
-			posix_spawn_file_actions_adddup2(&fa, pdes[1], STDOUT_FILENO);
-			posix_spawn_file_actions_addclose(&fa, pdes[1]);
+			posix_spawn_file_actions_adddup2 (&fa, pdes[1], STDOUT_FILENO);
+			posix_spawn_file_actions_addclose (&fa, pdes[1]);
 			if (twoway)
-				posix_spawn_file_actions_adddup2(&fa, STDOUT_FILENO, STDIN_FILENO);
+				posix_spawn_file_actions_adddup2 (&fa, STDOUT_FILENO, STDIN_FILENO);
 		} else if (twoway && (pdes[1] != STDIN_FILENO)) {
-			posix_spawn_file_actions_adddup2(&fa, pdes[1], STDIN_FILENO);
+			posix_spawn_file_actions_adddup2 (&fa, pdes[1], STDIN_FILENO);
 		}
 	} else {
 		if (pdes[0] != STDIN_FILENO) {
-			posix_spawn_file_actions_adddup2(&fa, pdes[0], STDIN_FILENO);
-			posix_spawn_file_actions_addclose(&fa, pdes[0]);
+			posix_spawn_file_actions_adddup2 (&fa, pdes[0], STDIN_FILENO);
+			posix_spawn_file_actions_addclose (&fa, pdes[0]);
 		}
-		posix_spawn_file_actions_addclose(&fa, pdes[1]);
+		posix_spawn_file_actions_addclose (&fa, pdes[1]);
 	}
 
 	/* Close all other pipes in the child (Posix.2 requirement). */
 	for (p = PidList; p; p = p->next)
-		posix_spawn_file_actions_addclose(&fa, p->fd);
+		posix_spawn_file_actions_addclose (&fa, p->fd);
 
-	/* Spawn the child process with retry on EAGAIN/ENOMEM. */
-	#if defined(__CYGWIN__)
+/* Spawn the child process with retry on EAGAIN/ENOMEM. */
+#if defined(__CYGWIN__)
 	const char *spawn_shell = (set.cygwinshloc == 0) ? "sh.exe" : "/bin/sh";
-	#else
+#else
 	const char *spawn_shell = "/bin/sh";
-	#endif
+#endif
 
 	int spawn_err;
-	retry:
-	spawn_err = posix_spawn(&pid, spawn_shell, &fa, NULL, argv, environ);
+retry:
+	spawn_err = posix_spawn (&pid, spawn_shell, &fa, NULL, argv, environ);
 
 	if (spawn_err != 0) {
 		if ((spawn_err == EAGAIN || spawn_err == ENOMEM) && retry_count < 3) {
 			retry_count++;
-			usleep(50000);
+			usleep (50000);
 			goto retry;
 		}
 
-		SPINE_LOG(("ERROR: SCRIPT: posix_spawn failed: %s", strerror(spawn_err)));
-		posix_spawn_file_actions_destroy(&fa);
-		(void)close(pdes[0]);
-		(void)close(pdes[1]);
-		pthread_mutex_unlock(&ListMutex);
-		free(command_copy);
-		pthread_setcancelstate(cancel_state, NULL);
+		SPINE_LOG (("ERROR: SCRIPT: posix_spawn failed: %s", strerror (spawn_err)));
+		posix_spawn_file_actions_destroy (&fa);
+		(void)close (pdes[0]);
+		(void)close (pdes[1]);
+		pthread_mutex_unlock (&ListMutex);
+		free (command_copy);
+		pthread_setcancelstate (cancel_state, NULL);
 		return -1;
 	}
 
-	posix_spawn_file_actions_destroy(&fa);
+	posix_spawn_file_actions_destroy (&fa);
 
 	/* Parent. */
 	if (*type == 'r') {
 		fd = pdes[0];
-		(void)close(pdes[1]);
-	}else {
+		(void)close (pdes[1]);
+	} else {
 		fd = pdes[1];
-		(void)close(pdes[0]);
+		(void)close (pdes[0]);
 	}
 
 	/* Link into list of file descriptors. */
-	cur->fd   = fd;
-	cur->pid  = pid;
+	cur->fd = fd;
+	cur->pid = pid;
 	cur->next = PidList;
-	PidList   = cur;
+	PidList = cur;
 
 	/* Unlock the mutex, and restore caller's cancellation state. */
-	pthread_mutex_unlock(&ListMutex);
-	free(command_copy);
-	pthread_setcancelstate(cancel_state, NULL);
+	pthread_mutex_unlock (&ListMutex);
+	free (command_copy);
+	pthread_setcancelstate (cancel_state, NULL);
 
 	return fd;
 }
@@ -285,19 +285,20 @@ int nft_popen(const char * command, const char * type) {
  *
  *------------------------------------------------------------------------------
  */
-int nft_pchild(int fd) {
+int nft_pchild (int fd)
+{
 	struct pid *cur;
-	pid_t	pid = 0;
+	pid_t pid = 0;
 
 	/* Find the appropriate file descriptor. */
-	pthread_mutex_lock(&ListMutex);
+	pthread_mutex_lock (&ListMutex);
 	for (cur = PidList; cur; cur = cur->next)
 		if (cur->fd == fd) {
 			pid = cur->pid;
 			break;
-	}
+		}
 
-	pthread_mutex_unlock(&ListMutex);
+	pthread_mutex_unlock (&ListMutex);
 
 	if (cur == NULL) {
 		errno = EBADF;
@@ -323,20 +324,20 @@ int nft_pchild(int fd) {
  *
  *------------------------------------------------------------------------------
  */
-int
-nft_pclose(int fd)
+int nft_pclose (int fd)
 {
 	struct pid *cur;
-	int		pstat;
-	pid_t	pid;
+	int pstat;
+	pid_t pid;
 
 	/* Find the appropriate file descriptor. */
-	pthread_mutex_lock(&ListMutex);
+	pthread_mutex_lock (&ListMutex);
 
 	for (cur = PidList; cur; cur = cur->next)
-	if (cur->fd == fd) break;
+		if (cur->fd == fd)
+			break;
 
-	pthread_mutex_unlock(&ListMutex);
+	pthread_mutex_unlock (&ListMutex);
 
 	if (cur == NULL) {
 		errno = EBADF;
@@ -347,52 +348,52 @@ nft_pclose(int fd)
 	 * We want to ensure that the fd is closed and the PidList
 	 * entry freed despite cancellation, so push a cleanup handler.
 	 */
-	pthread_cleanup_push(close_cleanup, cur);
+	pthread_cleanup_push (close_cleanup, cur);
 
 	/* end the process nicely and then forcefully */
-	(void)close(fd);
+	(void)close (fd);
 
-	cur->fd = -1;		/* Prevent the fd being closed twice. */
+	cur->fd = -1; /* Prevent the fd being closed twice. */
 
-	do { pid = waitpid(cur->pid, &pstat, 0);
+	do {
+		pid = waitpid (cur->pid, &pstat, 0);
 	} while (pid == -1 && errno == EINTR);
 
-	pthread_cleanup_pop(1);	/* Execute the cleanup handler. */
+	pthread_cleanup_pop (1); /* Execute the cleanup handler. */
 
 	return (pid == -1 ? -1 : pstat);
 }
 
 /*! ------------------------------------------------------------------------------
-  * close_cleanup	- close the pipe and free the pidlist entry.
-  *------------------------------------------------------------------------------
+ * close_cleanup	- close the pipe and free the pidlist entry.
+ *------------------------------------------------------------------------------
  */
-static void
-close_cleanup(void * arg)
+static void close_cleanup (void *arg)
 {
-	struct pid * cur = arg;
-	struct pid * prev;
+	struct pid *cur = arg;
+	struct pid *prev;
 
 	/* Close the pipe fd if necessary. */
 	if (cur->fd >= 0) {
-		(void)close(cur->fd);
+		(void)close (cur->fd);
 	}
 
 	/* Remove the entry from the linked list. */
-	pthread_mutex_lock(&ListMutex);
+	pthread_mutex_lock (&ListMutex);
 
 	if (PidList == cur) {
-		PidList =  cur->next;
-	}else{
+		PidList = cur->next;
+	} else {
 		for (prev = PidList; prev; prev = prev->next)
-		if (prev->next == cur) {
-			prev->next =  cur->next;
-			break;
-		}
+			if (prev->next == cur) {
+				prev->next = cur->next;
+				break;
+			}
 
-		assert(prev != NULL);	/* Search should not fail */
+		assert (prev != NULL); /* Search should not fail */
 	}
 
-	pthread_mutex_unlock(&ListMutex);
+	pthread_mutex_unlock (&ListMutex);
 
-	free(cur);
+	free (cur);
 }

@@ -1,3 +1,4 @@
+#include "spine.h"
 /*
  ex: set tabstop=4 shiftwidth=4 autoindent:
  +-------------------------------------------------------------------------+
@@ -31,8 +32,98 @@
  +-------------------------------------------------------------------------+
 */
 
-#include "common.h"
-#include "spine.h"
+static int is_identifier_char (unsigned char c)
+{
+	return (isalnum (c) || c == '_');
+}
+
+static void redact_sql_value_for_key (char *query, const char *key)
+{
+	char *match;
+	size_t key_len;
+
+	key_len = strlen (key);
+	match = query;
+
+	while ((match = strstr (match, key)) != NULL) {
+		char *cursor;
+		char quote = '\0';
+
+		if (match > query && is_identifier_char ((unsigned char)*(match - 1))) {
+			match += key_len;
+			continue;
+		}
+
+		if (is_identifier_char ((unsigned char)match[key_len])) {
+			match += key_len;
+			continue;
+		}
+
+		cursor = match + key_len;
+		while (*cursor && isspace ((unsigned char)*cursor)) {
+			cursor++;
+		}
+
+		if (*cursor != '=') {
+			match += key_len;
+			continue;
+		}
+
+		cursor++;
+		while (*cursor && isspace ((unsigned char)*cursor)) {
+			cursor++;
+		}
+
+		if (*cursor == '\'' || *cursor == '\"') {
+			quote = *cursor;
+			cursor++;
+		}
+
+		while (*cursor) {
+			if (quote) {
+				if (*cursor == quote) {
+					break;
+				}
+
+				*cursor = '*';
+				cursor++;
+				continue;
+			}
+
+			if (*cursor == ',' || *cursor == ')' || isspace ((unsigned char)*cursor)) {
+				break;
+			}
+
+			*cursor = '*';
+			cursor++;
+		}
+
+		match = cursor;
+	}
+}
+
+static void log_redacted_sql_query (const char *query_frag)
+{
+	char *redacted_query;
+	int j;
+	static const char *sensitive_keys[] = { "snmp_community", "snmp_password", "snmp_priv_passphrase", "password" };
+
+	if (set.log_level < POLLER_VERBOSITY_DEVDBG) {
+		return;
+	}
+
+	redacted_query = strdup (query_frag);
+	if (redacted_query == NULL) {
+		return;
+	}
+
+	for (j = 0; j < (int)(sizeof (sensitive_keys) / sizeof (sensitive_keys[0])); j++) {
+		redact_sql_value_for_key (redacted_query, sensitive_keys[j]);
+	}
+
+	SPINE_LOG_DEVDBG (("DEVDBG: SQL:%s", redacted_query));
+	free (redacted_query);
+}
 
 /*! \fn int db_insert(MYSQL *mysql, int type, const char *query)
  *  \brief inserts a row or rows in a database table.
@@ -46,73 +137,54 @@
  *  \return TRUE if successful, or FALSE if not.
  *
  */
-int db_insert(MYSQL *mysql, int type, const char *query) {
-	int    error;
-	int    error_count = 0;
-	char   query_frag[LRG_BUFSIZE];
+int db_insert (MYSQL *mysql, int type, const char *query)
+{
+	int error;
+	int error_count = 0;
+	char query_frag[LRG_BUFSIZE];
 
 	/* save a fragment just in case */
-	memset(query_frag, 0, LRG_BUFSIZE);
-	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
+	memset (query_frag, 0, LRG_BUFSIZE);
+	snprintf (query_frag, LRG_BUFSIZE, "%s", query);
 
 	/* show the sql query */
-	char *redacted_query = NULL;
-	if (set.log_level >= POLLER_VERBOSITY_DEVDBG) {
-		redacted_query = strdup(query_frag);
-		if (redacted_query) {
-			char *p;
-			const char *sensitive[] = {"snmp_community", "snmp_password", "snmp_priv_passphrase", "password"};
-			int j;
-			for (j=0; j<4; j++) {
-				if ((p = strstr(redacted_query, sensitive[j]))) {
-					char *val = strchr(p, '=');
-					if (val) {
-						val++;
-						while (*val && *val != ',' && *val != ' ' && *val != ')') {
-							*val++ = '*';
-						}
-					}
-				}
-			}
-			SPINE_LOG_DEVDBG(("DEVDBG: SQL:%s", redacted_query));
-			free(redacted_query);
-		}
-	}
+	log_redacted_sql_query (query_frag);
 
-	while(1) {
+	while (1) {
 		if (set.SQL_readonly == FALSE) {
-			if (mysql_query(mysql, query)) {
-				error = mysql_errno(mysql);
+			if (mysql_query (mysql, query)) {
+				error = mysql_errno (mysql);
 
 				if (error == 2013 || error == 2006) {
 					if (errno != EINTR) {
-						db_reconnect(mysql, type, error, "db_insert");
+						db_reconnect (mysql, type, error, "db_insert");
 
 						error_count++;
 
 						if (error_count > 30) {
-							die("FATAL: Too many Reconnect Attempts!");
+							die ("FATAL: Too many Reconnect Attempts!");
 						}
 
 						continue;
 					} else {
-						usleep(50000);
+						usleep (50000);
 						continue;
 					}
 				}
 
 				if ((error == 1213) || (error == 1205)) {
-					usleep(50000);
+					usleep (50000);
 					error_count++;
 
 					if (error_count > 30) {
-						SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
+						SPINE_LOG (("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 						return FALSE;
 					}
 
 					continue;
 				} else {
-					SPINE_LOG(("ERROR: SQL Failed! Error:'%i', Message:'%s', SQL Fragment:'%s'", error, mysql_error(mysql), query_frag));
+					SPINE_LOG (("ERROR: SQL Failed! Error:'%i', Message:'%s', SQL Fragment:'%s'", error,
+						mysql_error (mysql), query_frag));
 					return FALSE;
 				}
 			} else {
@@ -124,41 +196,44 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	}
 }
 
-int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
-	unsigned long  mysql_thread = 0;
-	char   query[100];
+int db_reconnect (MYSQL *mysql, int type, int error, const char *function)
+{
+	unsigned long mysql_thread = 0;
+	char query[100];
 
-	mysql_thread = mysql_thread_id(mysql);
-	mysql_ping(mysql);
+	mysql_thread = mysql_thread_id (mysql);
+	mysql_ping (mysql);
 
-	if (mysql_thread_id(mysql) != mysql_thread) {
-		SPINE_LOG(("WARNING: Connection Broken in Function %s with Error %i.  Reconnect via mysql_ping() successful.", function, error));
-		snprintf(query, 100, "KILL %lu;", mysql_thread);
-		mysql_query(mysql, query);
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
+	if (mysql_thread_id (mysql) != mysql_thread) {
+		SPINE_LOG (("WARNING: Connection Broken in Function %s with Error %i.  Reconnect via mysql_ping() successful.",
+			function, error));
+		snprintf (query, 100, "KILL %lu;", mysql_thread);
+		mysql_query (mysql, query);
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
+		mysql_query (mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
 
-		sleep(1);
+		sleep (1);
 
 		return TRUE;
 	}
 
 	/* mysql_ping() did not reconnect; do it explicitly */
-	SPINE_LOG(("WARNING: Connection Broken in Function %s with Error %i.  Attempting explicit reconnect.", function, error));
+	SPINE_LOG (
+		("WARNING: Connection Broken in Function %s with Error %i.  Attempting explicit reconnect.", function, error));
 
-	mysql_close(mysql);
-	db_connect(type, mysql);
+	mysql_close (mysql);
+	db_connect (type, mysql);
 
-	if (mysql_thread_id(mysql) > 0) {
-		SPINE_LOG(("WARNING: Explicit reconnect successful in Function %s.", function));
+	if (mysql_thread_id (mysql) > 0) {
+		SPINE_LOG (("WARNING: Explicit reconnect successful in Function %s.", function));
 		return TRUE;
 	}
 
-	SPINE_LOG(("WARNING: Connection Broken with Error %i.  Reconnect failed.", error));
+	SPINE_LOG (("WARNING: Connection Broken with Error %i.  Reconnect failed.", error));
 	return FALSE;
 }
 
@@ -172,80 +247,60 @@ int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
  *  \return MYSQL_RES a MySQL result structure
  *
  */
-MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
-	MYSQL_RES  *mysql_res = 0;
+MYSQL_RES *db_query (MYSQL *mysql, int type, const char *query)
+{
+	MYSQL_RES *mysql_res = 0;
 
-	int    error       = 0;
-	int    error_count = 0;
+	int error = 0;
+	int error_count = 0;
 
-	char   query_frag[LRG_BUFSIZE];
+	char query_frag[LRG_BUFSIZE];
 
 	/* save a fragment just in case */
-	memset(query_frag, 0, LRG_BUFSIZE);
-	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
+	memset (query_frag, 0, LRG_BUFSIZE);
+	snprintf (query_frag, LRG_BUFSIZE, "%s", query);
 
 	/* show the sql query */
-	char *redacted_query = NULL;
-	if (set.log_level >= POLLER_VERBOSITY_DEVDBG) {
-		redacted_query = strdup(query_frag);
-		if (redacted_query) {
-			char *p;
-			const char *sensitive[] = {"snmp_community", "snmp_password", "snmp_priv_passphrase", "password"};
-			int j;
-			for (j=0; j<4; j++) {
-				if ((p = strstr(redacted_query, sensitive[j]))) {
-					char *val = strchr(p, '=');
-					if (val) {
-						val++;
-						while (*val && *val != ',' && *val != ' ' && *val != ')') {
-							*val++ = '*';
-						}
-					}
-				}
-			}
-			SPINE_LOG_DEVDBG(("DEVDBG: SQL:%s", redacted_query));
-			free(redacted_query);
-		}
-	}
+	log_redacted_sql_query (query_frag);
 
 	while (1) {
-		if (mysql_query(mysql, query)) {
-			error = mysql_errno(mysql);
+		if (mysql_query (mysql, query)) {
+			error = mysql_errno (mysql);
 
 			if (error == 2013 || error == 2006) {
 				if (errno != EINTR) {
-					db_reconnect(mysql, type, error, "db_query");
+					db_reconnect (mysql, type, error, "db_query");
 
 					error_count++;
 
 					if (error_count > 30) {
-						die("FATAL: Too many Reconnect Attempts!");
+						die ("FATAL: Too many Reconnect Attempts!");
 					}
 
 					continue;
 				} else {
-					usleep(50000);
+					usleep (50000);
 					continue;
 				}
 			}
 
 			if (error == 1213 || error == 1205) {
-				usleep(50000);
+				usleep (50000);
 				error_count++;
 
 				if (error_count > 30) {
-					SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
-					exit(1);
+					SPINE_LOG (("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
+					exit (1);
 				}
 
 				continue;
 			} else {
-				SPINE_LOG(("FATAL: Database Error:'%i', Message:'%s'", error, mysql_error(mysql)));
-				SPINE_LOG(("ERROR: The Query Was:'%s'", query));
-				exit(1);
+				SPINE_LOG (("FATAL: Database Error:'%i', Message:'%s'", error, mysql_error (mysql)));
+				SPINE_LOG (("ERROR: The Query Was:'%s'", query));
+				exit (1);
 			}
 		} else {
-			mysql_res = mysql_store_result(mysql);
+			mysql_res = mysql_store_result (mysql);
 
 			break;
 		}
@@ -264,147 +319,158 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
  *  fails more than 20 times, the function will fail and Spine will terminate.
  *
  */
-void db_connect(int type, MYSQL *mysql) {
-	int     tries;
-	int     attempts;
-	int     timeout;
-	int     rtimeout;
-	int     wtimeout;
-	int     options_error;
-	int     success;
-	int     error = 0;
-	MYSQL   *connect_error;
-	char    *hostname = NULL;
-	char    *socket = NULL;
-	struct  stat socket_stat;
+void db_connect (int type, MYSQL *mysql)
+{
+	int tries;
+	int attempts;
+	int timeout;
+	int rtimeout;
+	int wtimeout;
+	int options_error;
+	int success;
+	int error = 0;
+	MYSQL *connect_error;
+	char *hostname = NULL;
+	char *socket = NULL;
+	char *socket_alloc = NULL;
+	struct stat socket_stat;
 	static int connections = 0;
-	#ifdef HAS_MYSQL_OPT_SSL_KEY
-	char    *ssl_key  = NULL;
-	char    *ssl_ca   = NULL;
-	char    *ssl_cert = NULL;
-	#endif
+#ifdef HAS_MYSQL_OPT_SSL_KEY
+	char *ssl_key = NULL;
+	char *ssl_ca = NULL;
+	char *ssl_cert = NULL;
+#endif
 
 	/* see if the hostname variable is a file reference.  If so,
 	 * and if it is a socket file, setup mysql to use it.
 	 */
 	if (set.poller_id > 1) {
 		if (type == LOCAL) {
-			STRDUP_OR_DIE(hostname, set.db_host, "db_host")
+			STRDUP_OR_DIE (hostname, set.db_host, "db_host")
 
-			if (stat(hostname, &socket_stat) == 0) {
+			if (stat (hostname, &socket_stat) == 0) {
 				if (socket_stat.st_mode & S_IFSOCK) {
-					socket = strdup (set.db_host);
-					free(hostname);
+					socket_alloc = strdup (set.db_host);
+					socket = socket_alloc;
+					free (hostname);
 					hostname = NULL;
 				}
-			} else if ((socket = strstr(hostname,":"))) {
+			} else if ((socket = strstr (hostname, ":"))) {
 				*socket++ = 0x0;
 			}
 		} else {
-			STRDUP_OR_DIE(hostname, set.rdb_host, "rdb_host")
+			STRDUP_OR_DIE (hostname, set.rdb_host, "rdb_host")
 		}
 	} else {
-		STRDUP_OR_DIE(hostname, set.db_host, "db_host")
+		STRDUP_OR_DIE (hostname, set.db_host, "db_host")
 
-		if (stat(hostname, &socket_stat) == 0) {
+		if (stat (hostname, &socket_stat) == 0) {
 			if (socket_stat.st_mode & S_IFSOCK) {
-				socket = strdup (set.db_host);
-				free(hostname);
+				socket_alloc = strdup (set.db_host);
+				socket = socket_alloc;
+				free (hostname);
 				hostname = NULL;
 			}
-		} else if ((socket = strstr(hostname,":"))) {
+		} else if ((socket = strstr (hostname, ":"))) {
 			*socket++ = 0x0;
 		}
 	}
 
 	/* initialalize variables */
-	tries     = 2;
-	success   = FALSE;
-	timeout   = 5;
-	rtimeout  = 30;
-	wtimeout  = 30;
-	attempts  = 1;
+	tries = 2;
+	success = FALSE;
+	timeout = 5;
+	rtimeout = 30;
+	wtimeout = 30;
+	attempts = 1;
 
-	if (mysql_init(mysql) == NULL) {
-		printf("FATAL: Database unable to allocate memory and therefore can not connect\n");
-		exit(1);
+	if (mysql_init (mysql) == NULL) {
+		printf ("FATAL: Database unable to allocate memory and therefore can not connect\n");
+		exit (1);
 	}
 
-	MYSQL_SET_OPTION(MYSQL_OPT_READ_TIMEOUT, (int *)&rtimeout, "read timeout");
-	MYSQL_SET_OPTION(MYSQL_OPT_WRITE_TIMEOUT, (int *)&wtimeout, "write timeout");
-	MYSQL_SET_OPTION(MYSQL_OPT_CONNECT_TIMEOUT, (int *)&timeout, "general timeout");
+	MYSQL_SET_OPTION (MYSQL_OPT_READ_TIMEOUT, (int *)&rtimeout, "read timeout");
+	MYSQL_SET_OPTION (MYSQL_OPT_WRITE_TIMEOUT, (int *)&wtimeout, "write timeout");
+	MYSQL_SET_OPTION (MYSQL_OPT_CONNECT_TIMEOUT, (int *)&timeout, "general timeout");
 
-	#ifdef HAS_MYSQL_OPT_RETRY_COUNT
-	MYSQL_SET_OPTION(MYSQL_OPT_RETRY_COUNT, &tries, "retry count");
-	#endif
+#ifdef HAS_MYSQL_OPT_RETRY_COUNT
+	MYSQL_SET_OPTION (MYSQL_OPT_RETRY_COUNT, &tries, "retry count");
+#endif
 
-	/* set SSL options if available */
-	#ifdef HAS_MYSQL_OPT_SSL_KEY
-	/* if the users has explicitly said to disable SSL, do that now */
-	#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
+/* set SSL options if available */
+#ifdef HAS_MYSQL_OPT_SSL_KEY
+/* if the users has explicitly said to disable SSL, do that now */
+#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
 	if (type == LOCAL) {
 		if (set.db_ssl == 0) {
 			bool ssl_enforce = 0;
-			MYSQL_SET_OPTION(MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
+			MYSQL_SET_OPTION (MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
 		}
 	} else {
 		if (set.rdb_ssl == 0) {
 			bool ssl_enforce = 0;
-			MYSQL_SET_OPTION(MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
+			MYSQL_SET_OPTION (MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
 		}
 	}
-	#endif
+#endif
 
 	if (type == REMOTE) {
-		STRDUP_OR_DIE(ssl_key, set.rdb_ssl_key, "rdb_ssl_key");
-		STRDUP_OR_DIE(ssl_ca, set.rdb_ssl_ca, "rdb_ssl_ca");
-		STRDUP_OR_DIE(ssl_cert, set.rdb_ssl_cert, "rdb_ssl_cert");
+		STRDUP_OR_DIE (ssl_key, set.rdb_ssl_key, "rdb_ssl_key");
+		STRDUP_OR_DIE (ssl_ca, set.rdb_ssl_ca, "rdb_ssl_ca");
+		STRDUP_OR_DIE (ssl_cert, set.rdb_ssl_cert, "rdb_ssl_cert");
 	} else {
-		STRDUP_OR_DIE(ssl_key, set.db_ssl_key, "db_ssl_key");
-		STRDUP_OR_DIE(ssl_ca, set.db_ssl_ca, "db_ssl_ca");
-		STRDUP_OR_DIE(ssl_cert, set.db_ssl_cert, "db_ssl_cert");
+		STRDUP_OR_DIE (ssl_key, set.db_ssl_key, "db_ssl_key");
+		STRDUP_OR_DIE (ssl_ca, set.db_ssl_ca, "db_ssl_ca");
+		STRDUP_OR_DIE (ssl_cert, set.db_ssl_cert, "db_ssl_cert");
 	}
 
-	if (strlen(ssl_key)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_KEY, ssl_key,  "ssl key");
-	if (strlen(ssl_ca)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_CA, ssl_ca,   "ssl ca");
-	if (strlen(ssl_cert)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_CERT, ssl_cert, "ssl cert");
+	if (strlen (ssl_key))
+		MYSQL_SET_OPTION (MYSQL_OPT_SSL_KEY, ssl_key, "ssl key");
+	if (strlen (ssl_ca))
+		MYSQL_SET_OPTION (MYSQL_OPT_SSL_CA, ssl_ca, "ssl ca");
+	if (strlen (ssl_cert))
+		MYSQL_SET_OPTION (MYSQL_OPT_SSL_CERT, ssl_cert, "ssl cert");
 
-	#endif
+#endif
 
 	while (tries > 0) {
 		tries--;
 
 		if (set.poller_id > 1) {
 			if (type == LOCAL) {
-				connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+				connect_error
+					= mysql_real_connect (mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
 			} else {
-				connect_error = mysql_real_connect(mysql, hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, socket, 0);
+				connect_error = mysql_real_connect (
+					mysql, hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, socket, 0);
 			}
 		} else {
-			connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+			connect_error
+				= mysql_real_connect (mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
 		}
 
 		if (!connect_error) {
-			error = mysql_errno(mysql);
+			error = mysql_errno (mysql);
 
 			if ((error == 2002 || error == 2003 || error == 2006 || error == 2013) && errno == EINTR) {
-				usleep(5000);
+				usleep (5000);
 				tries++;
 				success = FALSE;
 			} else if (error == 2002) {
-				printf("Database: Connection Failed: Attempt:'%d', Error:'%u', Message:'%s'\n", attempts, mysql_errno(mysql), mysql_error(mysql));
-				sleep(1);
+				printf ("Database: Connection Failed: Attempt:'%d', Error:'%u', Message:'%s'\n", attempts,
+					mysql_errno (mysql), mysql_error (mysql));
+				sleep (1);
 				success = FALSE;
 			} else if (error != 1049 && error != 2005 && error != 1045) {
-				printf("Database: Connection Failed: Error:'%d', Message:'%s'\n", error, mysql_error(mysql));
+				printf ("Database: Connection Failed: Error:'%d', Message:'%s'\n", error, mysql_error (mysql));
 				success = FALSE;
-				usleep(50000);
+				usleep (50000);
 			} else {
-				tries   = 0;
+				tries = 0;
 				success = FALSE;
 			}
 		} else {
-			tries   = 0;
+			tries = 0;
 			success = TRUE;
 			break;
 		}
@@ -413,29 +479,33 @@ void db_connect(int type, MYSQL *mysql) {
 	}
 
 	if (hostname != NULL) {
-		free(hostname);
+		free (hostname);
 	}
 
-    #ifdef HAS_MYSQL_OPT_SSL_KEY
+	if (socket_alloc != NULL) {
+		free (socket_alloc);
+	}
+
+#ifdef HAS_MYSQL_OPT_SSL_KEY
 	if (ssl_key != NULL) {
-		free(ssl_key);
+		free (ssl_key);
 	}
 
 	if (ssl_ca != NULL) {
-		free(ssl_ca);
+		free (ssl_ca);
 	}
 
 	if (ssl_cert != NULL) {
-		free(ssl_cert);
+		free (ssl_cert);
 	}
-    #endif
+#endif
 
-	if (!success){
-		printf("FATAL: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error(mysql));
-		exit(1);
+	if (!success) {
+		printf ("FATAL: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error (mysql));
+		exit (1);
 	}
 
-	SPINE_LOG_DEBUG(("DEBUG: Total Connections made %i", connections));
+	SPINE_LOG_DEBUG (("DEBUG: Total Connections made %i", connections));
 
 	connections++;
 }
@@ -445,11 +515,11 @@ void db_connect(int type, MYSQL *mysql) {
  *  \param mysql the database connection object
  *
  */
-void db_disconnect(MYSQL *mysql) {
+void db_disconnect (MYSQL *mysql)
+{
 	if (mysql != NULL) {
-		mysql_close(mysql);
+		mysql_close (mysql);
 	}
-
 }
 
 /*! \fn void db_create_connection_pool(int type)
@@ -457,46 +527,61 @@ void db_disconnect(MYSQL *mysql) {
  *  \param type the connection type, LOCAL or REMOTE
  *
  */
-void db_create_connection_pool(int type) {
+void db_create_connection_pool (int type)
+{
 	int id;
 
 	if (type == LOCAL) {
-		SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection Pool of %i threads.", set.threads));
+		SPINE_LOG_DEBUG (("DEBUG: Creating Local Connection Pool of %i threads.", set.threads));
 
-		for(id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection %i.", id));
+		for (id = 0; id < set.threads; id++) {
+			SPINE_LOG_DEBUG (("DEBUG: Creating Local Connection %i.", id));
 
-			db_connect(type, &db_pool_local[id].mysql);
+			db_connect (type, &db_pool_local[id].mysql);
 
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
+			db_insert (&db_pool_local[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
 
 			db_pool_local[id].free = TRUE;
-			db_pool_local[id].id   = id;
+			db_pool_local[id].id = id;
 		}
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection Pool of %i threads.", set.threads));
+		SPINE_LOG_DEBUG (("DEBUG: Creating Remote Connection Pool of %i threads.", set.threads));
 
-		for(id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection %i.", id));
+		for (id = 0; id < set.threads; id++) {
+			SPINE_LOG_DEBUG (("DEBUG: Creating Remote Connection %i.", id));
 
-			db_connect(type, &db_pool_remote[id].mysql);
+			db_connect (type, &db_pool_remote[id].mysql);
 
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
+			db_insert (&db_pool_remote[id].mysql, LOCAL,
+				"SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
 
 			db_pool_remote[id].free = TRUE;
-			db_pool_remote[id].id   = id;
+			db_pool_remote[id].id = id;
 		}
 	}
 }
@@ -506,23 +591,24 @@ void db_create_connection_pool(int type) {
  *  \param type the connection type, LOCAL or REMOTE
  *
  */
-void db_close_connection_pool(int type) {
+void db_close_connection_pool (int type)
+{
 	int id;
 
 	if (type == LOCAL) {
-		for(id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Closing Local Connection Pool ID %i", id));
-			db_disconnect(&db_pool_local[id].mysql);
+		for (id = 0; id < set.threads; id++) {
+			SPINE_LOG_DEBUG (("DEBUG: Closing Local Connection Pool ID %i", id));
+			db_disconnect (&db_pool_local[id].mysql);
 		}
 
-		free(db_pool_local);
+		free (db_pool_local);
 	} else {
-		for(id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Closing Remote Connection Pool ID %i", id));
-			db_disconnect(&db_pool_remote[id].mysql);
+		for (id = 0; id < set.threads; id++) {
+			SPINE_LOG_DEBUG (("DEBUG: Closing Remote Connection Pool ID %i", id));
+			db_disconnect (&db_pool_remote[id].mysql);
 		}
 
-		free(db_pool_remote);
+		free (db_pool_remote);
 	}
 }
 
@@ -531,38 +617,39 @@ void db_close_connection_pool(int type) {
  *  \param type the connection type, LOCAL or REMOTE
  *
  */
-pool_t *db_get_connection(int type) {
+pool_t *db_get_connection (int type)
+{
 	int id;
 
-	thread_mutex_lock(LOCK_POOL);
+	thread_mutex_lock (LOCK_POOL);
 
 	if (type == LOCAL) {
-		SPINE_LOG_DEBUG(("DEBUG: Traversing Local Connection Pool for free connection."));
+		SPINE_LOG_DEBUG (("DEBUG: Traversing Local Connection Pool for free connection."));
 		for (id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Checking Local Pool ID %i.", id));
+			SPINE_LOG_DEBUG (("DEBUG: Checking Local Pool ID %i.", id));
 			if (db_pool_local[id].free == TRUE) {
-				SPINE_LOG_DEBUG(("DEBUG: Allocating Local Pool ID %i.", id));
+				SPINE_LOG_DEBUG (("DEBUG: Allocating Local Pool ID %i.", id));
 				db_pool_local[id].free = FALSE;
-				thread_mutex_unlock(LOCK_POOL);
+				thread_mutex_unlock (LOCK_POOL);
 				return &db_pool_local[id];
 			}
 		}
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Traversing Remote Connection Pool for free connection."));
+		SPINE_LOG_DEBUG (("DEBUG: Traversing Remote Connection Pool for free connection."));
 		for (id = 0; id < set.threads; id++) {
-			SPINE_LOG_DEBUG(("DEBUG: Checking Remote Pool ID %i.", id));
+			SPINE_LOG_DEBUG (("DEBUG: Checking Remote Pool ID %i.", id));
 			if (db_pool_remote[id].free == TRUE) {
-				SPINE_LOG_DEBUG(("DEBUG: Allocating Remote Pool ID %i.", id));
+				SPINE_LOG_DEBUG (("DEBUG: Allocating Remote Pool ID %i.", id));
 				db_pool_remote[id].free = FALSE;
-				thread_mutex_unlock(LOCK_POOL);
+				thread_mutex_unlock (LOCK_POOL);
 				return &db_pool_remote[id];
 			}
 		}
 	}
 
-	SPINE_LOG(("FATAL: Connection Pool Fatal Error."));
+	SPINE_LOG (("FATAL: Connection Pool Fatal Error."));
 
-	thread_mutex_unlock(LOCK_POOL);
+	thread_mutex_unlock (LOCK_POOL);
 
 	return NULL;
 }
@@ -572,18 +659,19 @@ pool_t *db_get_connection(int type) {
  *  \param id the connection id
  *
  */
-void db_release_connection(int type, int id) {
-	thread_mutex_lock(LOCK_POOL);
+void db_release_connection (int type, int id)
+{
+	thread_mutex_lock (LOCK_POOL);
 
 	if (type == LOCAL) {
-		SPINE_LOG_DEBUG(("DEBUG: Freeing Local Pool ID %i", id));
+		SPINE_LOG_DEBUG (("DEBUG: Freeing Local Pool ID %i", id));
 		db_pool_local[id].free = TRUE;
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Freeing Remote Pool ID %i", id));
+		SPINE_LOG_DEBUG (("DEBUG: Freeing Remote Pool ID %i", id));
 		db_pool_remote[id].free = TRUE;
 	}
 
-	thread_mutex_unlock(LOCK_POOL);
+	thread_mutex_unlock (LOCK_POOL);
 }
 
 /*! \fn int append_hostrange(char *obuf, const char *colname, const config_t *set)
@@ -602,12 +690,10 @@ void db_release_connection(int type, int id) {
  *  \return the number of characters added to the end of the character buffer
  *
  */
-int append_hostrange(char *obuf, const char *colname) {
-	if (HOSTID_DEFINED(set.start_host_id) && HOSTID_DEFINED(set.end_host_id)) {
-		return snprintf(obuf, BUFSIZE, " AND %s BETWEEN %d AND %d",
-			colname,
-			set.start_host_id,
-			set.end_host_id);
+int append_hostrange (char *obuf, const char *colname)
+{
+	if (HOSTID_DEFINED (set.start_host_id) && HOSTID_DEFINED (set.end_host_id)) {
+		return snprintf (obuf, BUFSIZE, " AND %s BETWEEN %d AND %d", colname, set.start_host_id, set.end_host_id);
 	} else {
 		return 0;
 	}
@@ -625,48 +711,52 @@ int append_hostrange(char *obuf, const char *colname) {
  *  \return void
  *
  */
-void db_escape(MYSQL *mysql, char *output, int max_size, const char *input) {
+void db_escape (MYSQL *mysql, char *output, int max_size, const char *input)
+{
 	char input_trimmed[DBL_BUFSIZE];
-	int  max_escaped_input_size;
-	int  trim_limit;
+	int max_escaped_input_size;
+	int trim_limit;
 
-	if (input == NULL) return;
+	if (input == NULL)
+		return;
 
-	max_escaped_input_size = (strlen(input) * 2) + 1;
+	max_escaped_input_size = (strlen (input) * 2) + 1;
 	trim_limit = (max_size < DBL_BUFSIZE) ? max_size : DBL_BUFSIZE;
 
 	if (max_escaped_input_size > max_size) {
-		snprintf(input_trimmed, (trim_limit / 2) - 1, "%s", input);
+		snprintf (input_trimmed, (trim_limit / 2) - 1, "%s", input);
 	} else {
-		snprintf(input_trimmed, trim_limit, "%s", input);
+		snprintf (input_trimmed, trim_limit, "%s", input);
 	}
 
-	mysql_real_escape_string(mysql, output, input_trimmed, strlen(input_trimmed));
+	mysql_real_escape_string (mysql, output, input_trimmed, strlen (input_trimmed));
 }
 
-void db_free_result(MYSQL_RES *result) {
-	mysql_free_result(result);
+void db_free_result (MYSQL_RES *result)
+{
+	mysql_free_result (result);
 }
 
-int db_column_exists(MYSQL *mysql, int type, const char *table, const char *column) {
-	char       query_frag[BUFSIZE];
-   MYSQL_RES *result;
-	int        exists;
+int db_column_exists (MYSQL *mysql, int type, const char *table, const char *column)
+{
+	char query_frag[BUFSIZE];
+	MYSQL_RES *result;
+	int exists;
 
 	/* save a fragment just in case */
-	memset(query_frag, 0, BUFSIZE);
-	snprintf(query_frag, BUFSIZE, "SHOW COLUMNS FROM `%s` LIKE '%s'", table, column);
+	memset (query_frag, 0, BUFSIZE);
+	snprintf (query_frag, BUFSIZE, "SHOW COLUMNS FROM `%s` LIKE '%s'", table, column);
 
 	/* show the sql query */
-	SPINE_LOG_DEVDBG(("DEVDBG: db_column_exists('%s','%s'): %s", table, column, query_frag));
+	SPINE_LOG_DEVDBG (("DEVDBG: db_column_exists('%s','%s'): %s", table, column, query_frag));
 
-	result = db_query(mysql, type, query_frag);
-	if (mysql_num_rows(result)) {
+	result = db_query (mysql, type, query_frag);
+	if (mysql_num_rows (result)) {
 		exists = TRUE;
 	} else {
 		exists = FALSE;
 	}
 
-	db_free_result(result);
+	db_free_result (result);
 	return exists;
 }

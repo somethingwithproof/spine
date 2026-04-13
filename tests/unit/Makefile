@@ -1,62 +1,48 @@
-# Unit test Makefile for spine/tests/unit
-#
-# Compiles test_build_fixes.c as a fully self-contained binary.  No MySQL or
-# SNMP daemon required; the test file inlines the two functions under test to
-# avoid link dependencies on util.o.
-#
-# Usage:
-#   make          -- build and run
-#   make build    -- build only
-#   make clean    -- remove build artefacts
-
 CC      := cc
 BINDIR  := build
 
-CMOCKA_INC := /opt/homebrew/Cellar/cmocka/2.0.2/include
-CMOCKA_LIB := /opt/homebrew/Cellar/cmocka/2.0.2/lib
-
 SPINE_ROOT := ../..
 
-OPENSSL_INC  := /opt/homebrew/opt/openssl@3/include
-MYSQL_INC    := /opt/homebrew/opt/mysql-client/include/mysql
-NETSNMP_INC  := /opt/homebrew/opt/net-snmp/include/net-snmp
-NETSNMP_INC2 := /opt/homebrew/opt/net-snmp/include/net-snmp/..
+# Use pkg-config if available, otherwise fallback to system defaults
+MARIADB_CFLAGS := $(shell pkg-config --cflags mariadb 2>/dev/null || echo "-I/usr/include/mariadb")
+NETSNMP_CFLAGS := $(shell net-snmp-config --cflags 2>/dev/null || echo "-I/usr/include/net-snmp")
 
 CFLAGS := \
-	-std=gnu23 \
+	-std=gnu17 \
 	-DHAVE_CONFIG_H \
-	-I$(CMOCKA_INC) \
 	-I$(SPINE_ROOT) \
 	-I$(SPINE_ROOT)/config \
-	-I$(OPENSSL_INC) \
-	-I$(MYSQL_INC) \
-	-I$(NETSNMP_INC) \
-	-I$(NETSNMP_INC2) \
+	$(MARIADB_CFLAGS) \
+	$(NETSNMP_CFLAGS) \
 	-Wall \
 	-Wextra \
 	-Wno-unused-parameter
 
 LDFLAGS := \
-	-L$(CMOCKA_LIB) \
 	-lcmocka \
-	-Wl,-rpath,$(CMOCKA_LIB)
+	-lm \
+	-lmariadb
 
-TARGET := $(BINDIR)/test_build_fixes
+TARGETS := $(BINDIR)/test_build_fixes $(BINDIR)/test_util_strings
 
-.PHONY: all build run clean
+.PHONY: all build_dir build_binaries run clean
 
 all: run
 
-build: $(TARGET)
-
-$(BINDIR):
+build_dir:
 	mkdir -p $(BINDIR)
 
-$(TARGET): test_build_fixes.c | $(BINDIR)
+build_binaries: build_dir $(TARGETS)
+
+$(BINDIR)/test_build_fixes: test_build_fixes.c | build_dir
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
-run: $(TARGET)
-	$(TARGET)
+$(BINDIR)/test_util_strings: test_util_strings.c | build_dir
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+
+run: build_binaries
+	$(BINDIR)/test_build_fixes
+	$(BINDIR)/test_util_strings
 
 clean:
 	rm -rf $(BINDIR)

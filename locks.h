@@ -31,10 +31,10 @@
  +-------------------------------------------------------------------------+
 */
 
-extern void init_mutexes(void);
-extern void thread_mutex_lock(int mutex);
-extern void thread_mutex_unlock(int mutex);
-extern int thread_mutex_trylock(int mutex);
-extern pthread_cond_t* get_cond(int lock);
-extern pthread_mutex_t* get_lock(int lock);
-extern pthread_once_t* get_attr(int locko);
+extern void init_mutexes (void);
+extern void thread_mutex_lock (int mutex);
+extern void thread_mutex_unlock (int mutex);
+extern int thread_mutex_trylock (int mutex);
+extern pthread_cond_t *get_cond (int lock);
+extern pthread_mutex_t *get_lock (int lock);
+extern pthread_once_t *get_attr (int locko);
