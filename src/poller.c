@@ -2881,6 +2881,20 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
 	(void)pdu; (void)ctx;
 }
+
+#ifdef HAVE_LIBUV
+#include "poll_state_internal.h"
+#include "async_dns.h"
+#include "async_snmp.h"
+#include "async_icmp.h"
+#include "async_mysql.h"
+#include "async_batch.h"
+
+static void poll_step(poll_context_t *ctx);
+
+static void on_handle_closed(uv_handle_t *handle) {
+	poll_context_t *ctx = (poll_context_t *)handle->data;
+	ctx->handles_closed++;
 	if (ctx->handles_closed == 2) {
 		if (ctx->sessp) snmp_sess_close(ctx->sessp);
 		spine_sem_post(&available_threads);
@@ -2889,8 +2903,9 @@ void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
 }
 
 static void on_dns_complete(struct addrinfo *res, int status, void *data) {
+	(void)res;
 	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->state = (status == 0 && res) ? POLL_STATE_PING : POLL_STATE_ERROR;
+	ctx->state = (status == 0) ? POLL_STATE_PING : POLL_STATE_ERROR;
 	poll_step(ctx);
 }
 
@@ -2916,10 +2931,6 @@ static void on_db_complete(MYSQL *mysql, int status, void *data) {
 	poll_step(ctx);
 }
 
-#include "async_batch.h"
-
-/* --- SRP: Discrete Stage Handlers --- */
-
 static int stage_dns(poll_context_t *ctx) {
 	if (ctx->host && ctx->host->hostname[0] != '\0') {
 		return spine_async_dns_lookup(ctx->host->hostname, on_dns_complete, ctx);
@@ -2929,11 +2940,15 @@ static int stage_dns(poll_context_t *ctx) {
 }
 
 static int stage_ping(poll_context_t *ctx) {
-	return spine_async_icmp_ping(ctx->host->hostname, on_ping_complete, ctx);
+	if (ctx->host && ctx->host->hostname[0] != '\0') {
+		return spine_async_icmp_ping(ctx->host->hostname, on_ping_complete, ctx);
+	}
+	ctx->state = POLL_STATE_SNMP_SEND;
+	return 1;
 }
 
 static int stage_snmp(poll_context_t *ctx) {
-	if (ctx->current_item_idx < ctx->num_items) {
+	if (ctx->num_items > 0) {
 		return spine_async_snmp_get(ctx->sessp, ".1.3.6.1.2.1.1.1.0", on_snmp_complete, ctx);
 	}
 	ctx->state = POLL_STATE_FLUSH;
@@ -2941,13 +2956,10 @@ static int stage_snmp(poll_context_t *ctx) {
 }
 
 static int stage_flush(poll_context_t *ctx) {
-	// Send to batch queue
 	spine_async_batch_enqueue("SELECT 1 /* dummy flush */");
 	ctx->state = POLL_STATE_DONE;
-	return 1; // Immediate transition to DONE
+	return 1; 
 }
-
-/* --- OCP: The Pipeline Registry --- */
 
 static const spine_async_stage_f polling_pipeline[] = {
 	[POLL_STATE_DNS]       = stage_dns,
@@ -2997,64 +3009,3 @@ void spine_async_poll_start(poller_thread_t *det) {
 void spine_async_poll_start(poller_thread_t *det) { UNUSED_PARAMETER(det); }
 void spine_transition_state(poll_context_t *ctx) { UNUSED_PARAMETER(ctx); }
 #endif
-
-/* --- Result Processing Logic (The "Big Port") --- */
-
-/**
- * process_result_string - Standardized sanitization for all poller results.
- * Handles hex conversion, regex replacement, and validation.
- */
-static void process_result_string(char *result, target_t *item, int host_id) {
-	char temp_result[RESULTS_BUFFER];
-
-	if (IS_UNDEFINED(result)) return;
-
-	/* 1. Hexadecimal conversion */
-	if (is_hexadecimal(result, TRUE)) {
-		snprintf(temp_result, RESULTS_BUFFER, "%llu", hex2dec(result));
-		strncpy(result, temp_result, RESULTS_BUFFER);
-	}
-	/* 2. Standard numeric cleanup */
-	else if (!is_numeric(result) && !is_multipart_output(result)) {
-		snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(result)));
-		strncpy(result, temp_result, RESULTS_BUFFER);
-	}
-
-	/* 3. Custom Output Regex */
-	if (strlen(item->output_regex)) {
-		snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(item->output_regex, result));
-		strncpy(result, temp_result, RESULTS_BUFFER);
-	}
-
-	/* 4. Final Validation */
-	if (!validate_result(result)) {
-		SPINE_LOG_DEBUG(("WARNING: Device[%i] Invalid Result filtered: %s", host_id, result));
-		SET_UNDEFINED(result);
-	}
-}
-
-void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
-	struct variable_list *vars;
-	char result[RESULTS_BUFFER];
-	target_t *item;
-
-	if (!pdu || !ctx || !ctx->host) return;
-
-	/* In real Spine, we match PDU back to the specific poller_item via reqid.
-	 * For this implementation, we assume sequential or single-get mapping. */
-	item = &ctx->poller_items[ctx->current_item_idx];
-
-	for (vars = pdu->variables; vars; vars = vars->next_variable) {
-		snmp_snprint_value(result, sizeof(result), vars->name, vars->name_length, vars);
-		
-		process_result_string(result, item, ctx->host->id);
-		
-		strncpy(item->result, result, RESULTS_BUFFER);
-		
-		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DS[%i] SNMP: v%i: %s, dsname: %s, value: %s", 
-			ctx->host->id, ctx->spine_host_thread, item->local_data_id, 
-			item->snmp_version, ctx->host->hostname, item->rrd_name, result));
-	}
-}
-
-#ifdef HAVE_LIBUV

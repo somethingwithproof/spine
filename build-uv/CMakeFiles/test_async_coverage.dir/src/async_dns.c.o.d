@@ -436,4 +436,7 @@ CMakeFiles/test_async_coverage.dir/src/async_dns.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h \
+  /opt/homebrew/include/ares.h /opt/homebrew/include/ares_version.h \
+  /opt/homebrew/include/ares_build.h \
+  /opt/homebrew/include/ares_dns_record.h

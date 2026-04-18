@@ -156,19 +156,19 @@ CMakeFiles/test_async_coverage.dir/src/async_dns.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/async_dns.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c -o CMakeFiles/test_async_coverage.dir/src/async_dns.c.s
 
-CMakeFiles/test_async_coverage.dir/src/util.c.o: CMakeFiles/test_async_coverage.dir/flags.make
-CMakeFiles/test_async_coverage.dir/src/util.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c
-CMakeFiles/test_async_coverage.dir/src/util.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building C object CMakeFiles/test_async_coverage.dir/src/util.c.o"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/util.c.o -MF CMakeFiles/test_async_coverage.dir/src/util.c.o.d -o CMakeFiles/test_async_coverage.dir/src/util.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c
+CMakeFiles/test_async_coverage.dir/src/locks.c.o: CMakeFiles/test_async_coverage.dir/flags.make
+CMakeFiles/test_async_coverage.dir/src/locks.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c
+CMakeFiles/test_async_coverage.dir/src/locks.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building C object CMakeFiles/test_async_coverage.dir/src/locks.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/locks.c.o -MF CMakeFiles/test_async_coverage.dir/src/locks.c.o.d -o CMakeFiles/test_async_coverage.dir/src/locks.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c
 
-CMakeFiles/test_async_coverage.dir/src/util.c.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_async_coverage.dir/src/util.c.i"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c > CMakeFiles/test_async_coverage.dir/src/util.c.i
+CMakeFiles/test_async_coverage.dir/src/locks.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_async_coverage.dir/src/locks.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c > CMakeFiles/test_async_coverage.dir/src/locks.c.i
 
-CMakeFiles/test_async_coverage.dir/src/util.c.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/util.c.s"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c -o CMakeFiles/test_async_coverage.dir/src/util.c.s
+CMakeFiles/test_async_coverage.dir/src/locks.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/locks.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c -o CMakeFiles/test_async_coverage.dir/src/locks.c.s
 
 CMakeFiles/test_async_coverage.dir/src/error.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/error.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.c
@@ -184,24 +184,38 @@ CMakeFiles/test_async_coverage.dir/src/error.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/error.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.c -o CMakeFiles/test_async_coverage.dir/src/error.c.s
 
-CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o: CMakeFiles/test_async_coverage.dir/flags.make
-CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c
-CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o -MF CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o.d -o CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c
+CMakeFiles/test_async_coverage.dir/src/db_session.c.o: CMakeFiles/test_async_coverage.dir/flags.make
+CMakeFiles/test_async_coverage.dir/src/db_session.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c
+CMakeFiles/test_async_coverage.dir/src/db_session.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/test_async_coverage.dir/src/db_session.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/db_session.c.o -MF CMakeFiles/test_async_coverage.dir/src/db_session.c.o.d -o CMakeFiles/test_async_coverage.dir/src/db_session.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c
 
-CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.i"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c > CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.i
+CMakeFiles/test_async_coverage.dir/src/db_session.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_async_coverage.dir/src/db_session.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c > CMakeFiles/test_async_coverage.dir/src/db_session.c.i
 
-CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.s"
-	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c -o CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.s
+CMakeFiles/test_async_coverage.dir/src/db_session.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/db_session.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c -o CMakeFiles/test_async_coverage.dir/src/db_session.c.s
+
+CMakeFiles/test_async_coverage.dir/src/util.c.o: CMakeFiles/test_async_coverage.dir/flags.make
+CMakeFiles/test_async_coverage.dir/src/util.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c
+CMakeFiles/test_async_coverage.dir/src/util.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/test_async_coverage.dir/src/util.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/util.c.o -MF CMakeFiles/test_async_coverage.dir/src/util.c.o.d -o CMakeFiles/test_async_coverage.dir/src/util.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c
+
+CMakeFiles/test_async_coverage.dir/src/util.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_async_coverage.dir/src/util.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c > CMakeFiles/test_async_coverage.dir/src/util.c.i
+
+CMakeFiles/test_async_coverage.dir/src/util.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_async_coverage.dir/src/util.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c -o CMakeFiles/test_async_coverage.dir/src/util.c.s
 
 CMakeFiles/test_async_coverage.dir/src/config_repository.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/config_repository.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
 CMakeFiles/test_async_coverage.dir/src/config_repository.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/test_async_coverage.dir/src/config_repository.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/test_async_coverage.dir/src/config_repository.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/config_repository.c.o -MF CMakeFiles/test_async_coverage.dir/src/config_repository.c.o.d -o CMakeFiles/test_async_coverage.dir/src/config_repository.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
 
 CMakeFiles/test_async_coverage.dir/src/config_repository.c.i: cmake_force
@@ -215,7 +229,7 @@ CMakeFiles/test_async_coverage.dir/src/config_repository.c.s: cmake_force
 CMakeFiles/test_async_coverage.dir/src/config_builder.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/config_builder.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
 CMakeFiles/test_async_coverage.dir/src/config_builder.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/test_async_coverage.dir/src/config_builder.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/test_async_coverage.dir/src/config_builder.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/config_builder.c.o -MF CMakeFiles/test_async_coverage.dir/src/config_builder.c.o.d -o CMakeFiles/test_async_coverage.dir/src/config_builder.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
 
 CMakeFiles/test_async_coverage.dir/src/config_builder.c.i: cmake_force
@@ -229,7 +243,7 @@ CMakeFiles/test_async_coverage.dir/src/config_builder.c.s: cmake_force
 CMakeFiles/test_async_coverage.dir/src/config_apply.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/config_apply.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
 CMakeFiles/test_async_coverage.dir/src/config_apply.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/test_async_coverage.dir/src/config_apply.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/test_async_coverage.dir/src/config_apply.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/config_apply.c.o -MF CMakeFiles/test_async_coverage.dir/src/config_apply.c.o.d -o CMakeFiles/test_async_coverage.dir/src/config_apply.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
 
 CMakeFiles/test_async_coverage.dir/src/config_apply.c.i: cmake_force
@@ -243,7 +257,7 @@ CMakeFiles/test_async_coverage.dir/src/config_apply.c.s: cmake_force
 CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
 CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o -MF CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o.d -o CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
 
 CMakeFiles/test_async_coverage.dir/src/log_formatter.c.i: cmake_force
@@ -257,7 +271,7 @@ CMakeFiles/test_async_coverage.dir/src/log_formatter.c.s: cmake_force
 CMakeFiles/test_async_coverage.dir/src/log_sink.c.o: CMakeFiles/test_async_coverage.dir/flags.make
 CMakeFiles/test_async_coverage.dir/src/log_sink.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
 CMakeFiles/test_async_coverage.dir/src/log_sink.c.o: CMakeFiles/test_async_coverage.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/test_async_coverage.dir/src/log_sink.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building C object CMakeFiles/test_async_coverage.dir/src/log_sink.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_async_coverage.dir/src/log_sink.c.o -MF CMakeFiles/test_async_coverage.dir/src/log_sink.c.o.d -o CMakeFiles/test_async_coverage.dir/src/log_sink.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
 
 CMakeFiles/test_async_coverage.dir/src/log_sink.c.i: cmake_force
@@ -276,9 +290,10 @@ test_async_coverage_OBJECTS = \
 "CMakeFiles/test_async_coverage.dir/src/async_mysql.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/async_batch.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/async_dns.c.o" \
-"CMakeFiles/test_async_coverage.dir/src/util.c.o" \
+"CMakeFiles/test_async_coverage.dir/src/locks.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/error.c.o" \
-"CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o" \
+"CMakeFiles/test_async_coverage.dir/src/db_session.c.o" \
+"CMakeFiles/test_async_coverage.dir/src/util.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/config_repository.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/config_builder.c.o" \
 "CMakeFiles/test_async_coverage.dir/src/config_apply.c.o" \
@@ -310,9 +325,10 @@ test_async_coverage: CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/async_mysql.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/async_batch.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/async_dns.c.o
-test_async_coverage: CMakeFiles/test_async_coverage.dir/src/util.c.o
+test_async_coverage: CMakeFiles/test_async_coverage.dir/src/locks.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/error.c.o
-test_async_coverage: CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o
+test_async_coverage: CMakeFiles/test_async_coverage.dir/src/db_session.c.o
+test_async_coverage: CMakeFiles/test_async_coverage.dir/src/util.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/config_repository.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/config_builder.c.o
 test_async_coverage: CMakeFiles/test_async_coverage.dir/src/config_apply.c.o
@@ -342,7 +358,7 @@ test_async_coverage: /opt/homebrew/lib/libuv.dylib
 test_async_coverage: /opt/homebrew/lib/libcares.dylib
 test_async_coverage: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_async_coverage: CMakeFiles/test_async_coverage.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Linking C executable test_async_coverage"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Linking C executable test_async_coverage"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_async_coverage.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

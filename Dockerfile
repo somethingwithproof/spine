@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         libseccomp-dev \
         libuv1-dev \
+        libc-ares-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -31,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libuv1 \
         libseccomp2 \
+        libcares2 \
         zlib1g \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

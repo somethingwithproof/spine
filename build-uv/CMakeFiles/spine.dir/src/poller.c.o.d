@@ -269,24 +269,24 @@ CMakeFiles/spine.dir/src/poller.c.o: \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/transform_oids.h \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/keytools.h \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/scapi.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/ossl_typ.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/types.h \
+  /opt/homebrew/include/openssl/ossl_typ.h \
+  /opt/homebrew/include/openssl/types.h \
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/limits.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/limits.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/machine/limits.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/arm/limits.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/arm/_limits.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/syslimits.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/e_os2.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/macros.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/opensslconf.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/configuration.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/opensslv.h \
+  /opt/homebrew/include/openssl/e_os2.h \
+  /opt/homebrew/include/openssl/macros.h \
+  /opt/homebrew/include/openssl/opensslconf.h \
+  /opt/homebrew/include/openssl/configuration.h \
+  /opt/homebrew/include/openssl/opensslv.h \
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/inttypes.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/inttypes.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_inttypes.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/safestack.h \
-  /opt/homebrew/opt/openssl@3/include/openssl/stack.h \
+  /opt/homebrew/include/openssl/safestack.h \
+  /opt/homebrew/include/openssl/stack.h \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/lcd_time.h \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/snmp_secmod.h \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/snmpv3-security-includes.h \

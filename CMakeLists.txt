@@ -384,11 +384,10 @@ if(SPINE_BUILD_MAIN)
 
     add_executable(spine
         ${SPINE_CORE_SOURCES}
-        ${SPINE_ICMP_SOURCES}
-        $<TARGET_OBJECTS:spine_platform>
     )
     target_include_directories(spine PRIVATE
         ${CMAKE_BINARY_DIR}
+        ${CMAKE_BINARY_DIR}/config
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/platform
@@ -398,6 +397,7 @@ if(SPINE_BUILD_MAIN)
         spine_platform
         spine_mysql
         spine_netsnmp
+        spine_hardening
         Threads::Threads
     )
     if(TARGET spine_build_options)

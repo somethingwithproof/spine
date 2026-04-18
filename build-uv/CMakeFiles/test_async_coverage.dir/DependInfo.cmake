@@ -16,12 +16,13 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c" "CMakeFiles/test_async_coverage.dir/src/config_apply.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/config_apply.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c" "CMakeFiles/test_async_coverage.dir/src/config_builder.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/config_builder.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c" "CMakeFiles/test_async_coverage.dir/src/config_repository.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/config_repository.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c" "CMakeFiles/test_async_coverage.dir/src/db_session.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/db_session.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.c" "CMakeFiles/test_async_coverage.dir/src/error.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/error.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c" "CMakeFiles/test_async_coverage.dir/src/locks.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/locks.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c" "CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c" "CMakeFiles/test_async_coverage.dir/src/log_sink.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/log_sink.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c" "CMakeFiles/test_async_coverage.dir/src/util.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/util.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_async_coverage.c" "CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o.d"
-  "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c" "CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/tests/unit/test_spine_stubs.c.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

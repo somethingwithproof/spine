@@ -57,8 +57,6 @@ file(REMOVE_RECURSE
   "CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o.d"
   "CMakeFiles/spine.dir/src/ping_validate.c.o"
   "CMakeFiles/spine.dir/src/ping_validate.c.o.d"
-  "CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o"
-  "CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o.d"
   "CMakeFiles/spine.dir/src/poller.c.o"
   "CMakeFiles/spine.dir/src/poller.c.o.d"
   "CMakeFiles/spine.dir/src/results_flush_service.c.o"
