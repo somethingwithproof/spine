@@ -436,5 +436,10 @@ CMakeFiles/test_check_mode.dir/src/util.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/regex.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_regex.h

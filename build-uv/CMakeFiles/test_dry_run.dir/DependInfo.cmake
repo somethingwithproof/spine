@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c" "CMakeFiles/test_dry_run.dir/src/db_session.c.o" "gcc" "CMakeFiles/test_dry_run.dir/src/db_session.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/sql.c" "CMakeFiles/test_dry_run.dir/src/sql.c.o" "gcc" "CMakeFiles/test_dry_run.dir/src/sql.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_dry_run.c" "CMakeFiles/test_dry_run.dir/tests/unit/test_dry_run.c.o" "gcc" "CMakeFiles/test_dry_run.dir/tests/unit/test_dry_run.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_sql_stubs.c" "CMakeFiles/test_dry_run.dir/tests/unit/test_sql_stubs.c.o" "gcc" "CMakeFiles/test_dry_run.dir/tests/unit/test_sql_stubs.c.o.d"

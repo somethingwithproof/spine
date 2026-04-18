@@ -43,6 +43,7 @@
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_sandbox.dir
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_json_log.dir
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_env_scrub.dir
+/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_async_coverage.dir
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_spine_audit.dir
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_circuit_breaker.dir
 /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/test_dump_config.dir

@@ -436,6 +436,7 @@ CMakeFiles/spine.dir/src/ping.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/availability_policy.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_socket.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_icmp.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/ifaddrs.h \

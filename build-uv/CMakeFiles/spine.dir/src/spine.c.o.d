@@ -436,6 +436,8 @@ CMakeFiles/spine.dir/src/spine.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/systemd_notify.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_sandbox.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h \

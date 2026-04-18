@@ -128,10 +128,290 @@ CMakeFiles/spine.dir/src/snmp.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/snmp.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.c -o CMakeFiles/spine.dir/src/snmp.c.s
 
+CMakeFiles/spine.dir/src/runtime_context.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/runtime_context.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/runtime_context.c
+CMakeFiles/spine.dir/src/runtime_context.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building C object CMakeFiles/spine.dir/src/runtime_context.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/runtime_context.c.o -MF CMakeFiles/spine.dir/src/runtime_context.c.o.d -o CMakeFiles/spine.dir/src/runtime_context.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/runtime_context.c
+
+CMakeFiles/spine.dir/src/runtime_context.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/runtime_context.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/runtime_context.c > CMakeFiles/spine.dir/src/runtime_context.c.i
+
+CMakeFiles/spine.dir/src/runtime_context.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/runtime_context.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/runtime_context.c -o CMakeFiles/spine.dir/src/runtime_context.c.s
+
+CMakeFiles/spine.dir/src/composition_root.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/composition_root.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.c
+CMakeFiles/spine.dir/src/composition_root.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building C object CMakeFiles/spine.dir/src/composition_root.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/composition_root.c.o -MF CMakeFiles/spine.dir/src/composition_root.c.o.d -o CMakeFiles/spine.dir/src/composition_root.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.c
+
+CMakeFiles/spine.dir/src/composition_root.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/composition_root.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.c > CMakeFiles/spine.dir/src/composition_root.c.i
+
+CMakeFiles/spine.dir/src/composition_root.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/composition_root.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.c -o CMakeFiles/spine.dir/src/composition_root.c.s
+
+CMakeFiles/spine.dir/src/availability_policy.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/availability_policy.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/availability_policy.c
+CMakeFiles/spine.dir/src/availability_policy.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building C object CMakeFiles/spine.dir/src/availability_policy.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/availability_policy.c.o -MF CMakeFiles/spine.dir/src/availability_policy.c.o.d -o CMakeFiles/spine.dir/src/availability_policy.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/availability_policy.c
+
+CMakeFiles/spine.dir/src/availability_policy.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/availability_policy.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/availability_policy.c > CMakeFiles/spine.dir/src/availability_policy.c.i
+
+CMakeFiles/spine.dir/src/availability_policy.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/availability_policy.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/availability_policy.c -o CMakeFiles/spine.dir/src/availability_policy.c.s
+
+CMakeFiles/spine.dir/src/config_repository.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/config_repository.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
+CMakeFiles/spine.dir/src/config_repository.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building C object CMakeFiles/spine.dir/src/config_repository.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/config_repository.c.o -MF CMakeFiles/spine.dir/src/config_repository.c.o.d -o CMakeFiles/spine.dir/src/config_repository.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
+
+CMakeFiles/spine.dir/src/config_repository.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/config_repository.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c > CMakeFiles/spine.dir/src/config_repository.c.i
+
+CMakeFiles/spine.dir/src/config_repository.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/config_repository.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c -o CMakeFiles/spine.dir/src/config_repository.c.s
+
+CMakeFiles/spine.dir/src/config_builder.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/config_builder.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
+CMakeFiles/spine.dir/src/config_builder.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/spine.dir/src/config_builder.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/config_builder.c.o -MF CMakeFiles/spine.dir/src/config_builder.c.o.d -o CMakeFiles/spine.dir/src/config_builder.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
+
+CMakeFiles/spine.dir/src/config_builder.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/config_builder.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c > CMakeFiles/spine.dir/src/config_builder.c.i
+
+CMakeFiles/spine.dir/src/config_builder.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/config_builder.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c -o CMakeFiles/spine.dir/src/config_builder.c.s
+
+CMakeFiles/spine.dir/src/config_apply.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/config_apply.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
+CMakeFiles/spine.dir/src/config_apply.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/spine.dir/src/config_apply.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/config_apply.c.o -MF CMakeFiles/spine.dir/src/config_apply.c.o.d -o CMakeFiles/spine.dir/src/config_apply.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
+
+CMakeFiles/spine.dir/src/config_apply.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/config_apply.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c > CMakeFiles/spine.dir/src/config_apply.c.i
+
+CMakeFiles/spine.dir/src/config_apply.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/config_apply.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c -o CMakeFiles/spine.dir/src/config_apply.c.s
+
+CMakeFiles/spine.dir/src/db_connection.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/db_connection.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_connection.c
+CMakeFiles/spine.dir/src/db_connection.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/spine.dir/src/db_connection.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/db_connection.c.o -MF CMakeFiles/spine.dir/src/db_connection.c.o.d -o CMakeFiles/spine.dir/src/db_connection.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_connection.c
+
+CMakeFiles/spine.dir/src/db_connection.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/db_connection.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_connection.c > CMakeFiles/spine.dir/src/db_connection.c.i
+
+CMakeFiles/spine.dir/src/db_connection.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/db_connection.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_connection.c -o CMakeFiles/spine.dir/src/db_connection.c.s
+
+CMakeFiles/spine.dir/src/db_session.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/db_session.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c
+CMakeFiles/spine.dir/src/db_session.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/spine.dir/src/db_session.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/db_session.c.o -MF CMakeFiles/spine.dir/src/db_session.c.o.d -o CMakeFiles/spine.dir/src/db_session.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c
+
+CMakeFiles/spine.dir/src/db_session.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/db_session.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c > CMakeFiles/spine.dir/src/db_session.c.i
+
+CMakeFiles/spine.dir/src/db_session.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/db_session.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.c -o CMakeFiles/spine.dir/src/db_session.c.s
+
+CMakeFiles/spine.dir/src/db_query.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/db_query.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_query.c
+CMakeFiles/spine.dir/src/db_query.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/spine.dir/src/db_query.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/db_query.c.o -MF CMakeFiles/spine.dir/src/db_query.c.o.d -o CMakeFiles/spine.dir/src/db_query.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_query.c
+
+CMakeFiles/spine.dir/src/db_query.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/db_query.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_query.c > CMakeFiles/spine.dir/src/db_query.c.i
+
+CMakeFiles/spine.dir/src/db_query.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/db_query.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_query.c -o CMakeFiles/spine.dir/src/db_query.c.s
+
+CMakeFiles/spine.dir/src/db_retry.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/db_retry.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_retry.c
+CMakeFiles/spine.dir/src/db_retry.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/spine.dir/src/db_retry.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/db_retry.c.o -MF CMakeFiles/spine.dir/src/db_retry.c.o.d -o CMakeFiles/spine.dir/src/db_retry.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_retry.c
+
+CMakeFiles/spine.dir/src/db_retry.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/db_retry.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_retry.c > CMakeFiles/spine.dir/src/db_retry.c.i
+
+CMakeFiles/spine.dir/src/db_retry.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/db_retry.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_retry.c -o CMakeFiles/spine.dir/src/db_retry.c.s
+
+CMakeFiles/spine.dir/src/snmp_session_factory.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/snmp_session_factory.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_session_factory.c
+CMakeFiles/spine.dir/src/snmp_session_factory.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building C object CMakeFiles/spine.dir/src/snmp_session_factory.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/snmp_session_factory.c.o -MF CMakeFiles/spine.dir/src/snmp_session_factory.c.o.d -o CMakeFiles/spine.dir/src/snmp_session_factory.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_session_factory.c
+
+CMakeFiles/spine.dir/src/snmp_session_factory.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/snmp_session_factory.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_session_factory.c > CMakeFiles/spine.dir/src/snmp_session_factory.c.i
+
+CMakeFiles/spine.dir/src/snmp_session_factory.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/snmp_session_factory.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_session_factory.c -o CMakeFiles/spine.dir/src/snmp_session_factory.c.s
+
+CMakeFiles/spine.dir/src/snmp_client.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/snmp_client.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_client.c
+CMakeFiles/spine.dir/src/snmp_client.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building C object CMakeFiles/spine.dir/src/snmp_client.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/snmp_client.c.o -MF CMakeFiles/spine.dir/src/snmp_client.c.o.d -o CMakeFiles/spine.dir/src/snmp_client.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_client.c
+
+CMakeFiles/spine.dir/src/snmp_client.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/snmp_client.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_client.c > CMakeFiles/spine.dir/src/snmp_client.c.i
+
+CMakeFiles/spine.dir/src/snmp_client.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/snmp_client.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_client.c -o CMakeFiles/spine.dir/src/snmp_client.c.s
+
+CMakeFiles/spine.dir/src/snmp_result_parser.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/snmp_result_parser.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_result_parser.c
+CMakeFiles/spine.dir/src/snmp_result_parser.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building C object CMakeFiles/spine.dir/src/snmp_result_parser.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/snmp_result_parser.c.o -MF CMakeFiles/spine.dir/src/snmp_result_parser.c.o.d -o CMakeFiles/spine.dir/src/snmp_result_parser.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_result_parser.c
+
+CMakeFiles/spine.dir/src/snmp_result_parser.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/snmp_result_parser.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_result_parser.c > CMakeFiles/spine.dir/src/snmp_result_parser.c.i
+
+CMakeFiles/spine.dir/src/snmp_result_parser.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/snmp_result_parser.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_result_parser.c -o CMakeFiles/spine.dir/src/snmp_result_parser.c.s
+
+CMakeFiles/spine.dir/src/log_formatter.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/log_formatter.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
+CMakeFiles/spine.dir/src/log_formatter.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building C object CMakeFiles/spine.dir/src/log_formatter.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/log_formatter.c.o -MF CMakeFiles/spine.dir/src/log_formatter.c.o.d -o CMakeFiles/spine.dir/src/log_formatter.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
+
+CMakeFiles/spine.dir/src/log_formatter.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/log_formatter.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c > CMakeFiles/spine.dir/src/log_formatter.c.i
+
+CMakeFiles/spine.dir/src/log_formatter.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/log_formatter.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c -o CMakeFiles/spine.dir/src/log_formatter.c.s
+
+CMakeFiles/spine.dir/src/log_sink.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/log_sink.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
+CMakeFiles/spine.dir/src/log_sink.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building C object CMakeFiles/spine.dir/src/log_sink.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/log_sink.c.o -MF CMakeFiles/spine.dir/src/log_sink.c.o.d -o CMakeFiles/spine.dir/src/log_sink.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
+
+CMakeFiles/spine.dir/src/log_sink.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/log_sink.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c > CMakeFiles/spine.dir/src/log_sink.c.i
+
+CMakeFiles/spine.dir/src/log_sink.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/log_sink.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c -o CMakeFiles/spine.dir/src/log_sink.c.s
+
+CMakeFiles/spine.dir/src/host_polling_service.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/host_polling_service.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.c
+CMakeFiles/spine.dir/src/host_polling_service.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building C object CMakeFiles/spine.dir/src/host_polling_service.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/host_polling_service.c.o -MF CMakeFiles/spine.dir/src/host_polling_service.c.o.d -o CMakeFiles/spine.dir/src/host_polling_service.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.c
+
+CMakeFiles/spine.dir/src/host_polling_service.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/host_polling_service.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.c > CMakeFiles/spine.dir/src/host_polling_service.c.i
+
+CMakeFiles/spine.dir/src/host_polling_service.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/host_polling_service.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.c -o CMakeFiles/spine.dir/src/host_polling_service.c.s
+
+CMakeFiles/spine.dir/src/host_polling_stages.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/host_polling_stages.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.c
+CMakeFiles/spine.dir/src/host_polling_stages.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building C object CMakeFiles/spine.dir/src/host_polling_stages.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/host_polling_stages.c.o -MF CMakeFiles/spine.dir/src/host_polling_stages.c.o.d -o CMakeFiles/spine.dir/src/host_polling_stages.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.c
+
+CMakeFiles/spine.dir/src/host_polling_stages.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/host_polling_stages.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.c > CMakeFiles/spine.dir/src/host_polling_stages.c.i
+
+CMakeFiles/spine.dir/src/host_polling_stages.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/host_polling_stages.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.c -o CMakeFiles/spine.dir/src/host_polling_stages.c.s
+
+CMakeFiles/spine.dir/src/host_status_service.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/host_status_service.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_status_service.c
+CMakeFiles/spine.dir/src/host_status_service.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building C object CMakeFiles/spine.dir/src/host_status_service.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/host_status_service.c.o -MF CMakeFiles/spine.dir/src/host_status_service.c.o.d -o CMakeFiles/spine.dir/src/host_status_service.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_status_service.c
+
+CMakeFiles/spine.dir/src/host_status_service.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/host_status_service.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_status_service.c > CMakeFiles/spine.dir/src/host_status_service.c.i
+
+CMakeFiles/spine.dir/src/host_status_service.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/host_status_service.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_status_service.c -o CMakeFiles/spine.dir/src/host_status_service.c.s
+
+CMakeFiles/spine.dir/src/results_flush_service.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/results_flush_service.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/results_flush_service.c
+CMakeFiles/spine.dir/src/results_flush_service.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building C object CMakeFiles/spine.dir/src/results_flush_service.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/results_flush_service.c.o -MF CMakeFiles/spine.dir/src/results_flush_service.c.o.d -o CMakeFiles/spine.dir/src/results_flush_service.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/results_flush_service.c
+
+CMakeFiles/spine.dir/src/results_flush_service.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/results_flush_service.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/results_flush_service.c > CMakeFiles/spine.dir/src/results_flush_service.c.i
+
+CMakeFiles/spine.dir/src/results_flush_service.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/results_flush_service.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/results_flush_service.c -o CMakeFiles/spine.dir/src/results_flush_service.c.s
+
+CMakeFiles/spine.dir/src/script_server_service.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/script_server_service.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/script_server_service.c
+CMakeFiles/spine.dir/src/script_server_service.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building C object CMakeFiles/spine.dir/src/script_server_service.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/script_server_service.c.o -MF CMakeFiles/spine.dir/src/script_server_service.c.o.d -o CMakeFiles/spine.dir/src/script_server_service.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/script_server_service.c
+
+CMakeFiles/spine.dir/src/script_server_service.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/script_server_service.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/script_server_service.c > CMakeFiles/spine.dir/src/script_server_service.c.i
+
+CMakeFiles/spine.dir/src/script_server_service.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/script_server_service.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/script_server_service.c -o CMakeFiles/spine.dir/src/script_server_service.c.s
+
 CMakeFiles/spine.dir/src/locks.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/locks.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c
 CMakeFiles/spine.dir/src/locks.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building C object CMakeFiles/spine.dir/src/locks.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building C object CMakeFiles/spine.dir/src/locks.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/locks.c.o -MF CMakeFiles/spine.dir/src/locks.c.o.d -o CMakeFiles/spine.dir/src/locks.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/locks.c
 
 CMakeFiles/spine.dir/src/locks.c.i: cmake_force
@@ -145,7 +425,7 @@ CMakeFiles/spine.dir/src/locks.c.s: cmake_force
 CMakeFiles/spine.dir/src/poller.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/poller.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.c
 CMakeFiles/spine.dir/src/poller.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building C object CMakeFiles/spine.dir/src/poller.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building C object CMakeFiles/spine.dir/src/poller.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/poller.c.o -MF CMakeFiles/spine.dir/src/poller.c.o.d -o CMakeFiles/spine.dir/src/poller.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.c
 
 CMakeFiles/spine.dir/src/poller.c.i: cmake_force
@@ -159,7 +439,7 @@ CMakeFiles/spine.dir/src/poller.c.s: cmake_force
 CMakeFiles/spine.dir/src/nft_popen.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/nft_popen.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.c
 CMakeFiles/spine.dir/src/nft_popen.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building C object CMakeFiles/spine.dir/src/nft_popen.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building C object CMakeFiles/spine.dir/src/nft_popen.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/nft_popen.c.o -MF CMakeFiles/spine.dir/src/nft_popen.c.o.d -o CMakeFiles/spine.dir/src/nft_popen.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.c
 
 CMakeFiles/spine.dir/src/nft_popen.c.i: cmake_force
@@ -170,10 +450,80 @@ CMakeFiles/spine.dir/src/nft_popen.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/nft_popen.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.c -o CMakeFiles/spine.dir/src/nft_popen.c.s
 
+CMakeFiles/spine.dir/src/async_exec.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/async_exec.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.c
+CMakeFiles/spine.dir/src/async_exec.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building C object CMakeFiles/spine.dir/src/async_exec.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/async_exec.c.o -MF CMakeFiles/spine.dir/src/async_exec.c.o.d -o CMakeFiles/spine.dir/src/async_exec.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.c
+
+CMakeFiles/spine.dir/src/async_exec.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/async_exec.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.c > CMakeFiles/spine.dir/src/async_exec.c.i
+
+CMakeFiles/spine.dir/src/async_exec.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/async_exec.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.c -o CMakeFiles/spine.dir/src/async_exec.c.s
+
+CMakeFiles/spine.dir/src/async_snmp.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/async_snmp.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.c
+CMakeFiles/spine.dir/src/async_snmp.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building C object CMakeFiles/spine.dir/src/async_snmp.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/async_snmp.c.o -MF CMakeFiles/spine.dir/src/async_snmp.c.o.d -o CMakeFiles/spine.dir/src/async_snmp.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.c
+
+CMakeFiles/spine.dir/src/async_snmp.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/async_snmp.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.c > CMakeFiles/spine.dir/src/async_snmp.c.i
+
+CMakeFiles/spine.dir/src/async_snmp.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/async_snmp.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.c -o CMakeFiles/spine.dir/src/async_snmp.c.s
+
+CMakeFiles/spine.dir/src/async_mysql.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/async_mysql.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.c
+CMakeFiles/spine.dir/src/async_mysql.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Building C object CMakeFiles/spine.dir/src/async_mysql.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/async_mysql.c.o -MF CMakeFiles/spine.dir/src/async_mysql.c.o.d -o CMakeFiles/spine.dir/src/async_mysql.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.c
+
+CMakeFiles/spine.dir/src/async_mysql.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/async_mysql.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.c > CMakeFiles/spine.dir/src/async_mysql.c.i
+
+CMakeFiles/spine.dir/src/async_mysql.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/async_mysql.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.c -o CMakeFiles/spine.dir/src/async_mysql.c.s
+
+CMakeFiles/spine.dir/src/async_icmp.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/async_icmp.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.c
+CMakeFiles/spine.dir/src/async_icmp.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_31) "Building C object CMakeFiles/spine.dir/src/async_icmp.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/async_icmp.c.o -MF CMakeFiles/spine.dir/src/async_icmp.c.o.d -o CMakeFiles/spine.dir/src/async_icmp.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.c
+
+CMakeFiles/spine.dir/src/async_icmp.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/async_icmp.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.c > CMakeFiles/spine.dir/src/async_icmp.c.i
+
+CMakeFiles/spine.dir/src/async_icmp.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/async_icmp.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.c -o CMakeFiles/spine.dir/src/async_icmp.c.s
+
+CMakeFiles/spine.dir/src/async_dns.c.o: CMakeFiles/spine.dir/flags.make
+CMakeFiles/spine.dir/src/async_dns.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c
+CMakeFiles/spine.dir/src/async_dns.c.o: CMakeFiles/spine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_32) "Building C object CMakeFiles/spine.dir/src/async_dns.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/async_dns.c.o -MF CMakeFiles/spine.dir/src/async_dns.c.o.d -o CMakeFiles/spine.dir/src/async_dns.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c
+
+CMakeFiles/spine.dir/src/async_dns.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/spine.dir/src/async_dns.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c > CMakeFiles/spine.dir/src/async_dns.c.i
+
+CMakeFiles/spine.dir/src/async_dns.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/spine.dir/src/async_dns.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c -o CMakeFiles/spine.dir/src/async_dns.c.s
+
 CMakeFiles/spine.dir/src/php.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/php.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/php.c
 CMakeFiles/spine.dir/src/php.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building C object CMakeFiles/spine.dir/src/php.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_33) "Building C object CMakeFiles/spine.dir/src/php.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/php.c.o -MF CMakeFiles/spine.dir/src/php.c.o.d -o CMakeFiles/spine.dir/src/php.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/php.c
 
 CMakeFiles/spine.dir/src/php.c.i: cmake_force
@@ -187,7 +537,7 @@ CMakeFiles/spine.dir/src/php.c.s: cmake_force
 CMakeFiles/spine.dir/src/ping.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/ping.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping.c
 CMakeFiles/spine.dir/src/ping.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/spine.dir/src/ping.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Building C object CMakeFiles/spine.dir/src/ping.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/ping.c.o -MF CMakeFiles/spine.dir/src/ping.c.o.d -o CMakeFiles/spine.dir/src/ping.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping.c
 
 CMakeFiles/spine.dir/src/ping.c.i: cmake_force
@@ -201,7 +551,7 @@ CMakeFiles/spine.dir/src/ping.c.s: cmake_force
 CMakeFiles/spine.dir/src/ping_validate.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/ping_validate.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping_validate.c
 CMakeFiles/spine.dir/src/ping_validate.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/spine.dir/src/ping_validate.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_35) "Building C object CMakeFiles/spine.dir/src/ping_validate.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/ping_validate.c.o -MF CMakeFiles/spine.dir/src/ping_validate.c.o.d -o CMakeFiles/spine.dir/src/ping_validate.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping_validate.c
 
 CMakeFiles/spine.dir/src/ping_validate.c.i: cmake_force
@@ -215,7 +565,7 @@ CMakeFiles/spine.dir/src/ping_validate.c.s: cmake_force
 CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping_ipv6_scope.c
 CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_36) "Building C object CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o -MF CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o.d -o CMakeFiles/spine.dir/src/ping_ipv6_scope.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping_ipv6_scope.c
 
 CMakeFiles/spine.dir/src/ping_ipv6_scope.c.i: cmake_force
@@ -229,7 +579,7 @@ CMakeFiles/spine.dir/src/ping_ipv6_scope.c.s: cmake_force
 CMakeFiles/spine.dir/src/keywords.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/keywords.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/keywords.c
 CMakeFiles/spine.dir/src/keywords.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/spine.dir/src/keywords.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_37) "Building C object CMakeFiles/spine.dir/src/keywords.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/keywords.c.o -MF CMakeFiles/spine.dir/src/keywords.c.o.d -o CMakeFiles/spine.dir/src/keywords.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/keywords.c
 
 CMakeFiles/spine.dir/src/keywords.c.i: cmake_force
@@ -243,7 +593,7 @@ CMakeFiles/spine.dir/src/keywords.c.s: cmake_force
 CMakeFiles/spine.dir/src/error.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/error.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.c
 CMakeFiles/spine.dir/src/error.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/spine.dir/src/error.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_38) "Building C object CMakeFiles/spine.dir/src/error.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/error.c.o -MF CMakeFiles/spine.dir/src/error.c.o.d -o CMakeFiles/spine.dir/src/error.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.c
 
 CMakeFiles/spine.dir/src/error.c.i: cmake_force
@@ -257,7 +607,7 @@ CMakeFiles/spine.dir/src/error.c.s: cmake_force
 CMakeFiles/spine.dir/src/systemd_notify.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/systemd_notify.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/systemd_notify.c
 CMakeFiles/spine.dir/src/systemd_notify.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/spine.dir/src/systemd_notify.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_39) "Building C object CMakeFiles/spine.dir/src/systemd_notify.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/systemd_notify.c.o -MF CMakeFiles/spine.dir/src/systemd_notify.c.o.d -o CMakeFiles/spine.dir/src/systemd_notify.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/systemd_notify.c
 
 CMakeFiles/spine.dir/src/systemd_notify.c.i: cmake_force
@@ -271,7 +621,7 @@ CMakeFiles/spine.dir/src/systemd_notify.c.s: cmake_force
 CMakeFiles/spine.dir/src/circuit_breaker.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/circuit_breaker.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.c
 CMakeFiles/spine.dir/src/circuit_breaker.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building C object CMakeFiles/spine.dir/src/circuit_breaker.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_40) "Building C object CMakeFiles/spine.dir/src/circuit_breaker.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/circuit_breaker.c.o -MF CMakeFiles/spine.dir/src/circuit_breaker.c.o.d -o CMakeFiles/spine.dir/src/circuit_breaker.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.c
 
 CMakeFiles/spine.dir/src/circuit_breaker.c.i: cmake_force
@@ -285,7 +635,7 @@ CMakeFiles/spine.dir/src/circuit_breaker.c.s: cmake_force
 CMakeFiles/spine.dir/src/spine_audit.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/spine_audit.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine_audit.c
 CMakeFiles/spine.dir/src/spine_audit.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building C object CMakeFiles/spine.dir/src/spine_audit.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_41) "Building C object CMakeFiles/spine.dir/src/spine_audit.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/spine_audit.c.o -MF CMakeFiles/spine.dir/src/spine_audit.c.o.d -o CMakeFiles/spine.dir/src/spine_audit.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine_audit.c
 
 CMakeFiles/spine.dir/src/spine_audit.c.i: cmake_force
@@ -299,7 +649,7 @@ CMakeFiles/spine.dir/src/spine_audit.c.s: cmake_force
 CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o: CMakeFiles/spine.dir/flags.make
 CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_icmp_posix.c
 CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o: CMakeFiles/spine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building C object CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_42) "Building C object CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o -MF CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o.d -o CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_icmp_posix.c
 
 CMakeFiles/spine.dir/src/platform/platform_icmp_posix.c.i: cmake_force
@@ -316,9 +666,34 @@ spine_OBJECTS = \
 "CMakeFiles/spine.dir/src/spine.c.o" \
 "CMakeFiles/spine.dir/src/util.c.o" \
 "CMakeFiles/spine.dir/src/snmp.c.o" \
+"CMakeFiles/spine.dir/src/runtime_context.c.o" \
+"CMakeFiles/spine.dir/src/composition_root.c.o" \
+"CMakeFiles/spine.dir/src/availability_policy.c.o" \
+"CMakeFiles/spine.dir/src/config_repository.c.o" \
+"CMakeFiles/spine.dir/src/config_builder.c.o" \
+"CMakeFiles/spine.dir/src/config_apply.c.o" \
+"CMakeFiles/spine.dir/src/db_connection.c.o" \
+"CMakeFiles/spine.dir/src/db_session.c.o" \
+"CMakeFiles/spine.dir/src/db_query.c.o" \
+"CMakeFiles/spine.dir/src/db_retry.c.o" \
+"CMakeFiles/spine.dir/src/snmp_session_factory.c.o" \
+"CMakeFiles/spine.dir/src/snmp_client.c.o" \
+"CMakeFiles/spine.dir/src/snmp_result_parser.c.o" \
+"CMakeFiles/spine.dir/src/log_formatter.c.o" \
+"CMakeFiles/spine.dir/src/log_sink.c.o" \
+"CMakeFiles/spine.dir/src/host_polling_service.c.o" \
+"CMakeFiles/spine.dir/src/host_polling_stages.c.o" \
+"CMakeFiles/spine.dir/src/host_status_service.c.o" \
+"CMakeFiles/spine.dir/src/results_flush_service.c.o" \
+"CMakeFiles/spine.dir/src/script_server_service.c.o" \
 "CMakeFiles/spine.dir/src/locks.c.o" \
 "CMakeFiles/spine.dir/src/poller.c.o" \
 "CMakeFiles/spine.dir/src/nft_popen.c.o" \
+"CMakeFiles/spine.dir/src/async_exec.c.o" \
+"CMakeFiles/spine.dir/src/async_snmp.c.o" \
+"CMakeFiles/spine.dir/src/async_mysql.c.o" \
+"CMakeFiles/spine.dir/src/async_icmp.c.o" \
+"CMakeFiles/spine.dir/src/async_dns.c.o" \
 "CMakeFiles/spine.dir/src/php.c.o" \
 "CMakeFiles/spine.dir/src/ping.c.o" \
 "CMakeFiles/spine.dir/src/ping_validate.c.o" \
@@ -353,9 +728,34 @@ spine: CMakeFiles/spine.dir/src/sql.c.o
 spine: CMakeFiles/spine.dir/src/spine.c.o
 spine: CMakeFiles/spine.dir/src/util.c.o
 spine: CMakeFiles/spine.dir/src/snmp.c.o
+spine: CMakeFiles/spine.dir/src/runtime_context.c.o
+spine: CMakeFiles/spine.dir/src/composition_root.c.o
+spine: CMakeFiles/spine.dir/src/availability_policy.c.o
+spine: CMakeFiles/spine.dir/src/config_repository.c.o
+spine: CMakeFiles/spine.dir/src/config_builder.c.o
+spine: CMakeFiles/spine.dir/src/config_apply.c.o
+spine: CMakeFiles/spine.dir/src/db_connection.c.o
+spine: CMakeFiles/spine.dir/src/db_session.c.o
+spine: CMakeFiles/spine.dir/src/db_query.c.o
+spine: CMakeFiles/spine.dir/src/db_retry.c.o
+spine: CMakeFiles/spine.dir/src/snmp_session_factory.c.o
+spine: CMakeFiles/spine.dir/src/snmp_client.c.o
+spine: CMakeFiles/spine.dir/src/snmp_result_parser.c.o
+spine: CMakeFiles/spine.dir/src/log_formatter.c.o
+spine: CMakeFiles/spine.dir/src/log_sink.c.o
+spine: CMakeFiles/spine.dir/src/host_polling_service.c.o
+spine: CMakeFiles/spine.dir/src/host_polling_stages.c.o
+spine: CMakeFiles/spine.dir/src/host_status_service.c.o
+spine: CMakeFiles/spine.dir/src/results_flush_service.c.o
+spine: CMakeFiles/spine.dir/src/script_server_service.c.o
 spine: CMakeFiles/spine.dir/src/locks.c.o
 spine: CMakeFiles/spine.dir/src/poller.c.o
 spine: CMakeFiles/spine.dir/src/nft_popen.c.o
+spine: CMakeFiles/spine.dir/src/async_exec.c.o
+spine: CMakeFiles/spine.dir/src/async_snmp.c.o
+spine: CMakeFiles/spine.dir/src/async_mysql.c.o
+spine: CMakeFiles/spine.dir/src/async_icmp.c.o
+spine: CMakeFiles/spine.dir/src/async_dns.c.o
 spine: CMakeFiles/spine.dir/src/php.c.o
 spine: CMakeFiles/spine.dir/src/ping.c.o
 spine: CMakeFiles/spine.dir/src/ping_validate.c.o
@@ -388,7 +788,7 @@ spine: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 spine: /opt/homebrew/lib/libuv.dylib
 spine: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 spine: CMakeFiles/spine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Linking C executable spine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_43) "Linking C executable spine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/spine.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

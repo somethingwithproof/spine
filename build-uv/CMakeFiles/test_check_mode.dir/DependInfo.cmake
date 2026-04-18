@@ -8,6 +8,11 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c" "CMakeFiles/test_check_mode.dir/src/config_apply.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/config_apply.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c" "CMakeFiles/test_check_mode.dir/src/config_builder.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/config_builder.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c" "CMakeFiles/test_check_mode.dir/src/config_repository.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/config_repository.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c" "CMakeFiles/test_check_mode.dir/src/log_formatter.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/log_formatter.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c" "CMakeFiles/test_check_mode.dir/src/log_sink.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/log_sink.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c" "CMakeFiles/test_check_mode.dir/src/util.c.o" "gcc" "CMakeFiles/test_check_mode.dir/src/util.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_check_mode.c" "CMakeFiles/test_check_mode.dir/tests/unit/test_check_mode.c.o" "gcc" "CMakeFiles/test_check_mode.dir/tests/unit/test_check_mode.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_spine_stubs.c" "CMakeFiles/test_check_mode.dir/tests/unit/test_spine_stubs.c.o" "gcc" "CMakeFiles/test_check_mode.dir/tests/unit/test_spine_stubs.c.o.d"

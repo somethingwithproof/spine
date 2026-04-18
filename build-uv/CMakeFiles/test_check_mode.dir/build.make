@@ -114,11 +114,86 @@ CMakeFiles/test_check_mode.dir/src/util.c.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/util.c.s"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.c -o CMakeFiles/test_check_mode.dir/src/util.c.s
 
+CMakeFiles/test_check_mode.dir/src/config_repository.c.o: CMakeFiles/test_check_mode.dir/flags.make
+CMakeFiles/test_check_mode.dir/src/config_repository.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
+CMakeFiles/test_check_mode.dir/src/config_repository.c.o: CMakeFiles/test_check_mode.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building C object CMakeFiles/test_check_mode.dir/src/config_repository.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_check_mode.dir/src/config_repository.c.o -MF CMakeFiles/test_check_mode.dir/src/config_repository.c.o.d -o CMakeFiles/test_check_mode.dir/src/config_repository.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c
+
+CMakeFiles/test_check_mode.dir/src/config_repository.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_check_mode.dir/src/config_repository.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c > CMakeFiles/test_check_mode.dir/src/config_repository.c.i
+
+CMakeFiles/test_check_mode.dir/src/config_repository.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/config_repository.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_repository.c -o CMakeFiles/test_check_mode.dir/src/config_repository.c.s
+
+CMakeFiles/test_check_mode.dir/src/config_builder.c.o: CMakeFiles/test_check_mode.dir/flags.make
+CMakeFiles/test_check_mode.dir/src/config_builder.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
+CMakeFiles/test_check_mode.dir/src/config_builder.c.o: CMakeFiles/test_check_mode.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building C object CMakeFiles/test_check_mode.dir/src/config_builder.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_check_mode.dir/src/config_builder.c.o -MF CMakeFiles/test_check_mode.dir/src/config_builder.c.o.d -o CMakeFiles/test_check_mode.dir/src/config_builder.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c
+
+CMakeFiles/test_check_mode.dir/src/config_builder.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_check_mode.dir/src/config_builder.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c > CMakeFiles/test_check_mode.dir/src/config_builder.c.i
+
+CMakeFiles/test_check_mode.dir/src/config_builder.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/config_builder.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_builder.c -o CMakeFiles/test_check_mode.dir/src/config_builder.c.s
+
+CMakeFiles/test_check_mode.dir/src/config_apply.c.o: CMakeFiles/test_check_mode.dir/flags.make
+CMakeFiles/test_check_mode.dir/src/config_apply.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
+CMakeFiles/test_check_mode.dir/src/config_apply.c.o: CMakeFiles/test_check_mode.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building C object CMakeFiles/test_check_mode.dir/src/config_apply.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_check_mode.dir/src/config_apply.c.o -MF CMakeFiles/test_check_mode.dir/src/config_apply.c.o.d -o CMakeFiles/test_check_mode.dir/src/config_apply.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c
+
+CMakeFiles/test_check_mode.dir/src/config_apply.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_check_mode.dir/src/config_apply.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c > CMakeFiles/test_check_mode.dir/src/config_apply.c.i
+
+CMakeFiles/test_check_mode.dir/src/config_apply.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/config_apply.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/config_apply.c -o CMakeFiles/test_check_mode.dir/src/config_apply.c.s
+
+CMakeFiles/test_check_mode.dir/src/log_formatter.c.o: CMakeFiles/test_check_mode.dir/flags.make
+CMakeFiles/test_check_mode.dir/src/log_formatter.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
+CMakeFiles/test_check_mode.dir/src/log_formatter.c.o: CMakeFiles/test_check_mode.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building C object CMakeFiles/test_check_mode.dir/src/log_formatter.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_check_mode.dir/src/log_formatter.c.o -MF CMakeFiles/test_check_mode.dir/src/log_formatter.c.o.d -o CMakeFiles/test_check_mode.dir/src/log_formatter.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c
+
+CMakeFiles/test_check_mode.dir/src/log_formatter.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_check_mode.dir/src/log_formatter.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c > CMakeFiles/test_check_mode.dir/src/log_formatter.c.i
+
+CMakeFiles/test_check_mode.dir/src/log_formatter.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/log_formatter.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c -o CMakeFiles/test_check_mode.dir/src/log_formatter.c.s
+
+CMakeFiles/test_check_mode.dir/src/log_sink.c.o: CMakeFiles/test_check_mode.dir/flags.make
+CMakeFiles/test_check_mode.dir/src/log_sink.c.o: /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
+CMakeFiles/test_check_mode.dir/src/log_sink.c.o: CMakeFiles/test_check_mode.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building C object CMakeFiles/test_check_mode.dir/src/log_sink.c.o"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/test_check_mode.dir/src/log_sink.c.o -MF CMakeFiles/test_check_mode.dir/src/log_sink.c.o.d -o CMakeFiles/test_check_mode.dir/src/log_sink.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c
+
+CMakeFiles/test_check_mode.dir/src/log_sink.c.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing C source to CMakeFiles/test_check_mode.dir/src/log_sink.c.i"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -E /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c > CMakeFiles/test_check_mode.dir/src/log_sink.c.i
+
+CMakeFiles/test_check_mode.dir/src/log_sink.c.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling C source to assembly CMakeFiles/test_check_mode.dir/src/log_sink.c.s"
+	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -S /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.c -o CMakeFiles/test_check_mode.dir/src/log_sink.c.s
+
 # Object files for target test_check_mode
 test_check_mode_OBJECTS = \
 "CMakeFiles/test_check_mode.dir/tests/unit/test_check_mode.c.o" \
 "CMakeFiles/test_check_mode.dir/tests/unit/test_spine_stubs.c.o" \
-"CMakeFiles/test_check_mode.dir/src/util.c.o"
+"CMakeFiles/test_check_mode.dir/src/util.c.o" \
+"CMakeFiles/test_check_mode.dir/src/config_repository.c.o" \
+"CMakeFiles/test_check_mode.dir/src/config_builder.c.o" \
+"CMakeFiles/test_check_mode.dir/src/config_apply.c.o" \
+"CMakeFiles/test_check_mode.dir/src/log_formatter.c.o" \
+"CMakeFiles/test_check_mode.dir/src/log_sink.c.o"
 
 # External object files for target test_check_mode
 test_check_mode_EXTERNAL_OBJECTS = \
@@ -142,6 +217,11 @@ test_check_mode_EXTERNAL_OBJECTS = \
 test_check_mode: CMakeFiles/test_check_mode.dir/tests/unit/test_check_mode.c.o
 test_check_mode: CMakeFiles/test_check_mode.dir/tests/unit/test_spine_stubs.c.o
 test_check_mode: CMakeFiles/test_check_mode.dir/src/util.c.o
+test_check_mode: CMakeFiles/test_check_mode.dir/src/config_repository.c.o
+test_check_mode: CMakeFiles/test_check_mode.dir/src/config_builder.c.o
+test_check_mode: CMakeFiles/test_check_mode.dir/src/config_apply.c.o
+test_check_mode: CMakeFiles/test_check_mode.dir/src/log_formatter.c.o
+test_check_mode: CMakeFiles/test_check_mode.dir/src/log_sink.c.o
 test_check_mode: CMakeFiles/spine_platform.dir/src/platform/platform_common.c.o
 test_check_mode: CMakeFiles/spine_platform.dir/src/platform/platform_posix.c.o
 test_check_mode: CMakeFiles/spine_platform.dir/src/platform/platform_win.c.o
@@ -164,7 +244,7 @@ test_check_mode: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 test_check_mode: /opt/homebrew/lib/libuv.dylib
 test_check_mode: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_check_mode: CMakeFiles/test_check_mode.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking C executable test_check_mode"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Linking C executable test_check_mode"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_check_mode.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

@@ -130,6 +130,7 @@ set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/test_sandbox.dir/DependInfo.cmake"
   "CMakeFiles/test_json_log.dir/DependInfo.cmake"
   "CMakeFiles/test_env_scrub.dir/DependInfo.cmake"
+  "CMakeFiles/test_async_coverage.dir/DependInfo.cmake"
   "CMakeFiles/test_spine_audit.dir/DependInfo.cmake"
   "CMakeFiles/test_circuit_breaker.dir/DependInfo.cmake"
   "CMakeFiles/test_dump_config.dir/DependInfo.cmake"

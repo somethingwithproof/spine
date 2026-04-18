@@ -435,4 +435,5 @@ CMakeFiles/test_dry_run.dir/src/sql.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/sql.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/db_session.h

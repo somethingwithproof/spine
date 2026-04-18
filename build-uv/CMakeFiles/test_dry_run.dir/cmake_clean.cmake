@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/test_dry_run.dir/src/db_session.c.o"
+  "CMakeFiles/test_dry_run.dir/src/db_session.c.o.d"
   "CMakeFiles/test_dry_run.dir/src/sql.c.o"
   "CMakeFiles/test_dry_run.dir/src/sql.c.o.d"
   "CMakeFiles/test_dry_run.dir/tests/unit/test_dry_run.c.o"
