@@ -97,6 +97,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include "composition_root.h"
 #include "poll_state.h"
 #include "systemd_notify.h"
 #include "platform/platform_sandbox.h"
@@ -657,6 +658,8 @@ int main(int argc, char *argv[]) {
 	if (set.dry_run) {
 		SPINE_LOG(("NOTE: --dry-run active; all SQL writes will be logged, not executed"));
 	}
+
+	spine_services_initialize();
 
 	/* read settings table from the database to further establish environment */
 	read_config_options();

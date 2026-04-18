@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/thomasvincent/Developer/github.com/Cacti/spine/build-cov/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

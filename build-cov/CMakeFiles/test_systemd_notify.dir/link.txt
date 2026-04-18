@@ -1,0 +1,1 @@
+/usr/bin/cc --coverage -fprofile-arcs -ftest-coverage -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names --coverage -fprofile-arcs CMakeFiles/test_systemd_notify.dir/tests/unit/test_systemd_notify.c.o CMakeFiles/test_systemd_notify.dir/src/systemd_notify.c.o -o test_systemd_notify

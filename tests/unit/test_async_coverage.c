@@ -53,7 +53,7 @@ static void test_async_exec_spawn_fail(void) {
 
 static void test_async_snmp_parse_fail(void) {
     // Test parsing failure
-    int r = spine_async_snmp_get(NULL, "invalid.oid", NULL, NULL);
+    int r = spine_async_snmp_get(NULL, "invalid.oid");
     ASSERT_INT_EQ(r, -1);
 }
 
@@ -71,6 +71,15 @@ static void test_async_mysql_query(void) {
     ASSERT_INT_EQ(r, -1);
 }
 #endif
+
+// Stubs for poller functions
+void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
+    (void)pdu; (void)ctx;
+}
+
+void spine_transition_state(poll_context_t *ctx) {
+    (void)ctx;
+}
 
 int main(void) {
     loop = uv_default_loop();

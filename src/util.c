@@ -33,6 +33,11 @@
 
 #include "common.h"
 #include "spine.h"
+#include "config_apply.h"
+#include "config_builder.h"
+#include "config_repository.h"
+#include "log_formatter.h"
+#include "log_sink.h"
 #include "regex.h"
 
 #include <fcntl.h>
@@ -350,7 +355,23 @@ int is_debug_device(int device_id) {
  *  load default values from the database for poller processing
  *
  */
+static void read_config_options_legacy(void);
+
 void read_config_options(void) {
+	MYSQL mysql;
+	ConfigRepositoryData raw;
+	RuntimeConfigDraft draft;
+
+	db_connect(LOCAL, &mysql);
+	config_repository_fetch(&mysql, &raw);
+	config_builder_build(&set, &raw, &draft);
+	config_apply_runtime(&set, &draft);
+	db_disconnect(&mysql);
+
+	read_config_options_legacy();
+}
+
+static void read_config_options_legacy(void) {
 	MYSQL      mysql;
 	MYSQL      mysqlr;
 	MYSQL_RES  *result;
@@ -1385,7 +1406,7 @@ int spine_log(const char *format, ...) {
 
 	/* log message prefix */
 
-	snprintf(logprefix, LOGSIZE, "SPINE: Poller[%i] PID[%lu] PT[%lu] ", set.poller_id, spine_platform_process_id(), (unsigned long int)pthread_self());
+	spine_log_formatter_prefix(logprefix, sizeof(logprefix), set.poller_id);
 
 	/* get time for poller_output table */
 	nowbin = time(&nowbin);
@@ -1396,7 +1417,7 @@ int spine_log(const char *format, ...) {
 	if (IS_LOGGING_TO_STDOUT()) {
 		cur_time = get_time_as_double();
 		snprintf(stdoutmessage, sizeof(stdoutmessage), "Total[%3.4f] %s", cur_time - start_time, ulogmessage);
-		puts(stdoutmessage);
+		spine_log_sink_stdout(stdoutmessage);
 		return TRUE;
 	}
 

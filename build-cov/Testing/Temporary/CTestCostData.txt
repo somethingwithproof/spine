@@ -1,0 +1,21 @@
+platform_env 1 0.201374
+platform_time 1 0.190665
+platform_process 1 0.195585
+platform_socket 1 0.199477
+platform_error 1 0.188348
+platform_fd 1 0.189971
+platform_dns 1 0.195659
+platform_thread_name 1 0.188656
+ping_reply_validation 1 0.188082
+ping_ipv6_scope 1 0.218204
+systemd_notify 1 0.227075
+sandbox 1 0.193807
+json_log 1 0.289919
+env_scrub 1 0.2012
+spine_audit 1 0.188627
+circuit_breaker 1 0.216974
+dump_config 1 0.218172
+check_mode 1 3.25663
+dry_run 1 0.247174
+async_coverage 5 0.0338166
+---

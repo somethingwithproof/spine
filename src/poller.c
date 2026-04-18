@@ -35,6 +35,10 @@
 #include "spine.h"
 #include "spine_probes.h"
 #include "circuit_breaker.h"
+#include "composition_root.h"
+#include "host_polling_service.h"
+#include "host_polling_stages.h"
+#include "poll_state.h"
 #include "platform/platform_fd.h"
 
 #ifdef HAVE_LIBUV
@@ -174,6 +178,311 @@ void *child(void *arg) {
 	exit(0);
 }
 
+typedef struct HostPollPipelineData HostPollPipelineData;
+
+static ResultCode host_poll_stage_poll_items(const HostPollingRequest *request, HostPollingStageOutput *output);
+static ResultCode host_poll_stage_persist_results(const HostPollingRequest *request, HostPollingStageOutput *output);
+static ResultCode host_poll_stage_update_host_state(const HostPollingRequest *request, HostPollingStageOutput *output);
+static ResultCode host_poll_executor_legacy(const HostPollingRequest *request, HostPollingStageOutput *output);
+static void poll_host_legacy(int host_id, int spine_host_thread,
+	int host_data_ids, char *spine_host_time,
+	int *host_errors,
+	HostPollPipelineData *pipeline_data);
+
+typedef struct HostPollPipelineData {
+	int host_errors;
+	char error_data_ids[DBL_BUFSIZE];
+	target_t *poller_items;
+	int rows_processed;
+	char query8[BUFSIZE];
+	char query11[BUFSIZE];
+	char posuffix[BUFSIZE];
+	int query8_len;
+	int query11_len;
+	int posuffix_len;
+} HostPollPipelineData;
+
+void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
+	HostPollingRequest request;
+	HostPollingResult result;
+	const spine_services_t *services;
+	HostPollPipelineData pipeline_data;
+
+	memset(&request, 0, sizeof(request));
+	memset(&pipeline_data, 0, sizeof(pipeline_data));
+	request.device_counter = device_counter;
+	request.host_id = host_id;
+	request.spine_host_thread = spine_host_thread;
+	request.spine_host_threads = spine_host_threads;
+	request.host_data_ids = host_data_ids;
+	request.spine_host_time = spine_host_time;
+	request.host_errors = host_errors;
+	request.spine_host_time_double = spine_host_time_double;
+	request.user_data = &pipeline_data;
+	request.max_retries = 1;
+	request.on_load_work_items = host_polling_stage_load_work_items;
+	request.on_check_availability = host_polling_stage_check_availability;
+	request.on_poll_items = host_poll_stage_poll_items;
+	request.on_persist_results = host_poll_stage_persist_results;
+	request.on_update_host_state = host_poll_stage_update_host_state;
+
+	services = spine_services_default();
+	result = host_polling_service_run(&request, services);
+	if (host_errors != NULL) {
+		*host_errors = result.host_errors;
+	}
+
+	if (result.code != RESULT_CODE_OK) {
+		SPINE_LOG(("ERROR: Device[%d] pipeline failed at stage %d after %d retries",
+			host_id, (int)result.failed_stage, result.retries_used));
+	}
+}
+
+static ResultCode host_poll_stage_poll_items(const HostPollingRequest *request, HostPollingStageOutput *output) {
+	return host_poll_executor_legacy(request, output);
+}
+
+static ResultCode host_poll_executor_legacy(const HostPollingRequest *request, HostPollingStageOutput *output) {
+	int host_errors = 0;
+	HostPollPipelineData *pipeline_data = (HostPollPipelineData *)request->user_data;
+
+	poll_host_legacy(request->host_id, request->spine_host_thread,
+		request->host_data_ids, request->spine_host_time,
+		&host_errors, pipeline_data);
+
+	output->host_errors = host_errors;
+	output->retryable = 0;
+	if (pipeline_data != NULL) {
+		pipeline_data->host_errors = host_errors;
+	}
+
+	return RESULT_CODE_OK;
+}
+
+static ResultCode host_poll_stage_persist_results(const HostPollingRequest *request, HostPollingStageOutput *output) {
+	HostPollPipelineData *pipeline_data = (HostPollPipelineData *)request->user_data;
+	pool_t *local_cnn;
+	pool_t *remote_cnn = NULL;
+	MYSQL mysql;
+	MYSQL mysqlr;
+	MYSQL mysqlt;
+	char *query3 = NULL;
+	char *query12 = NULL;
+	char result_string[(DBL_BUFSIZE * 2) + SMALL_BUFSIZE];
+	size_t out_buffer;
+	int result_length;
+	int mode;
+	int i;
+	int new_buffer = TRUE;
+	int buf_length;
+	char poller_next_step_query[BUFSIZE];
+	int error_query_len;
+	char *error_query;
+
+	if (pipeline_data == NULL) {
+		output->host_errors = request->host_errors ? *request->host_errors : 0;
+		output->retryable = 0;
+		return RESULT_CODE_OK;
+	}
+
+	local_cnn = db_get_connection(LOCAL);
+	if (local_cnn == NULL) {
+		SPINE_FREE(pipeline_data->poller_items);
+		output->retryable = 1;
+		return RESULT_CODE_ERROR;
+	}
+	mysql = local_cnn->mysql;
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+		remote_cnn = db_get_connection(REMOTE);
+		if (remote_cnn == NULL) {
+			SPINE_FREE(pipeline_data->poller_items);
+			db_release_connection(LOCAL, local_cnn->id);
+			output->retryable = 1;
+			return RESULT_CODE_ERROR;
+		}
+		mysqlr = remote_cnn->mysql;
+		mysqlt = mysqlr;
+		mode = REMOTE;
+	} else {
+		mysqlt = mysql;
+		mode = LOCAL;
+	}
+
+	if (pipeline_data->poller_items != NULL && pipeline_data->rows_processed > 0) {
+		buf_length = MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER;
+		query3 = malloc((size_t)buf_length);
+		if (query3 == NULL) {
+			SPINE_FREE(pipeline_data->poller_items);
+			if (remote_cnn != NULL) {
+				db_release_connection(REMOTE, remote_cnn->id);
+			}
+			db_release_connection(LOCAL, local_cnn->id);
+			output->retryable = 0;
+			return RESULT_CODE_ERROR;
+		}
+
+		memset(query3, 0, (size_t)buf_length);
+		strncat(query3, pipeline_data->query8, (size_t)pipeline_data->query8_len);
+		out_buffer = strlen(query3);
+
+		if (set.boost_redirect && set.boost_enabled) {
+			query12 = malloc((size_t)buf_length);
+			if (query12 == NULL) {
+				SPINE_FREE(pipeline_data->poller_items);
+				free(query3);
+				if (remote_cnn != NULL) {
+					db_release_connection(REMOTE, remote_cnn->id);
+				}
+				db_release_connection(LOCAL, local_cnn->id);
+				output->retryable = 0;
+				return RESULT_CODE_ERROR;
+			}
+			memset(query12, 0, (size_t)buf_length);
+			strncat(query12, pipeline_data->query11, (size_t)pipeline_data->query11_len);
+		}
+
+		for (i = 0; i < pipeline_data->rows_processed; i++) {
+			char escaped_result[DBL_BUFSIZE];
+			char escaped_rrd_name[DBL_BUFSIZE];
+
+			db_escape(&mysqlt, escaped_result, sizeof(escaped_result), pipeline_data->poller_items[i].result);
+			db_escape(&mysqlt, escaped_rrd_name, sizeof(escaped_rrd_name), pipeline_data->poller_items[i].rrd_name);
+
+			snprintf(result_string, sizeof(result_string), " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+				pipeline_data->poller_items[i].local_data_id,
+				escaped_rrd_name,
+				request->spine_host_time,
+				escaped_result);
+			result_length = (int)strlen(result_string);
+
+			if ((out_buffer + (size_t)result_length) >= MAX_MYSQL_BUF_SIZE) {
+				strncat(query3, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+				db_insert(&mysqlt, mode, query3);
+				memset(query3, 0, (size_t)buf_length);
+				strncat(query3, pipeline_data->query8, (size_t)pipeline_data->query8_len);
+
+				if (set.boost_redirect && set.boost_enabled) {
+					strncat(query12, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+					db_insert(&mysqlt, mode, query12);
+					memset(query12, 0, (size_t)buf_length);
+					strncat(query12, pipeline_data->query11, (size_t)pipeline_data->query11_len);
+				}
+
+				out_buffer = strlen(query3);
+				new_buffer = TRUE;
+			}
+
+			result_string[0] = new_buffer ? ' ' : ',';
+			strncat(query3, result_string, (size_t)result_length);
+			if (set.boost_redirect && set.boost_enabled) {
+				strncat(query12, result_string, (size_t)result_length);
+			}
+
+			out_buffer += strlen(result_string);
+			new_buffer = FALSE;
+		}
+
+		if (out_buffer > strlen(pipeline_data->query8)) {
+			strncat(query3, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+			db_insert(&mysqlt, mode, query3);
+			if (set.boost_redirect && set.boost_enabled) {
+				strncat(query12, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+				db_insert(&mysqlt, mode, query12);
+			}
+		}
+
+		free(query3);
+		if (query12 != NULL) {
+			free(query12);
+		}
+		SPINE_FREE(pipeline_data->poller_items);
+	}
+
+	if (request->spine_host_thread == request->spine_host_threads && set.active_profiles != 1) {
+		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll",
+			request->host_id, request->spine_host_thread));
+		if (set.poller_id == 0) {
+			snprintf(poller_next_step_query, sizeof(poller_next_step_query),
+				"UPDATE poller_item"
+				" SET rrd_next_step = IF(rrd_step = %i, 0, IF(rrd_next_step - %i < 0, rrd_step - %i, rrd_next_step - %i))"
+				" WHERE host_id = %i",
+				set.poller_interval, set.poller_interval, set.poller_interval, set.poller_interval, request->host_id);
+		} else {
+			snprintf(poller_next_step_query, sizeof(poller_next_step_query),
+				"UPDATE poller_item"
+				" SET rrd_next_step = IF(rrd_step = %i, 0, IF(rrd_next_step - %i < 0, rrd_step - %i, rrd_next_step - %i))"
+				" WHERE host_id = %i"
+				" AND poller_id = %i",
+				set.poller_interval, set.poller_interval, set.poller_interval, set.poller_interval, request->host_id, set.poller_id);
+			}
+			db_query(&mysql, LOCAL, poller_next_step_query);
+	}
+
+	if (pipeline_data->host_errors > 0) {
+		error_query_len = (int)strlen(pipeline_data->error_data_ids) + BUFSIZE;
+		error_query = malloc((size_t)error_query_len);
+		if (error_query == NULL) {
+			SPINE_FREE(pipeline_data->poller_items);
+			if (remote_cnn != NULL) {
+				db_release_connection(REMOTE, remote_cnn->id);
+			}
+			db_release_connection(LOCAL, local_cnn->id);
+			output->retryable = 0;
+			return RESULT_CODE_ERROR;
+		}
+
+		snprintf(error_query, (size_t)error_query_len, "INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids)"
+			" VALUES(%i, %i, %i, '%s')"
+			" ON DUPLICATE KEY UPDATE"
+			" errors = errors + VALUES(errors),"
+			" local_data_ids = CONCAT(local_data_ids, ', ', VALUES(local_data_ids))",
+			request->host_id, set.poller_id, pipeline_data->host_errors, pipeline_data->error_data_ids);
+
+		db_query(&mysql, LOCAL, error_query);
+		free(error_query);
+	}
+
+	if (remote_cnn != NULL) {
+		db_release_connection(REMOTE, remote_cnn->id);
+	}
+	db_release_connection(LOCAL, local_cnn->id);
+
+	output->host_errors = request->host_errors ? *request->host_errors : 0;
+	output->retryable = 0;
+	return RESULT_CODE_OK;
+}
+
+static ResultCode host_poll_stage_update_host_state(const HostPollingRequest *request, HostPollingStageOutput *output) {
+	extern poller_thread_t** details;
+	pool_t *local_cnn;
+	MYSQL mysql;
+	char query[BUFSIZE];
+	double poll_time;
+
+	local_cnn = db_get_connection(LOCAL);
+	if (local_cnn == NULL) {
+		output->retryable = 1;
+		return RESULT_CODE_ERROR;
+	}
+	mysql = local_cnn->mysql;
+
+	thread_mutex_lock(LOCK_THDET);
+	details[request->device_counter]->threads_complete++;
+	if (details[request->device_counter]->threads_complete == details[request->device_counter]->spine_host_threads) {
+		details[request->device_counter]->complete = TRUE;
+		poll_time = get_time_as_double();
+		snprintf(query, sizeof(query), "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i",
+			poll_time, request->spine_host_time_double, request->host_id);
+		db_query(&mysql, LOCAL, query);
+	}
+	thread_mutex_unlock(LOCK_THDET);
+
+	db_release_connection(LOCAL, local_cnn->id);
+	output->host_errors = request->host_errors ? *request->host_errors : 0;
+	output->retryable = 0;
+	return RESULT_CODE_OK;
+}
+
 /*! \fn void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double)
  *  \brief core Spine function that polls a host
  *  \param host_id integer value for the host_id from the hosts table in Cacti
@@ -196,14 +505,13 @@ void *child(void *arg) {
  *  as the host poller_items table dictates.
  *
  */
-void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
+static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_ids, char *spine_host_time, int *host_errors, HostPollPipelineData *pipeline_data) {
 	SPINE_PROBE1(poll_start, host_id);
 	char query1[BUFSIZE];
 	char query2[BIG_BUFSIZE];
 	char *query3 = NULL;
 	char query4[BUFSIZE];
 	char query5[BUFSIZE];
-	char query6[BUFSIZE];
 	char query8[BUFSIZE];
 	char query9[BUFSIZE];
 	char query10[BUFSIZE];
@@ -268,8 +576,6 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 	int new_buffer              = TRUE;
 	int ignore_sysinfo          = TRUE;
 	int buf_length              = 0;
-
-	extern poller_thread_t** details;
 
 	pool_t *local_cnn = NULL;
 	pool_t *remote_cnn = NULL;
@@ -473,12 +779,6 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 			}
 		}
 
-		/* query to setup the next polling interval in cacti */
-		snprintf(query6, BUFSIZE,
-			"UPDATE poller_item"
-			" SET rrd_next_step = IF(rrd_step = %i, 0, IF(rrd_next_step - %i < 0, rrd_step - %i, rrd_next_step - %i))"
-			" WHERE host_id = %i", set.poller_interval, set.poller_interval, set.poller_interval, set.poller_interval, host_id);
-
 		/* query to add output records to the poller output table */
 		snprintf(query8, BUFSIZE,
 			"INSERT INTO poller_output"
@@ -616,13 +916,6 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 					" ORDER BY snmp_port %s", regex_col, host_id, set.poller_id, limits);
 			}
 		}
-
-		/* query to setup the next polling interval in cacti */
-		snprintf(query6, BUFSIZE,
-			"UPDATE poller_item"
-			" SET rrd_next_step = IF(rrd_step = %i, 0, IF(rrd_next_step - %i < 0, rrd_step - %i, rrd_next_step - %i))"
-			" WHERE host_id = %i"
-			" AND poller_id = %i", set.poller_interval, set.poller_interval, set.poller_interval, set.poller_interval, host_id, set.poller_id);
 
 		/* query to add output records to the poller output table */
 		snprintf(query8, BUFSIZE,
@@ -1928,127 +2221,139 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 			}
 		}
 
-		buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
+			if (pipeline_data != NULL) {
+				pipeline_data->poller_items = poller_items;
+				pipeline_data->rows_processed = rows_processed;
+				snprintf(pipeline_data->query8, sizeof(pipeline_data->query8), "%s", query8);
+				snprintf(pipeline_data->query11, sizeof(pipeline_data->query11), "%s", query11);
+				snprintf(pipeline_data->posuffix, sizeof(pipeline_data->posuffix), "%s", posuffix);
+				pipeline_data->query8_len = query8_len;
+				pipeline_data->query11_len = query11_len;
+				pipeline_data->posuffix_len = posuffix_len;
+				poller_items = NULL;
+			} else {
+				buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
 
-		/* insert the query results into the database */
-		if (!(query3 = (char *)malloc(buf_length))) {
-			die("ERROR: Fatal malloc error: poller.c query3 output buffer!");
-		}
+				/* insert the query results into the database */
+				if (!(query3 = (char *)malloc(buf_length))) {
+					die("ERROR: Fatal malloc error: poller.c query3 output buffer!");
+				}
 
-		/* set zeros */
-		memset(query3, 0, buf_length);
+				/* set zeros */
+				memset(query3, 0, buf_length);
 
-		/* append data */
-		strncat(query3, query8, query8_len);
-
-		out_buffer = strlen(query3);
-
-		if (set.boost_redirect && set.boost_enabled) {
-			/* insert the query results into the database */
-			if (!(query12 = (char *)malloc(buf_length))) {
-				die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
-			}
-
-			/* set zeros */
-			memset(query12, 0, buf_length);
-
-			/* append data */
-			strncat(query12, query11, query11_len);
-		}
-
-		int mode;
-		if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-			SPINE_LOG_DEBUG(("DEBUG: Setting up writes to remote database"));
-			mysqlt = mysqlr;
-			mode   = REMOTE;
-		} else {
-			SPINE_LOG_DEBUG(("DEBUG: Setting up writes to local database"));
-			mysqlt = mysql;
-			mode   = LOCAL;
-		}
-
-		i = 0;
-		while (i < rows_processed) {
-			char escaped_result[DBL_BUFSIZE];
-			char escaped_rrd_name[DBL_BUFSIZE];
-
-			db_escape(&mysqlt, escaped_result, sizeof(escaped_result), poller_items[i].result);
-			db_escape(&mysqlt, escaped_rrd_name, sizeof(escaped_rrd_name), poller_items[i].rrd_name);
-
-				snprintf(result_string, sizeof(result_string), " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
-				poller_items[i].local_data_id,
-				escaped_rrd_name,
-				spine_host_time,
-				escaped_result);
-
-			result_length = strlen(result_string);
-
-			/* if the next element to the buffer will overflow it, write to the database */
-			if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
-				/* append the suffix */
-				strncat(query3, posuffix, posuffix_len);
-
-				/* insert the record */
-				db_insert(&mysqlt, mode, query3);
-
-				/* re-initialize the query buffer */
-				memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
+				/* append data */
 				strncat(query3, query8, query8_len);
 
-				/* insert the record for boost */
+				out_buffer = strlen(query3);
+
 				if (set.boost_redirect && set.boost_enabled) {
-					/* append the suffix */
-					strncat(query12, posuffix, posuffix_len);
+					/* insert the query results into the database */
+					if (!(query12 = (char *)malloc(buf_length))) {
+						die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
+					}
 
-					db_insert(&mysqlt, mode, query12);
+					/* set zeros */
+					memset(query12, 0, buf_length);
 
-					memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
+					/* append data */
 					strncat(query12, query11, query11_len);
 				}
 
-				/* reset the output buffer length */
-				out_buffer = strlen(query3);
+				int mode;
+				if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+					SPINE_LOG_DEBUG(("DEBUG: Setting up writes to remote database"));
+					mysqlt = mysqlr;
+					mode   = REMOTE;
+				} else {
+					SPINE_LOG_DEBUG(("DEBUG: Setting up writes to local database"));
+					mysqlt = mysql;
+					mode   = LOCAL;
+				}
 
-				/* set binary, let the system know we are a new buffer */
-				new_buffer = TRUE;
+				i = 0;
+				while (i < rows_processed) {
+					char escaped_result[DBL_BUFSIZE];
+					char escaped_rrd_name[DBL_BUFSIZE];
+
+					db_escape(&mysqlt, escaped_result, sizeof(escaped_result), poller_items[i].result);
+					db_escape(&mysqlt, escaped_rrd_name, sizeof(escaped_rrd_name), poller_items[i].rrd_name);
+
+						snprintf(result_string, sizeof(result_string), " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+						poller_items[i].local_data_id,
+						escaped_rrd_name,
+						spine_host_time,
+						escaped_result);
+
+					result_length = strlen(result_string);
+
+					/* if the next element to the buffer will overflow it, write to the database */
+					if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
+						/* append the suffix */
+						strncat(query3, posuffix, posuffix_len);
+
+						/* insert the record */
+						db_insert(&mysqlt, mode, query3);
+
+						/* re-initialize the query buffer */
+						memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+
+						strncat(query3, query8, query8_len);
+
+						/* insert the record for boost */
+						if (set.boost_redirect && set.boost_enabled) {
+							/* append the suffix */
+							strncat(query12, posuffix, posuffix_len);
+
+							db_insert(&mysqlt, mode, query12);
+
+							memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+
+							strncat(query12, query11, query11_len);
+						}
+
+						/* reset the output buffer length */
+						out_buffer = strlen(query3);
+
+						/* set binary, let the system know we are a new buffer */
+						new_buffer = TRUE;
+					}
+
+					/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
+					if (new_buffer) {
+						result_string[0] = ' ';
+					} else {
+						result_string[0] = ',';
+					}
+
+					strncat(query3, result_string, result_length);
+
+					if (set.boost_redirect && set.boost_enabled) {
+						strncat(query12, result_string, result_length);
+					}
+
+					out_buffer = out_buffer + strlen(result_string);
+					new_buffer = FALSE;
+					i++;
+				}
+
+				/* perform the last insert if there is data to process */
+				if (out_buffer > strlen(query8)) {
+					/* append the suffix */
+					strncat(query3, posuffix, posuffix_len);
+
+					/* insert records into database */
+					db_insert(&mysqlt, mode, query3);
+
+					/* insert the record for boost */
+					if (set.boost_redirect && set.boost_enabled) {
+						/* append the suffix */
+						strncat(query12, posuffix, posuffix_len);
+
+						db_insert(&mysqlt, mode, query12);
+					}
+				}
 			}
-
-			/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
-			if (new_buffer) {
-				result_string[0] = ' ';
-			} else {
-				result_string[0] = ',';
-			}
-
-			strncat(query3, result_string, result_length);
-
-			if (set.boost_redirect && set.boost_enabled) {
-				strncat(query12, result_string, result_length);
-			}
-
-			out_buffer = out_buffer + strlen(result_string);
-			new_buffer = FALSE;
-			i++;
-		}
-
-		/* perform the last insert if there is data to process */
-		if (out_buffer > strlen(query8)) {
-			/* append the suffix */
-			strncat(query3, posuffix, posuffix_len);
-
-			/* insert records into database */
-			db_insert(&mysqlt, mode, query3);
-
-			/* insert the record for boost */
-			if (set.boost_redirect && set.boost_enabled) {
-				/* append the suffix */
-				strncat(query12, posuffix, posuffix_len);
-
-				db_insert(&mysqlt, mode, query12);
-			}
-		}
 
 		/* cleanup memory and prepare for function exit */
 		if (host->snmp_session != NULL) {
@@ -2061,7 +2366,7 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 			SPINE_FREE(query12);
 		}
 
-		SPINE_FREE(poller_items);
+			SPINE_FREE(poller_items);
 		SPINE_FREE(snmp_oids);
 	} else {
 		/* free the mysql result */
@@ -2072,54 +2377,19 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 	SPINE_FREE(reindex);
 	SPINE_FREE(ping);
 
-	/* update poller_items table for next polling interval */
-	if (spine_host_thread == spine_host_threads && set.active_profiles != 1) {
-		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, spine_host_thread));
-
-		db_query(&mysql, LOCAL, query6);
-	}
-
-	/* record the polling time for the device */
-	poll_time = get_time_as_double() - poll_time;
+		/* record the polling time for the device */
+		poll_time = get_time_as_double() - poll_time;
 	if (is_debug_device(host_id)) {
 		SPINE_LOG(("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, spine_host_thread, poll_time));
 	} else {
 		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, spine_host_thread, poll_time));
 	}
 
-	/* record the total time for the host */
-	thread_mutex_lock(LOCK_THDET);
-	details[device_counter]->threads_complete++;
-	if (details[device_counter]->threads_complete == details[device_counter]->spine_host_threads) {
-		details[device_counter]->complete = TRUE;
-
-		poll_time = get_time_as_double();
-		query1[0] = '\0';
-		snprintf(query1, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, spine_host_time_double, host_id);
-		db_query(&mysql, LOCAL, query1);
-
-	}
-
-	if (errors > 0) {
-		int error_query_len = strlen(error_string) + BUFSIZE;
-		char *error_query;
-		if (!(error_query = (char *)malloc(error_query_len))) {
-			die("ERROR: Fatal malloc error: poller.c error_query!");
+		/* Pipeline stages now own host-state and host_errors persistence.
+		 * Capture DS id rollups so persist stage can write them. */
+		if (pipeline_data != NULL) {
+			snprintf(pipeline_data->error_data_ids, sizeof(pipeline_data->error_data_ids), "%s", error_string);
 		}
-
-		snprintf(error_query, error_query_len, "INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids)"
-			" VALUES(%i, %i, %i, '%s')"
-			" ON DUPLICATE KEY UPDATE"
-			" errors = errors + VALUES(errors),"
-			" local_data_ids = CONCAT(local_data_ids, ', ', VALUES(local_data_ids))",
-			host_id, set.poller_id, errors, error_string);
-
-		db_query(&mysql, LOCAL, error_query);
-
-		free(error_query);
-	}
-
-	thread_mutex_unlock(LOCK_THDET);
 
 	if (local_cnn != NULL) {
 		db_release_connection(LOCAL, local_cnn->id);
@@ -2538,20 +2808,20 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 							case EINVAL:
 								SPINE_LOG(("Device[%i] ERROR: Possible invalid timeout specified in pipe wait statement.", current_host->id));
 								SET_UNDEFINED(result_string);
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
-								break;
-							default:
-								SPINE_LOG(("Device[%i] ERROR: The script/command wait failed", current_host->id));
-								SET_UNDEFINED(result_string);
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
-								break;
-						}
+							#ifdef USING_TPOPEN
+							close_fd = FALSE;
+							#endif
+							break;
+						default:
+							SPINE_LOG(("Device[%i] ERROR: The script/command wait failed", current_host->id));
+							SET_UNDEFINED(result_string);
+							#ifdef USING_TPOPEN
+							close_fd = FALSE;
+							#endif
+							break;
+					}
 
-						break;
+					break;
 				case 0:
 					#ifdef USING_TPOPEN
 					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The POPEN timed out", current_host->id));
@@ -2607,29 +2877,63 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 	return result_string;
 }
 
+void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
+	struct variable_list *vars;
+	char result[RESULTS_BUFFER];
 
-#include "poll_state.h"
+	if (pdu == NULL || ctx == NULL || ctx->host == NULL) {
+		return;
+	}
+
+	for (vars = pdu->variables; vars; vars = vars->next_variable) {
+		snmp_snprint_value(result, sizeof(result), vars->name, vars->name_length, vars);
+		SPINE_LOG_DEVDBG(("DEBUG: Device[%i] SNMP result: %s", ctx->host->id, result));
+	}
+}
+
+#ifdef HAVE_LIBUV
+#include "async_dns.h"
+#include "async_snmp.h"
+#include "async_icmp.h"
+#include "async_mysql.h"
 
 static void poll_step(poll_context_t *ctx);
 
-static void __attribute__((unused)) on_snmp_complete(void *sessp, struct snmp_pdu *pdu, void *data) {
-	(void)sessp;
-	(void)pdu;
-	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->current_item_idx++;
+static void on_handle_closed(uv_handle_t *handle) {
+	poll_context_t *ctx = (poll_context_t *)handle->data;
+	ctx->handles_closed++;
+	if (ctx->handles_closed == 2) {
+		if (ctx->sessp) {
+			snmp_sess_close(ctx->sessp);
+		}
+		spine_sem_post(&available_threads);
+		free(ctx);
+	}
+}
+
+void spine_transition_state(poll_context_t *ctx) {
 	poll_step(ctx);
 }
 
-static void __attribute__((unused)) on_exec_complete(const char *result, int exit_status, int term_signal, void *data) {
+static void on_dns_complete(struct addrinfo *res, int status, void *data) {
+	poll_context_t *ctx = (poll_context_t *)data;
+	if (status == 0 && res) {
+		ctx->state = POLL_STATE_PING;
+	} else {
+		ctx->state = POLL_STATE_ERROR;
+	}
+	poll_step(ctx);
+}
+
+static void on_ping_complete(const char *result, int status, void *data) {
 	(void)result;
-	(void)exit_status;
-	(void)term_signal;
+	(void)status;
 	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->current_item_idx++;
+	ctx->state = POLL_STATE_REINDEX;
 	poll_step(ctx);
 }
 
-static void __attribute__((unused)) on_db_complete(MYSQL *mysql, int status, void *data) {
+static void on_db_complete(MYSQL *mysql, int status, void *data) {
 	(void)mysql;
 	(void)status;
 	poll_context_t *ctx = (poll_context_t *)data;
@@ -2640,48 +2944,64 @@ static void __attribute__((unused)) on_db_complete(MYSQL *mysql, int status, voi
 static void poll_step(poll_context_t *ctx) {
 	switch (ctx->state) {
 		case POLL_STATE_INIT:
-			ctx->state = POLL_STATE_PING;
+			ctx->state = POLL_STATE_DNS;
 			poll_step(ctx);
+			break;
+
+		case POLL_STATE_DNS:
+			if (ctx->host && ctx->host->hostname[0] != '\0') {
+				spine_async_dns_lookup(ctx->host->hostname, on_dns_complete, ctx);
+			} else {
+				ctx->state = POLL_STATE_PING;
+				poll_step(ctx);
+			}
 			break;
 			
 		case POLL_STATE_PING:
-			ctx->state = POLL_STATE_SNMP;
-			ctx->current_item_idx = 0;
+			spine_async_icmp_ping(ctx->host->hostname, on_ping_complete, ctx);
+			break;
+
+		case POLL_STATE_REINDEX:
+			ctx->state = POLL_STATE_SNMP_SEND;
 			poll_step(ctx);
 			break;
 
-		case POLL_STATE_SNMP:
+		case POLL_STATE_SNMP_SEND:
 			if (ctx->current_item_idx < ctx->num_items) {
-				ctx->current_item_idx = ctx->num_items;
-				poll_step(ctx);
+				ctx->state = POLL_STATE_SNMP_WAIT;
+				if (spine_async_snmp_get(ctx, ".1.3.6.1.2.1.1.1.0") != 0) {
+					ctx->state = POLL_STATE_ERROR;
+					poll_step(ctx);
+				}
 			} else {
 				ctx->state = POLL_STATE_SCRIPTS;
-				ctx->current_item_idx = 0;
 				poll_step(ctx);
 			}
+			break;
+
+		case POLL_STATE_SNMP_WAIT:
+			/* Waiting for callback */
 			break;
 
 		case POLL_STATE_SCRIPTS:
-			if (ctx->current_item_idx < ctx->num_items) {
-				ctx->current_item_idx = ctx->num_items;
-				poll_step(ctx);
-			} else {
-				ctx->state = POLL_STATE_FLUSH;
-				poll_step(ctx);
-			}
-			break;
-
-		case POLL_STATE_FLUSH:
-			ctx->state = POLL_STATE_DONE;
+			ctx->state = POLL_STATE_FLUSH;
 			poll_step(ctx);
 			break;
 
+		case POLL_STATE_FLUSH:
+			spine_async_mysql_query(NULL, "SELECT 1", on_db_complete, ctx);
+			break;
+
 		case POLL_STATE_DONE:
-			if (ctx->host) {
-				SPINE_LOG_DEVDBG(("DEBUG: Device[%i] Async poll complete", ctx->host->id));
+		case POLL_STATE_ERROR:
+			uv_timer_stop(&ctx->snmp_timer);
+			if (ctx->active_fd != -1) {
+				uv_poll_stop(&ctx->snmp_poll);
+				uv_close((uv_handle_t *)&ctx->snmp_poll, on_handle_closed);
+			} else {
+				ctx->handles_closed++; // Fake a close
 			}
-			spine_sem_post(&available_threads);
-			free(ctx);
+			uv_close((uv_handle_t *)&ctx->snmp_timer, on_handle_closed);
 			break;
 			
 		default:
@@ -2690,13 +3010,24 @@ static void poll_step(poll_context_t *ctx) {
 }
 
 void spine_async_poll_start(poller_thread_t *det) {
-	(void)det;
 	poll_context_t *ctx = calloc(1, sizeof(poll_context_t));
 	if (ctx) {
 		ctx->state = POLL_STATE_INIT;
-		// Initialize minimal fields needed for state machine skeleton
-		ctx->host = NULL; 
-		ctx->num_items = 0;
+		ctx->active_fd = -1;
+		ctx->spine_host_thread = det->spine_host_thread;
+		
+		uv_timer_init(loop, &ctx->snmp_timer);
+		ctx->snmp_timer.data = ctx;
+		
 		poll_step(ctx);
 	}
 }
+#else
+void spine_async_poll_start(poller_thread_t *det) {
+	UNUSED_PARAMETER(det);
+}
+
+void spine_transition_state(poll_context_t *ctx) {
+	UNUSED_PARAMETER(ctx);
+}
+#endif

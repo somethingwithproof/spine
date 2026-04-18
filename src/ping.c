@@ -33,6 +33,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include "availability_policy.h"
 #include "platform/platform_socket.h"
 #include "platform/platform_icmp.h"
 #ifdef _WIN32
@@ -1753,8 +1754,25 @@ void update_host_status(int status, spine_spine_host_t *host, ping_t *ping, int 
 	double ping_time;
  	double hundred_percent = 100.00;
 	char   current_date[40];
+	AvailabilityInput input;
+	AvailabilityDecision decision;
 
 	snprintf(current_date, 40, "%lu", time(NULL));
+
+	memset(&input, 0, sizeof(input));
+	input.host_status = host->status;
+	input.host_status_event_count = host->status_event_count;
+	input.poll_status = status;
+	input.availability_method = availability_method;
+	input.ping_failure_count = set.ping_failure_count;
+	input.ping_recovery_count = set.ping_recovery_count;
+	input.snmp_version = host->snmp_version;
+	input.has_snmp_community = (strlen(host->snmp_community) > 0);
+	input.snmp_status = ping->snmp_status;
+	input.ping_status = ping->ping_status;
+	input.snmp_response = ping->snmp_response;
+	input.ping_response = ping->ping_response;
+	decision = availability_policy_decide(&input);
 
 	/* host is down */
 	if (status == HOST_DOWN) {
@@ -1763,25 +1781,8 @@ void update_host_status(int status, spine_spine_host_t *host, ping_t *ping, int 
 		host->total_polls = host->total_polls + 1;
 		host->availability = hundred_percent * (host->total_polls - host->failed_polls) / host->total_polls;
 
-		/*determine the error message to display */
-		switch (availability_method) {
-		case AVAIL_SNMP_OR_PING:
-		case AVAIL_SNMP_AND_PING:
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
-			} else {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s, %s", ping->snmp_response, ping->ping_response);
-			}
-			break;
-		case AVAIL_SNMP:
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", "Device does not require SNMP");
-			} else {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->snmp_response);
-			}
-			break;
-		default:
-			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
+		if (decision.status_last_error[0] != '\0') {
+			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", decision.status_last_error);
 		}
 
 		/* determine if to send an alert and update remainder of statistics */
@@ -1824,25 +1825,7 @@ void update_host_status(int status, spine_spine_host_t *host, ping_t *ping, int 
 		host->total_polls = host->total_polls + 1;
 		host->availability = hundred_percent * (host->total_polls - host->failed_polls) / host->total_polls;
 
-		/* determine the ping statistic to set and do so */
-		if (availability_method == AVAIL_SNMP_AND_PING) {
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				ping_time = atof(ping->ping_status);
-			} else {
-				/* calculate the average of the two times */
-				ping_time = (atof(ping->snmp_status) + atof(ping->ping_status)) / 2;
-			}
-		} else if (availability_method == AVAIL_SNMP) {
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				ping_time = 0.000;
-			} else {
-				ping_time = atof(ping->snmp_status);
-			}
-		} else if (availability_method == AVAIL_NONE) {
-			ping_time = 0.000;
-		} else {
-			ping_time = atof(ping->ping_status);
-		}
+		ping_time = decision.effective_ping_time;
 
 		/* update times as required */
 		host->cur_time = ping_time;

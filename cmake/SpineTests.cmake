@@ -29,6 +29,13 @@ function(spine_add_platform_test test_name)
 endfunction()
 
 function(spine_add_tests)
+  set(SPINE_UTIL_SUPPORT_SOURCES
+      src/config_repository.c
+      src/config_builder.c
+      src/config_apply.c
+      src/log_formatter.c
+      src/log_sink.c)
+
   foreach(test_name IN LISTS SPINE_TEST_NAMES)
     spine_add_platform_test(${test_name})
   endforeach()
@@ -144,7 +151,7 @@ function(spine_add_tests)
     add_test(NAME env_scrub COMMAND test_env_scrub)
   endif()
 
-  add_executable(test_async_coverage tests/unit/test_async_coverage.c src/async_exec.c src/async_snmp.c src/async_mysql.c src/util.c src/error.c tests/unit/test_spine_stubs.c)
+  add_executable(test_async_coverage tests/unit/test_async_coverage.c src/async_exec.c src/async_snmp.c src/async_mysql.c src/util.c src/error.c tests/unit/test_spine_stubs.c ${SPINE_UTIL_SUPPORT_SOURCES})
   target_include_directories(test_async_coverage PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
   if(TARGET spine_build_options)
     target_link_libraries(test_async_coverage PRIVATE spine_build_options)
@@ -195,7 +202,7 @@ function(spine_add_tests)
     endif()
     add_test(NAME circuit_breaker COMMAND test_circuit_breaker)
 
-    add_executable(test_dump_config tests/unit/test_dump_config.c tests/unit/test_spine_stubs.c src/util.c)
+    add_executable(test_dump_config tests/unit/test_dump_config.c tests/unit/test_spine_stubs.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_dump_config
       PRIVATE ${CMAKE_BINARY_DIR}
@@ -214,7 +221,7 @@ function(spine_add_tests)
     target_link_libraries(test_dump_config PRIVATE spine_hardening)
     add_test(NAME dump_config COMMAND test_dump_config)
 
-    add_executable(test_check_mode tests/unit/test_check_mode.c tests/unit/test_spine_stubs.c src/util.c)
+    add_executable(test_check_mode tests/unit/test_check_mode.c tests/unit/test_spine_stubs.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_check_mode
       PRIVATE ${CMAKE_BINARY_DIR}
@@ -236,7 +243,7 @@ function(spine_add_tests)
     # flake when the route takes an extra second to time out.
     set_tests_properties(check_mode PROPERTIES TIMEOUT 30)
 
-    add_executable(test_dry_run tests/unit/test_dry_run.c tests/unit/test_sql_stubs.c src/sql.c)
+    add_executable(test_dry_run tests/unit/test_dry_run.c tests/unit/test_sql_stubs.c src/sql.c src/db_session.c)
     target_include_directories(
       test_dry_run
       PRIVATE ${CMAKE_BINARY_DIR}

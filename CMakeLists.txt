@@ -114,6 +114,26 @@ set(SPINE_CORE_SOURCES
     src/spine.c
     src/util.c
     src/snmp.c
+    src/runtime_context.c
+    src/composition_root.c
+    src/availability_policy.c
+    src/config_repository.c
+    src/config_builder.c
+    src/config_apply.c
+    src/db_connection.c
+    src/db_session.c
+    src/db_query.c
+    src/db_retry.c
+    src/snmp_session_factory.c
+    src/snmp_client.c
+    src/snmp_result_parser.c
+    src/log_formatter.c
+    src/log_sink.c
+    src/host_polling_service.c
+    src/host_polling_stages.c
+    src/host_status_service.c
+    src/results_flush_service.c
+    src/script_server_service.c
     src/locks.c
     src/poller.c
     src/nft_popen.c
@@ -121,6 +141,7 @@ set(SPINE_CORE_SOURCES
     src/async_snmp.c
     src/async_mysql.c
     src/async_icmp.c
+    src/async_dns.c
     src/php.c
     src/ping.c
     src/ping_validate.c
