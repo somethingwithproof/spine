@@ -10,7 +10,10 @@ Multi-threaded SNMP and script poller for Cacti.
 ## At a glance
 
 - Drop-in replacement for Cacti's `cmd.php` poller, written in C17.
-- Pools SNMP v1/v2c/v3 and script targets across a configurable thread pool; one MySQL/MariaDB connection per worker.
+- **Asynchronous Engine:** Powered by `libuv`, featuring a truly non-blocking event loop for extreme concurrency.
+- **High Performance:** Implements smart SQL batching, c-ares based async DNS, and non-blocking SNMPv1/v2c/v3.
+- **IPC:** PHP Script Server communication via `uv_pipe_t` for efficient, backpressure-aware IPC.
+- **Observability:** Real-time metrics via a Telemetry Unix Socket (JSON format).
 - Runs as a short cron-driven batch or as a long-lived systemd `Type=notify` daemon with watchdog, SIGHUP reload, and SIGTERM drain.
 - Per-host circuit breaker with exponential backoff; `--dry-run`, `--check`, and `--dump-config` for operator-safe iteration.
 - Structured JSON logging on non-TTY stderr; USDT tracepoints around per-host polls and SNMP queries (Linux only).
@@ -45,25 +48,25 @@ Package dependencies, then build from source. Representative per-distro commands
 
 ```sh
 dnf install -y epel-release
-dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel
+dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel libuv-devel libcares-devel
 ```
 
 ### Debian / Ubuntu
 
 ```sh
-apt-get install -y cmake gcc make libsnmp-dev libmariadb-dev-compat libssl-dev pkg-config libsystemd-dev
+apt-get install -y cmake gcc make libsnmp-dev libmariadb-dev-compat libssl-dev pkg-config libsystemd-dev libuv1-dev libc-ares-dev
 ```
 
 ### FreeBSD
 
 ```sh
-pkg install -y cmake ninja pkgconf mysql80-client net-snmp openssl
+pkg install -y cmake ninja pkgconf mysql80-client net-snmp openssl libuv c-ares
 ```
 
 ### macOS
 
 ```sh
-brew install cmake ninja pkg-config mysql-client net-snmp openssl@3
+brew install cmake ninja pkg-config mysql-client net-snmp openssl@3 libuv c-ares
 ```
 
 ### Build and install
@@ -159,6 +162,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). All commits must carry a DCO `Signed-off
 
 ## Documentation
 
+- [docs/advanced-architecture.md](docs/advanced-architecture.md) - new asynchronous engine details
 - [docs/platforms.md](docs/platforms.md) - tier policy, install commands, CI coverage
 - [docs/systemd.md](docs/systemd.md) - unit installation, watchdog, hardening
 - [docs/debugging.md](docs/debugging.md) - gdbserver, cores, strace, bpftrace
