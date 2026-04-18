@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/spine.dir/src/async_batch.c.o"
+  "CMakeFiles/spine.dir/src/async_batch.c.o.d"
   "CMakeFiles/spine.dir/src/async_dns.c.o"
   "CMakeFiles/spine.dir/src/async_dns.c.o.d"
   "CMakeFiles/spine.dir/src/async_exec.c.o"

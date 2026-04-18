@@ -1,5 +1,5 @@
-CMakeFiles/spine.dir/src/spine.c.o: \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.c \
+CMakeFiles/spine.dir/src/async_batch.c.o: \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.c \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/config/config.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/stdlib.h \
@@ -436,11 +436,5 @@ CMakeFiles/spine.dir/src/spine.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/systemd_notify.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_sandbox.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine_audit.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/mman.h
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.h

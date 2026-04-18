@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/test_async_coverage.dir/src/async_batch.c.o"
+  "CMakeFiles/test_async_coverage.dir/src/async_batch.c.o.d"
   "CMakeFiles/test_async_coverage.dir/src/async_exec.c.o"
   "CMakeFiles/test_async_coverage.dir/src/async_exec.c.o.d"
   "CMakeFiles/test_async_coverage.dir/src/async_mysql.c.o"

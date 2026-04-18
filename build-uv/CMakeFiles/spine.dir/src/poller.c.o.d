@@ -447,4 +447,5 @@ CMakeFiles/spine.dir/src/poller.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.h
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.h
