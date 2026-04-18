@@ -49,7 +49,7 @@ static void on_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) 
     buf->len = suggested_size;
 }
 
-static void on_exit(uv_process_t *process, int64_t exit_status, int term_signal) {
+static void on_process_exit(uv_process_t *process, int64_t exit_status, int term_signal) {
     async_exec_ctx_t *ctx = (async_exec_ctx_t *)process->data;
     
     uv_timer_stop(&ctx->timer);
@@ -105,7 +105,7 @@ int spine_async_exec(const char *command, uint64_t timeout_ms, async_exec_cb cb,
     args[3] = NULL;
 
     uv_process_options_t options = {0};
-    options.exit_cb = on_exit;
+    options.exit_cb = on_process_exit;
     options.file = args[0];
     options.args = args;
     options.stdio_count = 3;

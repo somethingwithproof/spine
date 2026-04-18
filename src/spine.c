@@ -272,7 +272,7 @@ void drop_root(uid_t server_uid, gid_t server_gid) {
  */
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
-	double begin_time, end_time, cur_time;
+	double begin_time, end_time;
 	int num_rows = 0;
 	int device_counter = 0;
 	int valid_conf_file = FALSE;

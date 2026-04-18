@@ -74,3 +74,12 @@ int append_hostrange(char *obuf, const char *colname) {
 	(void) obuf; (void) colname;
 	return 0;
 }
+
+int spine_log(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    printf("\n");
+    va_end(args);
+    return 0;
+}

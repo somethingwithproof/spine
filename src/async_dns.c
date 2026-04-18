@@ -23,7 +23,7 @@ static void on_ares_resolved(void *arg, int status, int timeouts, struct hostent
     free(ctx);
 }
 
-static void on_ares_poll(uv_poll_t* handle, int status, int events) {
+static void __attribute__((unused)) on_ares_poll(uv_poll_t* handle, int status, int events) {
     ares_channel channel = (ares_channel)handle->data;
     (void)status;
 

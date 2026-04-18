@@ -151,22 +151,28 @@ function(spine_add_tests)
     add_test(NAME env_scrub COMMAND test_env_scrub)
   endif()
 
-  add_executable(test_async_coverage tests/unit/test_async_coverage.c src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/locks.c src/error.c src/db_session.c src/util.c src/error.c  ${SPINE_UTIL_SUPPORT_SOURCES})
-  target_include_directories(test_async_coverage PRIVATE ${CMAKE_BINARY_DIR}/config ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+  add_executable(test_async_coverage tests/unit/test_async_coverage.c tests/unit/test_spine_stubs.c)
+  target_include_directories(test_async_coverage PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/config ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
   if(TARGET spine_build_options)
     target_link_libraries(test_async_coverage PRIVATE spine_build_options)
   endif()
   target_link_libraries(test_async_coverage PRIVATE spine_platform spine_hardening spine_netsnmp spine_mysql)
+  target_sources(test_async_coverage PRIVATE
+    src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c
+  )
+
+  add_executable(test_spine_audit tests/unit/test_spine_audit.c src/spine_audit.c)
   if(LIBUV_FOUND)
     target_link_libraries(test_async_coverage PRIVATE ${LIBUV_LIBRARIES})
+  endif()
+  if(CARES_FOUND)
+    target_link_libraries(test_async_coverage PRIVATE ${CARES_LIBRARIES})
   endif()
   if(OpenSSL_FOUND)
     target_link_libraries(test_async_coverage PRIVATE OpenSSL::SSL OpenSSL::Crypto)
   endif()
   add_test(NAME async_coverage COMMAND test_async_coverage)
 
-  # spine_audit: per-event-type rate-limit tests.
-  add_executable(test_spine_audit tests/unit/test_spine_audit.c src/spine_audit.c)
   target_include_directories(test_spine_audit PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit)
   if(TARGET spine_build_options)
     target_link_libraries(test_spine_audit PRIVATE spine_build_options)
@@ -202,7 +208,7 @@ function(spine_add_tests)
     endif()
     add_test(NAME circuit_breaker COMMAND test_circuit_breaker)
 
-    add_executable(test_dump_config tests/unit/test_dump_config.c tests/unit/test_spine_stubs.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
+    add_executable(test_dump_config tests/unit/test_dump_config.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_dump_config
       PRIVATE ${CMAKE_BINARY_DIR}
@@ -221,7 +227,7 @@ function(spine_add_tests)
     target_link_libraries(test_dump_config PRIVATE spine_hardening)
     add_test(NAME dump_config COMMAND test_dump_config)
 
-    add_executable(test_check_mode tests/unit/test_check_mode.c tests/unit/test_spine_stubs.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
+    add_executable(test_check_mode tests/unit/test_check_mode.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_check_mode
       PRIVATE ${CMAKE_BINARY_DIR}

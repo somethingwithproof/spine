@@ -20,7 +20,7 @@ static void on_poll_close(uv_handle_t *handle) {
     }
 }
 
-static void on_snmp_timeout(uv_timer_t *handle);
+static void __attribute__((unused)) on_snmp_timeout(uv_timer_t *handle);
 
 static void on_snmp_readable(uv_poll_t *handle, int status, int events) {
     poll_context_t *ctx = (poll_context_t *)handle->data;
@@ -45,7 +45,7 @@ static void on_snmp_readable(uv_poll_t *handle, int status, int events) {
     }
 }
 
-static void on_snmp_timeout(uv_timer_t *handle) {
+static void __attribute__((unused)) on_snmp_timeout(uv_timer_t *handle) {
     poll_context_t *ctx = (poll_context_t *)handle->data;
 
     /* net-snmp handles the internal retry counter.

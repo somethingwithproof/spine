@@ -1,5 +1,5 @@
-# Test fixtures and CI scripts -- not needed for the spine build
-tests/
+# Test fixtures and CI scripts -- allowed for test images
+# tests/
 .git/
 .github/
 .claude/
@@ -7,8 +7,8 @@ tests/
 .worktrees/
 build/
 build-*/
-build-reports/
-*.md
+# build-reports/
+# *.md
 m4/
 autom4te.cache/
 *.log

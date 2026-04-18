@@ -2924,7 +2924,7 @@ static void on_snmp_complete(void *sessp, struct snmp_pdu *pdu, void *data) {
 	poll_step(ctx);
 }
 
-static void on_db_complete(MYSQL *mysql, int status, void *data) {
+static void __attribute__((unused)) on_db_complete(MYSQL *mysql, int status, void *data) {
 	(void)mysql; (void)status;
 	poll_context_t *ctx = (poll_context_t *)data;
 	ctx->state = POLL_STATE_DONE;
