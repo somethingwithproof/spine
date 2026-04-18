@@ -2606,3 +2606,97 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 
 	return result_string;
 }
+
+
+#include "poll_state.h"
+
+static void poll_step(poll_context_t *ctx);
+
+static void __attribute__((unused)) on_snmp_complete(void *sessp, struct snmp_pdu *pdu, void *data) {
+	(void)sessp;
+	(void)pdu;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->current_item_idx++;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_exec_complete(const char *result, int exit_status, int term_signal, void *data) {
+	(void)result;
+	(void)exit_status;
+	(void)term_signal;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->current_item_idx++;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_db_complete(MYSQL *mysql, int status, void *data) {
+	(void)mysql;
+	(void)status;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = POLL_STATE_DONE;
+	poll_step(ctx);
+}
+
+static void poll_step(poll_context_t *ctx) {
+	switch (ctx->state) {
+		case POLL_STATE_INIT:
+			ctx->state = POLL_STATE_PING;
+			poll_step(ctx);
+			break;
+			
+		case POLL_STATE_PING:
+			ctx->state = POLL_STATE_SNMP;
+			ctx->current_item_idx = 0;
+			poll_step(ctx);
+			break;
+
+		case POLL_STATE_SNMP:
+			if (ctx->current_item_idx < ctx->num_items) {
+				ctx->current_item_idx = ctx->num_items;
+				poll_step(ctx);
+			} else {
+				ctx->state = POLL_STATE_SCRIPTS;
+				ctx->current_item_idx = 0;
+				poll_step(ctx);
+			}
+			break;
+
+		case POLL_STATE_SCRIPTS:
+			if (ctx->current_item_idx < ctx->num_items) {
+				ctx->current_item_idx = ctx->num_items;
+				poll_step(ctx);
+			} else {
+				ctx->state = POLL_STATE_FLUSH;
+				poll_step(ctx);
+			}
+			break;
+
+		case POLL_STATE_FLUSH:
+			ctx->state = POLL_STATE_DONE;
+			poll_step(ctx);
+			break;
+
+		case POLL_STATE_DONE:
+			if (ctx->host) {
+				SPINE_LOG_DEVDBG(("DEBUG: Device[%i] Async poll complete", ctx->host->id));
+			}
+			spine_sem_post(&available_threads);
+			free(ctx);
+			break;
+			
+		default:
+			break;
+	}
+}
+
+void spine_async_poll_start(poller_thread_t *det) {
+	(void)det;
+	poll_context_t *ctx = calloc(1, sizeof(poll_context_t));
+	if (ctx) {
+		ctx->state = POLL_STATE_INIT;
+		// Initialize minimal fields needed for state machine skeleton
+		ctx->host = NULL; 
+		ctx->num_items = 0;
+		poll_step(ctx);
+	}
+}

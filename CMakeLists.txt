@@ -117,6 +117,10 @@ set(SPINE_CORE_SOURCES
     src/locks.c
     src/poller.c
     src/nft_popen.c
+    src/async_exec.c
+    src/async_snmp.c
+    src/async_mysql.c
+    src/async_icmp.c
     src/php.c
     src/ping.c
     src/ping_validate.c

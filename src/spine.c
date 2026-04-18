@@ -97,6 +97,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include "poll_state.h"
 #include "systemd_notify.h"
 #include "platform/platform_sandbox.h"
 #include "circuit_breaker.h"
@@ -1162,7 +1163,7 @@ int main(int argc, char *argv[]) {
 			thread_mutex_lock(LOCK_HOST_TIME);
 
 #ifdef HAVE_LIBUV
-			spine_queue_poll(poller_details);
+			spine_async_poll_start(poller_details);
 			thread_status = 0;
 #else
 			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);

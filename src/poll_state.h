@@ -1,6 +1,7 @@
 #ifndef SPINE_POLL_STATE_H
 #define SPINE_POLL_STATE_H
 
+#include "common.h"
 #include "spine.h"
 
 typedef enum {
@@ -15,13 +16,13 @@ typedef enum {
 
 typedef struct {
     poll_state_t state;
-    spine_host_t *host;
+    spine_spine_host_t *host;
     int device_counter;
-    int host_thread;
-    int host_threads;
+    int spine_host_thread;
+    int spine_host_threads;
     int host_data_ids;
-    char host_time[SMALL_BUFSIZE];
-    double host_time_double;
+    char spine_host_time[SMALL_BUFSIZE];
+    double spine_host_time_double;
     int host_errors;
     
     // Internal iteration state
