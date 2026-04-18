@@ -94,6 +94,23 @@ if(NOT SPINE_HAVE_LIBUV)
                       "Install libuv1-dev or set CMAKE_PREFIX_PATH.")
 endif()
 
+# c-ares: Async DNS resolver.
+pkg_check_modules(CARES QUIET libc-ares)
+if(NOT CARES_FOUND)
+  find_path(CARES_INCLUDE_DIR ares.h)
+  find_library(CARES_LIBRARY NAMES cares)
+  if(CARES_INCLUDE_DIR AND CARES_LIBRARY)
+    set(CARES_FOUND TRUE)
+    set(CARES_LIBRARIES ${CARES_LIBRARY})
+    set(CARES_INCLUDE_DIRS ${CARES_INCLUDE_DIR})
+  endif()
+endif()
+
+if(CARES_FOUND)
+  set(HAVE_CARES 1)
+  message(STATUS "c-ares: ${CARES_LIBRARIES}")
+endif()
+
 function(spine_require_mysql)
   if(TARGET spine_mysql)
     return()

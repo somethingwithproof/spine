@@ -1108,12 +1108,12 @@ CMakeFiles/spine_platform.dir/clean:
 CMakeFiles/spine_platform_test_support.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/spine_platform_test_support.dir/build.make CMakeFiles/spine_platform_test_support.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/spine_platform_test_support.dir/build.make CMakeFiles/spine_platform_test_support.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=44 "Built target spine_platform_test_support"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num= "Built target spine_platform_test_support"
 .PHONY : CMakeFiles/spine_platform_test_support.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/spine_platform_test_support.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 12
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/spine_platform_test_support.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/spine_platform_test_support.dir/rule
@@ -1125,7 +1125,7 @@ spine_platform_test_support: CMakeFiles/spine_platform_test_support.dir/rule
 # codegen rule for target.
 CMakeFiles/spine_platform_test_support.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/spine_platform_test_support.dir/build.make CMakeFiles/spine_platform_test_support.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=44 "Finished codegen for target spine_platform_test_support"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num= "Finished codegen for target spine_platform_test_support"
 .PHONY : CMakeFiles/spine_platform_test_support.dir/codegen
 
 # clean rule for target.
@@ -1178,7 +1178,7 @@ CMakeFiles/test_platform_env.dir/all: CMakeFiles/spine_platform_test_support.dir
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_env.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_env.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_env.dir/rule
@@ -1211,7 +1211,7 @@ CMakeFiles/test_platform_time.dir/all: CMakeFiles/spine_platform_test_support.di
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_time.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 15
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_time.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_time.dir/rule
@@ -1244,7 +1244,7 @@ CMakeFiles/test_platform_process.dir/all: CMakeFiles/spine_platform_test_support
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_process.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_process.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_process.dir/rule
@@ -1277,7 +1277,7 @@ CMakeFiles/test_platform_socket.dir/all: CMakeFiles/spine_platform_test_support.
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_socket.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 15
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_socket.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_socket.dir/rule
@@ -1305,7 +1305,7 @@ CMakeFiles/test_platform_error.dir/all: CMakeFiles/spine_platform.dir/all
 CMakeFiles/test_platform_error.dir/all: CMakeFiles/spine_platform_test_support.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_error.dir/build.make CMakeFiles/test_platform_error.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_error.dir/build.make CMakeFiles/test_platform_error.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=86 "Built target test_platform_error"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=86,87 "Built target test_platform_error"
 .PHONY : CMakeFiles/test_platform_error.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1322,7 +1322,7 @@ test_platform_error: CMakeFiles/test_platform_error.dir/rule
 # codegen rule for target.
 CMakeFiles/test_platform_error.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_error.dir/build.make CMakeFiles/test_platform_error.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=86 "Finished codegen for target test_platform_error"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=86,87 "Finished codegen for target test_platform_error"
 .PHONY : CMakeFiles/test_platform_error.dir/codegen
 
 # clean rule for target.
@@ -1338,12 +1338,12 @@ CMakeFiles/test_platform_fd.dir/all: CMakeFiles/spine_platform.dir/all
 CMakeFiles/test_platform_fd.dir/all: CMakeFiles/spine_platform_test_support.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_fd.dir/build.make CMakeFiles/test_platform_fd.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_fd.dir/build.make CMakeFiles/test_platform_fd.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=87,88 "Built target test_platform_fd"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=88 "Built target test_platform_fd"
 .PHONY : CMakeFiles/test_platform_fd.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_fd.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 15
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_fd.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_fd.dir/rule
@@ -1355,7 +1355,7 @@ test_platform_fd: CMakeFiles/test_platform_fd.dir/rule
 # codegen rule for target.
 CMakeFiles/test_platform_fd.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_platform_fd.dir/build.make CMakeFiles/test_platform_fd.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=87,88 "Finished codegen for target test_platform_fd"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=88 "Finished codegen for target test_platform_fd"
 .PHONY : CMakeFiles/test_platform_fd.dir/codegen
 
 # clean rule for target.
@@ -1376,7 +1376,7 @@ CMakeFiles/test_platform_dns.dir/all: CMakeFiles/spine_platform_test_support.dir
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_dns.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 15
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_dns.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_dns.dir/rule
@@ -1409,7 +1409,7 @@ CMakeFiles/test_platform_thread_name.dir/all: CMakeFiles/spine_platform_test_sup
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_platform_thread_name.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_platform_thread_name.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_platform_thread_name.dir/rule
@@ -1538,7 +1538,7 @@ CMakeFiles/test_sandbox.dir/all: CMakeFiles/spine_platform_test_support.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_sandbox.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 14
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 13
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_sandbox.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_sandbox.dir/rule
@@ -1597,12 +1597,12 @@ CMakeFiles/test_json_log.dir/clean:
 CMakeFiles/test_env_scrub.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_env_scrub.dir/build.make CMakeFiles/test_env_scrub.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_env_scrub.dir/build.make CMakeFiles/test_env_scrub.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=74,75,76 "Built target test_env_scrub"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=75,76 "Built target test_env_scrub"
 .PHONY : CMakeFiles/test_env_scrub.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_env_scrub.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 3
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 2
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_env_scrub.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_env_scrub.dir/rule
@@ -1614,7 +1614,7 @@ test_env_scrub: CMakeFiles/test_env_scrub.dir/rule
 # codegen rule for target.
 CMakeFiles/test_env_scrub.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_env_scrub.dir/build.make CMakeFiles/test_env_scrub.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=74,75,76 "Finished codegen for target test_env_scrub"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=75,76 "Finished codegen for target test_env_scrub"
 .PHONY : CMakeFiles/test_env_scrub.dir/codegen
 
 # clean rule for target.
@@ -1629,12 +1629,12 @@ CMakeFiles/test_env_scrub.dir/clean:
 CMakeFiles/test_async_coverage.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_async_coverage.dir/build.make CMakeFiles/test_async_coverage.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_async_coverage.dir/build.make CMakeFiles/test_async_coverage.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=45,46,47,48,49,50,51,52,53,54 "Built target test_async_coverage"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=44,45,46,47,48,49,50,51,52,53,54 "Built target test_async_coverage"
 .PHONY : CMakeFiles/test_async_coverage.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_async_coverage.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 22
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 23
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_async_coverage.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_async_coverage.dir/rule
@@ -1646,7 +1646,7 @@ test_async_coverage: CMakeFiles/test_async_coverage.dir/rule
 # codegen rule for target.
 CMakeFiles/test_async_coverage.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_async_coverage.dir/build.make CMakeFiles/test_async_coverage.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=45,46,47,48,49,50,51,52,53,54 "Finished codegen for target test_async_coverage"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=44,45,46,47,48,49,50,51,52,53,54 "Finished codegen for target test_async_coverage"
 .PHONY : CMakeFiles/test_async_coverage.dir/codegen
 
 # clean rule for target.
@@ -1693,7 +1693,7 @@ CMakeFiles/test_spine_audit.dir/clean:
 CMakeFiles/test_circuit_breaker.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_circuit_breaker.dir/build.make CMakeFiles/test_circuit_breaker.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_circuit_breaker.dir/build.make CMakeFiles/test_circuit_breaker.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=61,62,63 "Built target test_circuit_breaker"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=62,63,64 "Built target test_circuit_breaker"
 .PHONY : CMakeFiles/test_circuit_breaker.dir/all
 
 # Build rule for subdir invocation for target.
@@ -1710,7 +1710,7 @@ test_circuit_breaker: CMakeFiles/test_circuit_breaker.dir/rule
 # codegen rule for target.
 CMakeFiles/test_circuit_breaker.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_circuit_breaker.dir/build.make CMakeFiles/test_circuit_breaker.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=61,62,63 "Finished codegen for target test_circuit_breaker"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=62,63,64 "Finished codegen for target test_circuit_breaker"
 .PHONY : CMakeFiles/test_circuit_breaker.dir/codegen
 
 # clean rule for target.
@@ -1725,12 +1725,12 @@ CMakeFiles/test_circuit_breaker.dir/clean:
 CMakeFiles/test_dump_config.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dump_config.dir/build.make CMakeFiles/test_dump_config.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dump_config.dir/build.make CMakeFiles/test_dump_config.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=68,69,70,71,72,73 "Built target test_dump_config"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=68,69,70,71,72,73,74 "Built target test_dump_config"
 .PHONY : CMakeFiles/test_dump_config.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_dump_config.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 18
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 19
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_dump_config.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_dump_config.dir/rule
@@ -1742,7 +1742,7 @@ test_dump_config: CMakeFiles/test_dump_config.dir/rule
 # codegen rule for target.
 CMakeFiles/test_dump_config.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dump_config.dir/build.make CMakeFiles/test_dump_config.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=68,69,70,71,72,73 "Finished codegen for target test_dump_config"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=68,69,70,71,72,73,74 "Finished codegen for target test_dump_config"
 .PHONY : CMakeFiles/test_dump_config.dir/codegen
 
 # clean rule for target.
@@ -1757,12 +1757,12 @@ CMakeFiles/test_dump_config.dir/clean:
 CMakeFiles/test_check_mode.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_check_mode.dir/build.make CMakeFiles/test_check_mode.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_check_mode.dir/build.make CMakeFiles/test_check_mode.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=55,56,57,58,59,60 "Built target test_check_mode"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=55,56,57,58,59,60,61 "Built target test_check_mode"
 .PHONY : CMakeFiles/test_check_mode.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_check_mode.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 18
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 19
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_check_mode.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_check_mode.dir/rule
@@ -1774,7 +1774,7 @@ test_check_mode: CMakeFiles/test_check_mode.dir/rule
 # codegen rule for target.
 CMakeFiles/test_check_mode.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_check_mode.dir/build.make CMakeFiles/test_check_mode.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=55,56,57,58,59,60 "Finished codegen for target test_check_mode"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=55,56,57,58,59,60,61 "Finished codegen for target test_check_mode"
 .PHONY : CMakeFiles/test_check_mode.dir/codegen
 
 # clean rule for target.
@@ -1789,12 +1789,12 @@ CMakeFiles/test_check_mode.dir/clean:
 CMakeFiles/test_dry_run.dir/all: CMakeFiles/spine_platform.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dry_run.dir/build.make CMakeFiles/test_dry_run.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dry_run.dir/build.make CMakeFiles/test_dry_run.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=64,65,66,67 "Built target test_dry_run"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=65,66,67 "Built target test_dry_run"
 .PHONY : CMakeFiles/test_dry_run.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/test_dry_run.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 16
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 15
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/test_dry_run.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles 0
 .PHONY : CMakeFiles/test_dry_run.dir/rule
@@ -1806,7 +1806,7 @@ test_dry_run: CMakeFiles/test_dry_run.dir/rule
 # codegen rule for target.
 CMakeFiles/test_dry_run.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/test_dry_run.dir/build.make CMakeFiles/test_dry_run.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=64,65,66,67 "Finished codegen for target test_dry_run"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=65,66,67 "Finished codegen for target test_dry_run"
 .PHONY : CMakeFiles/test_dry_run.dir/codegen
 
 # clean rule for target.

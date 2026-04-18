@@ -9,6 +9,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.c" "CMakeFiles/test_async_coverage.dir/src/async_batch.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/async_batch.c.o.d"
+  "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c" "CMakeFiles/test_async_coverage.dir/src/async_dns.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/async_dns.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.c" "CMakeFiles/test_async_coverage.dir/src/async_exec.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/async_exec.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.c" "CMakeFiles/test_async_coverage.dir/src/async_mysql.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/async_mysql.c.o.d"
   "/Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.c" "CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o" "gcc" "CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o.d"

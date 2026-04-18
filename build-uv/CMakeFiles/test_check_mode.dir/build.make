@@ -242,6 +242,7 @@ test_check_mode: CMakeFiles/test_check_mode.dir/build.make
 test_check_mode: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libssl.dylib
 test_check_mode: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 test_check_mode: /opt/homebrew/lib/libuv.dylib
+test_check_mode: /opt/homebrew/lib/libcares.dylib
 test_check_mode: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_check_mode: CMakeFiles/test_check_mode.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Linking C executable test_check_mode"

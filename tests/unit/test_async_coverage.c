@@ -6,10 +6,11 @@
 #include <string.h>
 
 #include "common.h"
-#include "../../src/spine.h"
+#include "../../src/poll_state_internal.h"
 #include "../../src/async_exec.h"
 #include "../../src/async_snmp.h"
 #include "../../src/async_mysql.h"
+#include "../../src/async_dns.h"
 #include "test_platform_helpers.h"
 
 // Define loop
@@ -17,6 +18,22 @@
 #define HAVE_LIBUV 1
 #endif
 uv_loop_t *loop = NULL;
+
+static void dns_cb(struct addrinfo *res, int status, void *data) {
+    (void)res;
+    (void)status;
+    int *called = (int *)data;
+    *called = 1;
+}
+
+static void test_async_dns_success(void) {
+    int called = 0;
+    // Localhost should always resolve
+    int r = spine_async_dns_lookup("localhost", dns_cb, &called);
+    ASSERT_INT_EQ(r, 0);
+    uv_run(loop, UV_RUN_DEFAULT);
+    ASSERT_INT_EQ(called, 1);
+}
 
 static void exec_cb(const char *result, int exit_status, int term_signal, void *data) {
     (void)result;
@@ -53,7 +70,7 @@ static void test_async_exec_spawn_fail(void) {
 
 static void test_async_snmp_parse_fail(void) {
     // Test parsing failure
-    int r = spine_async_snmp_get(NULL, "invalid.oid");
+    int r = spine_async_snmp_get(NULL, "invalid.oid", NULL, NULL);
     ASSERT_INT_EQ(r, -1);
 }
 
@@ -83,6 +100,7 @@ void spine_transition_state(poll_context_t *ctx) {
 
 int main(void) {
     loop = uv_default_loop();
+    test_async_dns_success();
     test_async_exec_success();
     test_async_exec_timeout();
     test_async_exec_spawn_fail();

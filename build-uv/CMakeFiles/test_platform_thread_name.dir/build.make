@@ -97,6 +97,7 @@ test_platform_thread_name: CMakeFiles/test_platform_thread_name.dir/tests/unit/t
 test_platform_thread_name: CMakeFiles/test_platform_thread_name.dir/build.make
 test_platform_thread_name: libspine_platform_test_support.a
 test_platform_thread_name: /opt/homebrew/lib/libuv.dylib
+test_platform_thread_name: /opt/homebrew/lib/libcares.dylib
 test_platform_thread_name: CMakeFiles/test_platform_thread_name.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking C executable test_platform_thread_name"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_platform_thread_name.dir/link.txt --verbose=$(VERBOSE)

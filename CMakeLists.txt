@@ -140,6 +140,7 @@ set(SPINE_CORE_SOURCES
     src/async_exec.c
     src/async_snmp.c
     src/async_mysql.c
+    src/async_batch.c
     src/async_icmp.c
     src/async_dns.c
     src/php.c
@@ -364,6 +365,13 @@ else()
     else()
         target_include_directories(spine_platform PUBLIC ${LIBUV_INCLUDE_DIR})
         target_link_libraries(spine_platform PUBLIC ${LIBUV_LIBRARY})
+    endif()
+
+    # c-ares linkage
+    if(HAVE_CARES)
+        target_compile_definitions(spine_platform PUBLIC HAVE_CARES=1)
+        target_include_directories(spine_platform PUBLIC ${CARES_INCLUDE_DIRS})
+        target_link_libraries(spine_platform PUBLIC ${CARES_LIBRARIES})
     endif()
 endif()
 

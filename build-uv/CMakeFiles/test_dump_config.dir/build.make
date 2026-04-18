@@ -242,6 +242,7 @@ test_dump_config: CMakeFiles/test_dump_config.dir/build.make
 test_dump_config: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libssl.dylib
 test_dump_config: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 test_dump_config: /opt/homebrew/lib/libuv.dylib
+test_dump_config: /opt/homebrew/lib/libcares.dylib
 test_dump_config: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_dump_config: CMakeFiles/test_dump_config.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Linking C executable test_dump_config"

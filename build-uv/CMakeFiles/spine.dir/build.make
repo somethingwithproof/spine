@@ -802,6 +802,7 @@ spine: CMakeFiles/spine.dir/build.make
 spine: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libssl.dylib
 spine: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 spine: /opt/homebrew/lib/libuv.dylib
+spine: /opt/homebrew/lib/libcares.dylib
 spine: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 spine: CMakeFiles/spine.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_44) "Linking C executable spine"

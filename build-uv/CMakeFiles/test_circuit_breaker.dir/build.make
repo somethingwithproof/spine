@@ -162,6 +162,7 @@ test_circuit_breaker: CMakeFiles/test_circuit_breaker.dir/build.make
 test_circuit_breaker: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libssl.dylib
 test_circuit_breaker: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 test_circuit_breaker: /opt/homebrew/lib/libuv.dylib
+test_circuit_breaker: /opt/homebrew/lib/libcares.dylib
 test_circuit_breaker: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_circuit_breaker: CMakeFiles/test_circuit_breaker.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking C executable test_circuit_breaker"

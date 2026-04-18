@@ -104,6 +104,10 @@
 #include "circuit_breaker.h"
 #include "spine_audit.h"
 
+#ifdef HAVE_LIBUV
+#include "async_batch.h"
+#endif
+
 #include <signal.h>
 #ifndef _WIN32
 #include <sys/mman.h>
@@ -125,6 +129,20 @@ static volatile sig_atomic_t spine_stop_requested   = 0;
 
 #ifdef HAVE_LIBUV
 uv_loop_t *loop = NULL;
+
+static void spine_watchdog_cb(uv_timer_t *handle) {
+    double *drain_deadline = (double *)handle->data;
+    double cur_time = get_time_as_double();
+    int a_threads_value;
+    
+    spine_sem_getvalue(&available_threads, &a_threads_value);
+    
+    if (a_threads_value == set.threads || cur_time > *drain_deadline || spine_stop_requested) {
+        spine_async_batch_cleanup();
+        uv_timer_stop(handle);
+        uv_close((uv_handle_t*)handle, NULL);
+    }
+}
 
 static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
     (void)handle;
@@ -1226,6 +1244,16 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+#ifdef HAVE_LIBUV
+	// In libuv mode, we run the event loop instead of blocking in a sleep loop.
+	// The async_batch system keeps the loop alive, so we need a watchdog to stop it.
+	spine_async_batch_init(&mysql, 100, 500);
+	
+	uv_timer_t watchdog;
+	uv_timer_init(loop, &watchdog);
+	watchdog.data = &drain_deadline;
+	uv_timer_start(&watchdog, spine_watchdog_cb, 500, 500);
+#else
 	while (a_threads_value < set.threads) {
 		cur_time = get_time_as_double();
 
@@ -1248,6 +1276,7 @@ int main(int argc, char *argv[]) {
 		spine_platform_sleep_us(500000);
 		spine_sem_getvalue(&available_threads, &a_threads_value);
 	}
+#endif
 
 	threads_final = set.threads - a_threads_value;
 

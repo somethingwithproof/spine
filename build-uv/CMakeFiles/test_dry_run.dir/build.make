@@ -178,6 +178,7 @@ test_dry_run: CMakeFiles/test_dry_run.dir/build.make
 test_dry_run: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libssl.dylib
 test_dry_run: /opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 test_dry_run: /opt/homebrew/lib/libuv.dylib
+test_dry_run: /opt/homebrew/lib/libcares.dylib
 test_dry_run: /opt/homebrew/opt/mariadb-connector-c/lib/libmariadb.dylib
 test_dry_run: CMakeFiles/test_dry_run.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Linking C executable test_dry_run"

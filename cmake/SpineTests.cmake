@@ -151,7 +151,7 @@ function(spine_add_tests)
     add_test(NAME env_scrub COMMAND test_env_scrub)
   endif()
 
-  add_executable(test_async_coverage tests/unit/test_async_coverage.c src/async_exec.c src/async_snmp.c src/async_mysql.c src/util.c src/error.c tests/unit/test_spine_stubs.c ${SPINE_UTIL_SUPPORT_SOURCES})
+  add_executable(test_async_coverage tests/unit/test_async_coverage.c src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/util.c src/error.c tests/unit/test_spine_stubs.c ${SPINE_UTIL_SUPPORT_SOURCES})
   target_include_directories(test_async_coverage PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
   if(TARGET spine_build_options)
     target_link_libraries(test_async_coverage PRIVATE spine_build_options)

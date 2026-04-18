@@ -3,8 +3,6 @@
 
 #include "common.h"
 #include "spine.h"
-#include <net-snmp/net-snmp-config.h>
-#include <net-snmp/net-snmp-includes.h>
 
 typedef enum {
     POLL_STATE_INIT,
@@ -19,29 +17,14 @@ typedef enum {
     POLL_STATE_ERROR
 } poll_state_t;
 
-typedef struct {
-    poll_state_t state;
-    spine_spine_host_t *host;
-    int device_counter;
-    int spine_host_thread;
-    int spine_host_threads;
-    int host_data_ids;
-    char spine_host_time[SMALL_BUFSIZE];
-    double host_time_double;
-    int host_errors;
-    
-    /* Net-SNMP and libuv bridge state */
-    uv_poll_t snmp_poll;
-    uv_timer_t snmp_timer;
-    void *sessp;          /* Opaque net-snmp thread-safe session */
-    int active_fd;        /* Cached file descriptor for diffing */
-    int handles_closed;   /* Tracker for uv_close synchronization */
+typedef struct poll_context_struct poll_context_t;
 
-    /* Internal iteration state */
-    int current_item_idx;
-    target_t *poller_items;
-    int num_items;
-} poll_context_t;
+/**
+ * Interface for an asynchronous polling stage.
+ * Returns 0 if the stage started successfully and will call spine_transition_state later.
+ * Returns non-zero to trigger an immediate transition to POLL_STATE_ERROR.
+ */
+typedef int (*spine_async_stage_f)(poll_context_t *ctx);
 
 void spine_async_poll_start(poller_thread_t *det);
 void spine_transition_state(poll_context_t *ctx);

@@ -97,6 +97,7 @@ test_sandbox: CMakeFiles/test_sandbox.dir/tests/unit/test_sandbox.c.o
 test_sandbox: CMakeFiles/test_sandbox.dir/build.make
 test_sandbox: libspine_platform_test_support.a
 test_sandbox: /opt/homebrew/lib/libuv.dylib
+test_sandbox: /opt/homebrew/lib/libcares.dylib
 test_sandbox: CMakeFiles/test_sandbox.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking C executable test_sandbox"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/test_sandbox.dir/link.txt --verbose=$(VERBOSE)

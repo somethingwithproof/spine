@@ -17,5 +17,5 @@ circuit_breaker 8 0.0259391
 dump_config 15 0.0138045
 check_mode 15 0.215134
 dry_run 8 0.0317056
-async_coverage 6 0.0597552
+async_coverage 7 0.0510868
 ---

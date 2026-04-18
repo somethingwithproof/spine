@@ -1,5 +1,5 @@
-CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o: \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.c \
+CMakeFiles/test_async_coverage.dir/src/async_dns.c.o: \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.c \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/config/config.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/stdlib.h \
@@ -436,4 +436,4 @@ CMakeFiles/test_async_coverage.dir/src/log_formatter.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.h
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h

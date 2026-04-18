@@ -82,6 +82,9 @@
 /* Linux capabilities */
 #cmakedefine HAVE_LCAP 1
 
+/* Async DNS */
+#cmakedefine HAVE_CARES 1
+
 /* Traditional popen */
 #cmakedefine USING_TPOPEN 1
 
