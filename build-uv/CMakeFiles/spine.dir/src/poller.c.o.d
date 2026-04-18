@@ -443,6 +443,7 @@ CMakeFiles/spine.dir/src/poller.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_fd.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.h \

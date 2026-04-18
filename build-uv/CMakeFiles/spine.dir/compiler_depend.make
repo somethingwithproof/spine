@@ -2094,6 +2094,7 @@ CMakeFiles/spine.dir/src/async_snmp.c.o: /Users/thomasvincent/Developer/github.c
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h \
@@ -12102,6 +12103,7 @@ CMakeFiles/spine.dir/src/poller.c.o: /Users/thomasvincent/Developer/github.com/C
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_fd.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h \
@@ -17072,6 +17074,8 @@ config/config.h:
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/unistd.h:
 
 /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp_result_parser.h:
+
+/Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/netinet6/in6.h:
 

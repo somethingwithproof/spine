@@ -423,6 +423,9 @@ CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o: \
   /opt/homebrew/Cellar/net-snmp/5.9.5.2/include/net-snmp/library/snmpusm.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/third_party/uthash.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/poll_state_internal.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/poll_state.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/common.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/spine.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/platform/platform_process.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/spawn.h \
@@ -439,7 +442,5 @@ CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/async_exec.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/async_snmp.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/poll_state.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/common.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/../../src/async_mysql.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit/test_platform_helpers.h

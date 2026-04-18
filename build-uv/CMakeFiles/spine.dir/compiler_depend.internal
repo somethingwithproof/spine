@@ -2099,6 +2099,7 @@ CMakeFiles/spine.dir/src/async_snmp.c.o
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h
@@ -12132,6 +12133,7 @@ CMakeFiles/spine.dir/src/poller.c.o
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_fd.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h

@@ -1219,6 +1219,7 @@ CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h
@@ -4753,6 +4754,7 @@ CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h

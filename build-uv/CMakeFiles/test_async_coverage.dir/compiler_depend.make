@@ -1216,6 +1216,7 @@ CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o: /Users/thomasvincent/Deve
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h \
@@ -4742,6 +4743,7 @@ CMakeFiles/test_async_coverage.dir/tests/unit/test_async_coverage.c.o: /Users/th
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/ping.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/platform/platform_process.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
+  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poller.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine.h \
@@ -5487,6 +5489,8 @@ config/config.h:
 /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/__stdarg___gnuc_va_list.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/unistd.h:
+
+/Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/netinet6/in6.h:
 
