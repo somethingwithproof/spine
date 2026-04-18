@@ -38,7 +38,6 @@
 #ifdef _WIN32
 #include <icmpapi.h>
 #else
-#  include <fcntl.h>
 #  include <ifaddrs.h>
 #  include <net/if.h>
 #  include <netdb.h>
@@ -48,20 +47,6 @@
 #  include <netinet/ip_icmp.h>
 #  include <netinet/icmp6.h>
 #  include <stddef.h>
-#endif
-
-#ifndef _WIN32
-/* Set FD_CLOEXEC on a raw descriptor. The raw ICMP sockets are
- * long-lived and occasionally leak into nft_popen'd poll scripts
- * without this guard; the children should never see a privileged
- * ICMP fd they did not open. */
-static void spine_fd_set_cloexec(int fd) {
-	if (fd < 0) return;
-	int fl = fcntl(fd, F_GETFD);
-	if (fl >= 0) {
-		(void) fcntl(fd, F_SETFD, fl | FD_CLOEXEC);
-	}
-}
 #endif
 
 #if defined(__linux__)
@@ -941,8 +926,8 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 	static SPINE_PING_SEQ_T seq = 0;
 	struct   icmp  *icmp;
-	struct   ip    *ip;
-	struct   icmp  *pkt;
+	const struct ip *ip;
+	const struct icmp *pkt;
 	unsigned char  *packet;
 	uint16_t our_id;
 	uint16_t our_seq;
@@ -1659,10 +1644,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 		if (tokens == 1) {
 			if (strlen(token) && token[0] == '[') {
 				SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-				/* strncopy guarantees NUL termination even on truncation;
-				 * the raw strncpy path used to leave an unterminated buffer
-				 * on hostnames >= sizeof(name->hostname). */
-				strncopy(name->hostname, hostname, sizeof(name->hostname));
+				strncpy(name->hostname, hostname, sizeof(name->hostname));
 				break;
 			} else if (strlen(token) == 3) {
 				if (strncasecmp(token, "TCP", 3) == 0) {
@@ -1699,10 +1681,8 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 
 		if (tokens == 2) {
 			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s", hostname, token));
-			/* The previous strncpy + hostname[strlen(token)] = '\0' poke
-			 * wrote past the buffer on tokens >= sizeof(name->hostname).
-			 * strncopy truncates at the buffer bound and always NUL-terminates. */
-			strncopy(name->hostname, token, sizeof(name->hostname));
+			strncpy(name->hostname, token, sizeof(name->hostname));
+			name->hostname[strlen(token)] = '\0';
 		}
 
 		if (tokens == 3 && strlen(token)) {
@@ -2058,7 +2038,6 @@ int ping_icmp_v4_posix_numeric(const char *ip, uint32_t timeout_ms,
 		result->system_errno = errno;
 		return -1;
 	}
-	spine_fd_set_cloexec(sock);
 
 	pkt_len = (size_t) ICMP_HDR_SIZE + (payload_len > 0 ? payload_len : sizeof(spine_ping_payload_t));
 	packet = calloc(1, pkt_len);
@@ -2130,13 +2109,13 @@ int ping_icmp_v4_posix_numeric(const char *ip, uint32_t timeout_ms,
 			continue;
 		}
 		{
-			struct ip *iph = (struct ip *) recvbuf;
+			const struct ip *iph = (const struct ip *) recvbuf;
 			size_t iphl = (size_t) iph->ip_hl * 4U;
-			struct icmp *pkt;
+			const struct icmp *pkt;
 			if (iphl < sizeof(struct ip) || iphl > (size_t) n) continue;
 			if ((size_t) n < iphl + ICMP_HDR_SIZE) continue;
 			if (dst.sin_addr.s_addr != recvname.sin_addr.s_addr) continue;
-			pkt = (struct icmp *) (recvbuf + iphl);
+			pkt = (const struct icmp *) (recvbuf + iphl);
 			if (pkt->icmp_type != ICMP_ECHOREPLY
 			    || pkt->icmp_id != htons(our_id)
 			    || pkt->icmp_seq != htons(our_seq)) {
@@ -2217,7 +2196,6 @@ int ping_icmp_v6_posix_numeric(const char *ip, uint32_t timeout_ms,
 		result->system_errno = errno;
 		return -1;
 	}
-	spine_fd_set_cloexec(sock);
 
 #ifdef ICMP6_FILTER
 	{

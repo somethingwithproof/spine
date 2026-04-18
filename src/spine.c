@@ -123,11 +123,6 @@
 static volatile sig_atomic_t spine_reload_requested = 0;
 static volatile sig_atomic_t spine_stop_requested   = 0;
 
-/* umask at process entry, captured immediately before spine installs its
- * own 027 mask. Logged at debug once the log subsystem is live so an
- * operator can see what they inherited from the service manager. */
-static mode_t spine_prev_umask = 0;
-
 static void spine_sighup_handler(int signo) {
     (void)signo;
     spine_reload_requested = 1;
@@ -140,17 +135,11 @@ static void spine_sigterm_handler(int signo) {
 
 static void spine_install_reload_handler(void) {
     struct sigaction sa;
-
-    /* Zero the whole struct first; Linux's sa_restorer and the BSD sa_flags
-     * tail are implementation-defined fields that must not carry stack
-     * garbage into the kernel. */
-    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = spine_sighup_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGHUP, &sa, NULL);
 
-    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = spine_sigterm_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
@@ -296,15 +285,6 @@ int main(int argc, char *argv[]) {
 	 * remains valid after drop_root hands the process to a service uid. */
 	spine_capture_startup_euid();
 
-	/* Default-deny for any file the poller creates (log, pid, temp).
-	 * 027 masks group-write and all world access, so newly-created files
-	 * land as 0640 (files) / 0750 (dirs) even if the caller inherited a
-	 * permissive 0022 from systemd or a misconfigured shell. The prior
-	 * umask is stashed for a debug log once the log subsystem is live;
-	 * spine is a long-lived poller that should not widen file modes
-	 * mid-run, so the new mask stays in force for the process lifetime. */
-	spine_prev_umask = umask(027);
-
 	#ifdef HAVE_LCAP
 	if (geteuid() == 0) {
 		drop_root(getuid(), getgid());
@@ -314,11 +294,6 @@ int main(int argc, char *argv[]) {
 	/* we must initialize snmp in the main thread */
 
 	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
-
-	/* Populate the pre-formatted fatal-signal message table before the
-	 * handler is wired up, so the async-signal-safe write(2) path always
-	 * has a non-empty buffer to emit. */
-	spine_signal_handler_init();
 
 	/* install the spine signal handler */
 	install_spine_signal_handler();
@@ -753,8 +728,6 @@ int main(int argc, char *argv[]) {
 
 	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
 		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
-		SPINE_LOG_DEBUG(("DEBUG: Prior umask %03o; active umask 027",
-			(unsigned int)(spine_prev_umask & 0777)));
 
 		if (set.poller_id > 1) {
 			if (mode == REMOTE) {
@@ -825,42 +798,27 @@ int main(int argc, char *argv[]) {
 		spine_sandbox_restrict();
 	}
 
-	/* obtain the list of hosts to poll. The buffer is bounded at MEGA_BUFSIZE;
-	 * any truncation short-circuits with an unmodified accumulator so we do
-	 * not step past the end when a long host_id_list lands late in the build. */
+	/* obtain the list of hosts to poll */
 	{
-		size_t remaining = (size_t)(MEGA_BUFSIZE - (qp - querybuf));
-		int n;
-		do {
-			n = snprintf(qp, remaining, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
-			if (n < 0 || (size_t)n >= remaining) break;
-			qp += n; remaining -= (size_t)n;
+		int remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " WHERE disabled = ''");
 
-			n = snprintf(qp, remaining, " WHERE disabled = ''");
-			if (n < 0 || (size_t)n >= remaining) break;
-			qp += n; remaining -= (size_t)n;
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " AND availability_method != %d", AVAIL_STREAM);
 
-			n = snprintf(qp, remaining, " AND availability_method != %d", AVAIL_STREAM);
-			if (n < 0 || (size_t)n >= remaining) break;
-			qp += n; remaining -= (size_t)n;
+		if (!strlen(set.host_id_list)) {
+			qp += append_hostrange(qp, "h.id");	/* AND id BETWEEN a AND b */
+		} else {
+			remaining = MEGA_BUFSIZE - (qp - querybuf);
+			qp += snprintf(qp, remaining, " AND h.id IN(%s)", set.host_id_list);
+		}
 
-			if (!strlen(set.host_id_list)) {
-				qp += append_hostrange(qp, "h.id");	/* AND id BETWEEN a AND b */
-				remaining = (size_t)(MEGA_BUFSIZE - (qp - querybuf));
-			} else {
-				n = snprintf(qp, remaining, " AND h.id IN(%s)", set.host_id_list);
-				if (n < 0 || (size_t)n >= remaining) break;
-				qp += n; remaining -= (size_t)n;
-			}
-
-			n = snprintf(qp, remaining, " AND h.poller_id = %i", set.poller_id);
-			if (n < 0 || (size_t)n >= remaining) break;
-			qp += n; remaining -= (size_t)n;
-
-			n = snprintf(qp, remaining, " ORDER BY picount DESC");
-			if (n < 0 || (size_t)n >= remaining) break;
-			qp += n; remaining -= (size_t)n;
-		} while (0);
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " AND h.poller_id = %i", set.poller_id);
+		remaining = MEGA_BUFSIZE - (qp - querybuf);
+		qp += snprintf(qp, remaining, " ORDER BY picount DESC");
 	}
 
 	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
@@ -1003,11 +961,6 @@ int main(int argc, char *argv[]) {
 
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
-			if (mysql_row == NULL || mysql_row[0] == NULL || mysql_row[1] == NULL) {
-				SPINE_LOG(("WARNING: host row fetch returned NULL; skipping"));
-				device_counter++;
-				continue;
-			}
 			host_id         = atoi(mysql_row[0]);
 			device_threads  = atoi(mysql_row[1]);
 			current_thread  = 1;
@@ -1030,7 +983,7 @@ int main(int argc, char *argv[]) {
 			tresult   = db_query(&mysql, LOCAL, querybuf);
 			mysql_row = mysql_fetch_row(tresult);
 
-			total_items = (mysql_row != NULL && mysql_row[0] != NULL) ? atoi(mysql_row[0]) : 0;
+			total_items = atoi(mysql_row[0]);
 			db_free_result(tresult);
 
 			if (total_items && total_items < device_threads) {
@@ -1054,7 +1007,7 @@ int main(int argc, char *argv[]) {
 				tresult   = db_query(&mysql, LOCAL, querybuf);
 				mysql_row = mysql_fetch_row(tresult);
 
-				items_per_thread = (mysql_row != NULL && mysql_row[0] != NULL) ? atoi(mysql_row[0]) : 0;
+				items_per_thread = atoi(mysql_row[0]);
 
 				db_free_result(tresult);
 
@@ -1397,9 +1350,14 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	/* Zero sensitive credentials before exit. Centralized in util.c so
-	 * every exit path (main + die) goes through the same code. */
-	spine_scrub_secrets();
+	/* zero sensitive credentials before exit */
+	{
+		volatile char *vp;
+		vp = (volatile char *)set.db_pass;
+		memset((char *)vp, 0, sizeof(set.db_pass));
+		vp = (volatile char *)set.rdb_pass;
+		memset((char *)vp, 0, sizeof(set.rdb_pass));
+	}
 
 	spine_cb_shutdown();
 

@@ -682,7 +682,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				host->snmp_priv_protocol[0]   = '\0';              // 8
 				host->snmp_context[0]         = '\0';              // 9
 				host->snmp_engine_id[0]       = '\0';              // 10
-				host->snmp_engine_id_bin_len  = 0;                 // -
 				host->snmp_port               = 161;               // 11
 				host->snmp_timeout            = 500;               // 12
 				host->snmp_retries            = set.snmp_retries;  // -
@@ -733,14 +732,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				if (row[8]  != NULL) STRNCOPY(host->snmp_priv_protocol,   row[8]);
 				if (row[9]  != NULL) STRNCOPY(host->snmp_context,         row[9]);
 				if (row[10]  != NULL) STRNCOPY(host->snmp_engine_id,       row[10]);
-				/* Decode the hex engine ID to bytes now so the SNMPv3 session
-				 * init can pass an explicit length. strlen() truncates at the
-				 * first embedded 0x00, which any RFC 3411 engine ID is free
-				 * to contain. */
-				host->snmp_engine_id_bin_len = spine_snmp_decode_engine_id(
-					host->snmp_engine_id,
-					host->snmp_engine_id_bin,
-					(int) sizeof(host->snmp_engine_id_bin));
 
 				if (row[11] != NULL) host->snmp_port           = atoi(row[11]);
 				if (row[12] != NULL) host->snmp_timeout        = atoi(row[12]);
@@ -798,8 +789,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 						host->snmp_priv_protocol,
 						host->snmp_context,
 						host->snmp_engine_id,
-						host->snmp_engine_id_bin,
-						host->snmp_engine_id_bin_len,
 						host->snmp_port,
 						host->snmp_timeout);
 				} else {
@@ -1366,7 +1355,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 			poller_items[i].snmp_priv_protocol[0]    = '\0';
 			poller_items[i].snmp_context[0]          = '\0';
 			poller_items[i].snmp_engine_id[0]        = '\0';
-			poller_items[i].snmp_engine_id_bin_len   = 0;
 			poller_items[i].snmp_port                = 161;
 			poller_items[i].snmp_timeout             = 500;
 			poller_items[i].rrd_name[0]              = '\0';
@@ -1410,13 +1398,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				sizeof(poller_items[i].snmp_context), "%s", row[18]);
 			if (row[19] != NULL)  snprintf(poller_items[i].snmp_engine_id,
 				sizeof(poller_items[i].snmp_engine_id), "%s", row[19]);
-			/* Mirror the host loader: decode the hex engine ID so the
-			 * SNMPv3 session receives explicit length and embedded 0x00
-			 * bytes are not truncated. */
-			poller_items[i].snmp_engine_id_bin_len = spine_snmp_decode_engine_id(
-				poller_items[i].snmp_engine_id,
-				poller_items[i].snmp_engine_id_bin,
-				(int) sizeof(poller_items[i].snmp_engine_id_bin));
 
 			if (set.has_output_regex && row[20] != NULL)
 				snprintf(poller_items[i].output_regex,
@@ -1469,8 +1450,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 						poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
 						poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
 						poller_items[i].snmp_engine_id,
-						poller_items[i].snmp_engine_id_bin,
-						poller_items[i].snmp_engine_id_bin_len,
 						poller_items[i].snmp_port, poller_items[i].snmp_timeout);
 
 					k++;
@@ -1582,8 +1561,6 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 						poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
 						poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
 						poller_items[i].snmp_engine_id,
-						poller_items[i].snmp_engine_id_bin,
-						poller_items[i].snmp_engine_id_bin_len,
 						poller_items[i].snmp_port, poller_items[i].snmp_timeout);
 
 					last_snmp_port    = poller_items[i].snmp_port;
@@ -2069,23 +2046,15 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 	/* record the total time for the host */
 	thread_mutex_lock(LOCK_THDET);
-	/*
-	 * details[device_counter] can be NULL if another thread tore down the
-	 * slot (reload, shutdown, or delete). Hold LOCK_THDET while checking
-	 * so the pointer cannot change under us between test and use.
-	 */
-	if (details[device_counter] != NULL) {
-		details[device_counter]->threads_complete++;
-		if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
-			details[device_counter]->complete = TRUE;
+	details[device_counter]->threads_complete++;
+	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
+		details[device_counter]->complete = TRUE;
 
-			poll_time = get_time_as_double();
-			query1[0] = '\0';
-			snprintf(query1, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-			db_query(&mysql, LOCAL, query1);
-		}
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] HT[%i] details slot NULL at thread completion; skipping accounting.", host_id, host_thread));
+		poll_time = get_time_as_double();
+		query1[0] = '\0';
+		snprintf(query1, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
+		db_query(&mysql, LOCAL, query1);
+
 	}
 
 	if (errors > 0) {
@@ -2371,7 +2340,7 @@ int validate_result(char *result) {
  * (the Cacti database). Do not pass user-controlled input directly. */
 char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 	int cmd_fd;
-	spine_pid_t pid;
+	int pid;
 
 	#ifdef USING_TPOPEN
 	FILE *fd;
@@ -2548,13 +2517,8 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 					#else
 					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", current_host->id));
 
-					/* nft_pchild returns -1 on lookup failure. kill(-1, SIGKILL)
-					 * would wipe every process owned by the spine uid; kill(0, ...)
-					 * signals the whole process group. Guard against both. */
 					pid = nft_pchild(cmd_fd);
-					if (pid > 1) {
-						kill(pid, SIGKILL);
-					}
+					kill(pid, SIGKILL);
 					#endif
 
 					SET_UNDEFINED(result_string);
@@ -2565,12 +2529,10 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 					if (bytes_read > 0) {
 						result_string[bytes_read] = '\0';
 					} else {
-						char redacted_cmd[BUFSIZE];
-						spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
 						if (STRIMATCH(type,"DS")) {
-							SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, redacted_cmd));
+							SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
 						} else {
-							SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, redacted_cmd));
+							SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
 						}
 						SET_UNDEFINED(result_string);
 					}
@@ -2586,15 +2548,11 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 				nft_pclose(cmd_fd);
 				#endif
 			} else {
-				char redacted_cmd[BUFSIZE];
-				spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
-				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, redacted_cmd));
+				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, command));
 				SET_UNDEFINED(result_string);
 			}
 		} else {
-			char redacted_cmd[BUFSIZE];
-			spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
-			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, redacted_cmd));
+			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, command));
 			SET_UNDEFINED(result_string);
 		}
 

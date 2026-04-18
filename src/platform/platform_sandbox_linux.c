@@ -316,14 +316,14 @@ static int apply_seccomp(void) {
 		SCMP_SYS(lstat), SCMP_SYS(lstat64),
 		SCMP_SYS(newfstatat), SCMP_SYS(statx),
 		SCMP_SYS(access), SCMP_SYS(faccessat), SCMP_SYS(faccessat2),
-		SCMP_SYS(readlink), SCMP_SYS(readlinkat),
+		SCMP_SYS(readlink), SCMP_SYS(readlinkat), // flawfinder: ignore
 		SCMP_SYS(getdents), SCMP_SYS(getdents64),
 		SCMP_SYS(getcwd), SCMP_SYS(chdir), SCMP_SYS(fchdir),
 		SCMP_SYS(unlink), SCMP_SYS(unlinkat),
 		SCMP_SYS(rename), SCMP_SYS(renameat), SCMP_SYS(renameat2),
 		SCMP_SYS(mkdir), SCMP_SYS(mkdirat),
-		SCMP_SYS(chmod), SCMP_SYS(fchmod), SCMP_SYS(fchmodat),
-		SCMP_SYS(chown), SCMP_SYS(fchown), SCMP_SYS(fchownat), SCMP_SYS(lchown),
+		SCMP_SYS(chmod), SCMP_SYS(fchmod), SCMP_SYS(fchmodat), // flawfinder: ignore
+		SCMP_SYS(chown), SCMP_SYS(fchown), SCMP_SYS(fchownat), SCMP_SYS(lchown), // flawfinder: ignore
 		SCMP_SYS(utimensat), SCMP_SYS(utimes), SCMP_SYS(futimesat),
 		SCMP_SYS(umask),
 		SCMP_SYS(flock), SCMP_SYS(fsync), SCMP_SYS(fdatasync),

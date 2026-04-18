@@ -111,7 +111,6 @@ set(SPINE_CORE_SOURCES
     src/spine.c
     src/util.c
     src/snmp.c
-    src/snmp_engine_id.c
     src/locks.c
     src/poller.c
     src/nft_popen.c
@@ -193,10 +192,6 @@ check_function_exists(calloc        HAVE_CALLOC)
 check_function_exists(gettimeofday  HAVE_GETTIMEOFDAY)
 check_function_exists(strerror      HAVE_STRERROR)
 check_function_exists(strtoll       HAVE_STRTOLL)
-# explicit_bzero is the portable-ish spelling for a compiler-unoptimizable
-# zero. glibc >= 2.25, musl, FreeBSD 11+, OpenBSD, and NetBSD all provide
-# it; macOS and Windows fall back to the volatile-pointer memset pattern.
-check_function_exists(explicit_bzero HAVE_EXPLICIT_BZERO)
 
 check_type_size("unsigned long long" UNSIGNED_LONG_LONG)
 check_type_size("long long" LONG_LONG)
@@ -919,38 +914,6 @@ if(BUILD_TESTING)
     target_link_libraries(test_json_log PRIVATE spine_hardening)
     add_test(NAME json_log COMMAND test_json_log)
 
-    # snprintf_guard: pins the guarded accumulator pattern used for SQL
-    # builders in util.c and spine.c. Pure-algorithm, no spine deps.
-    add_executable(test_snprintf_guard
-        tests/unit/test_snprintf_guard.c
-    )
-    target_include_directories(test_snprintf_guard PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
-    )
-    if(TARGET spine_build_options)
-        target_link_libraries(test_snprintf_guard PRIVATE spine_build_options)
-    endif()
-    target_link_libraries(test_snprintf_guard PRIVATE spine_hardening)
-    add_test(NAME snprintf_guard COMMAND test_snprintf_guard)
-
-    # redact_args: SNMP community + auth/priv redaction for command log
-    # lines. Pulls a stand-alone copy of the implementation to avoid the
-    # util.c + mysql + net-snmp chain; the copy must track util.c.
-    add_executable(test_redact_args
-        tests/unit/test_redact_args.c
-        tests/unit/redact_args_tu.c
-    )
-    target_include_directories(test_redact_args PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
-    )
-    if(TARGET spine_build_options)
-        target_link_libraries(test_redact_args PRIVATE spine_build_options)
-    endif()
-    target_link_libraries(test_redact_args PRIVATE spine_hardening)
-    add_test(NAME redact_args COMMAND test_redact_args)
-
     # icmp_win_loader: race the IP Helper one-shot loader across N threads.
     # Windows-only: the loader lives in platform_icmp_win.c and the test
     # body uses CreateThread + WaitForMultipleObjects. A clean run does
@@ -1059,8 +1022,6 @@ if(BUILD_TESTING)
             tests/unit/test_dump_config.c
             tests/unit/test_spine_stubs.c
             src/util.c
-            src/circuit_breaker.c
-            src/spine_audit.c
         )
         target_include_directories(test_dump_config PRIVATE
             ${CMAKE_BINARY_DIR}
@@ -1083,19 +1044,12 @@ if(BUILD_TESTING)
             target_link_libraries(test_dump_config PRIVATE spine_build_options)
         endif()
         target_link_libraries(test_dump_config PRIVATE spine_hardening)
-        if(SPINE_HAVE_LIBAUDIT)
-            target_compile_definitions(test_dump_config PRIVATE HAVE_LIBAUDIT=1)
-            target_include_directories(test_dump_config SYSTEM PRIVATE ${AUDIT_INCLUDE_DIR})
-            target_link_libraries(test_dump_config PRIVATE ${AUDIT_LIB})
-        endif()
         add_test(NAME dump_config COMMAND test_dump_config)
 
         add_executable(test_check_mode
             tests/unit/test_check_mode.c
             tests/unit/test_spine_stubs.c
             src/util.c
-            src/circuit_breaker.c
-            src/spine_audit.c
         )
         target_include_directories(test_check_mode PRIVATE
             ${CMAKE_BINARY_DIR}
@@ -1118,71 +1072,10 @@ if(BUILD_TESTING)
             target_link_libraries(test_check_mode PRIVATE spine_build_options)
         endif()
         target_link_libraries(test_check_mode PRIVATE spine_hardening)
-        if(SPINE_HAVE_LIBAUDIT)
-            target_compile_definitions(test_check_mode PRIVATE HAVE_LIBAUDIT=1)
-            target_include_directories(test_check_mode SYSTEM PRIVATE ${AUDIT_INCLUDE_DIR})
-            target_link_libraries(test_check_mode PRIVATE ${AUDIT_LIB})
-        endif()
         add_test(NAME check_mode COMMAND test_check_mode)
         # 3s connect timeout + a touch of slack so cold CI runners do not
         # flake when the route takes an extra second to time out.
         set_tests_properties(check_mode PROPERTIES TIMEOUT 30)
-
-        add_executable(test_scrub_secrets
-            tests/unit/test_scrub_secrets.c
-            tests/unit/test_spine_stubs.c
-            src/util.c
-        )
-        target_include_directories(test_scrub_secrets PRIVATE
-            ${CMAKE_BINARY_DIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
-            ${CMAKE_SOURCE_DIR}/third_party
-        )
-        target_link_libraries(test_scrub_secrets PRIVATE
-            spine_platform
-            spine_mysql
-            spine_netsnmp
-            Threads::Threads
-        )
-        if(OpenSSL_FOUND)
-            target_link_libraries(test_scrub_secrets PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-        endif()
-        if(TARGET spine_build_options)
-            target_link_libraries(test_scrub_secrets PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_scrub_secrets PRIVATE spine_hardening)
-        add_test(NAME scrub_secrets COMMAND test_scrub_secrets)
-
-        add_executable(test_config_parser
-            tests/unit/test_config_parser.c
-            tests/unit/test_spine_stubs.c
-            src/util.c
-        )
-        target_include_directories(test_config_parser PRIVATE
-            ${CMAKE_BINARY_DIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
-            ${CMAKE_SOURCE_DIR}/third_party
-        )
-        target_link_libraries(test_config_parser PRIVATE
-            spine_platform
-            spine_mysql
-            spine_netsnmp
-            Threads::Threads
-        )
-        if(OpenSSL_FOUND)
-            target_link_libraries(test_config_parser PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-        endif()
-        if(TARGET spine_build_options)
-            target_link_libraries(test_config_parser PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_config_parser PRIVATE spine_hardening)
-        add_test(NAME config_parser COMMAND test_config_parser)
 
         add_executable(test_dry_run
             tests/unit/test_dry_run.c
@@ -1232,143 +1125,6 @@ if(BUILD_TESTING)
         endif()
         target_link_libraries(test_job_object PRIVATE spine_hardening)
         add_test(NAME job_object COMMAND test_job_object)
-    endif()
-
-    # exec_poll pid-guard regression (broadcast-kill via nft_pchild() -> -1).
-    add_executable(test_poller_pid_guard tests/unit/test_poller_pid_guard.c)
-    target_include_directories(test_poller_pid_guard PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit
-    )
-    if(TARGET spine_build_options)
-        target_link_libraries(test_poller_pid_guard PRIVATE spine_build_options)
-    endif()
-    target_link_libraries(test_poller_pid_guard PRIVATE spine_hardening)
-    add_test(NAME poller_pid_guard COMMAND test_poller_pid_guard)
-
-    # SNMPv3 engine-id binary decode regression. Links the tiny helper
-    # TU so Net-SNMP does not need to be present for the test to run.
-    add_executable(test_snmp_engine_id
-        tests/unit/test_snmp_engine_id.c
-        src/snmp_engine_id.c
-    )
-    target_include_directories(test_snmp_engine_id PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/unit
-    )
-    if(TARGET spine_build_options)
-        target_link_libraries(test_snmp_engine_id PRIVATE spine_build_options)
-    endif()
-    target_link_libraries(test_snmp_engine_id PRIVATE spine_hardening)
-    add_test(NAME snmp_engine_id COMMAND test_snmp_engine_id)
-
-    # spine.conf 0600 + owner + O_NOFOLLOW regression.
-    if(NOT WIN32)
-        add_executable(test_config_perms tests/unit/test_config_perms.c)
-        target_include_directories(test_config_perms PRIVATE
-            ${CMAKE_SOURCE_DIR}/tests/unit
-        )
-        if(TARGET spine_build_options)
-            target_link_libraries(test_config_perms PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_config_perms PRIVATE spine_hardening)
-        add_test(NAME config_perms COMMAND test_config_perms)
-    endif()
-
-    # get_namebyhost() OOB-write regression. Links util.c so the test
-    # exercises the real strncopy() behaviour the fix now relies on.
-    if(SPINE_BUILD_MAIN AND NOT WIN32)
-        add_executable(test_get_namebyhost
-            tests/unit/test_get_namebyhost.c
-            tests/unit/test_spine_stubs.c
-            src/util.c
-        )
-        target_include_directories(test_get_namebyhost PRIVATE
-            ${CMAKE_BINARY_DIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
-            ${CMAKE_SOURCE_DIR}/third_party
-        )
-        target_link_libraries(test_get_namebyhost PRIVATE
-            spine_platform
-            spine_mysql
-            spine_netsnmp
-            Threads::Threads
-        )
-        if(OpenSSL_FOUND)
-            target_link_libraries(test_get_namebyhost PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-        endif()
-        if(TARGET spine_build_options)
-            target_link_libraries(test_get_namebyhost PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_get_namebyhost PRIVATE spine_hardening)
-        add_test(NAME get_namebyhost COMMAND test_get_namebyhost)
-    endif()
-
-    # FD_CLOEXEC regression for long-lived descriptors (socket helper,
-    # log file path). POSIX-only because Windows uses SOCKET handles.
-    if(NOT WIN32)
-        add_executable(test_cloexec
-            tests/unit/test_cloexec.c
-        )
-        target_include_directories(test_cloexec PRIVATE
-            ${CMAKE_BINARY_DIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
-        )
-        target_link_libraries(test_cloexec PRIVATE spine_platform Threads::Threads)
-        if(TARGET spine_build_options)
-            target_link_libraries(test_cloexec PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_cloexec PRIVATE spine_hardening)
-        add_test(NAME cloexec COMMAND test_cloexec)
-    endif()
-
-    # Fatal-signal handler async-signal-safety regression. Links error.c
-    # directly because spine_signal_handler_init() lives there; the test
-    # only calls the init entry point and never raises a real signal.
-    if(SPINE_BUILD_MAIN AND NOT WIN32)
-        add_executable(test_signal_handler
-            tests/unit/test_signal_handler.c
-            src/error.c
-        )
-        target_include_directories(test_signal_handler PRIVATE
-            ${CMAKE_BINARY_DIR}
-            ${CMAKE_SOURCE_DIR}
-            ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
-            ${CMAKE_SOURCE_DIR}/third_party
-        )
-        target_link_libraries(test_signal_handler PRIVATE
-            spine_platform
-            spine_mysql
-            spine_netsnmp
-            Threads::Threads
-        )
-        if(OpenSSL_FOUND)
-            target_link_libraries(test_signal_handler PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-        endif()
-        if(TARGET spine_build_options)
-            target_link_libraries(test_signal_handler PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_signal_handler PRIVATE spine_hardening)
-        add_test(NAME signal_handler COMMAND test_signal_handler)
-    endif()
-
-    # umask(027) sanity: standalone since the real setter sits inside main().
-    if(NOT WIN32)
-        add_executable(test_startup_umask tests/unit/test_startup_umask.c)
-        target_include_directories(test_startup_umask PRIVATE
-            ${CMAKE_SOURCE_DIR}/tests/unit
-        )
-        if(TARGET spine_build_options)
-            target_link_libraries(test_startup_umask PRIVATE spine_build_options)
-        endif()
-        target_link_libraries(test_startup_umask PRIVATE spine_hardening)
-        add_test(NAME startup_umask COMMAND test_startup_umask)
     endif()
 
     # BSD-only arc4random divergence test.

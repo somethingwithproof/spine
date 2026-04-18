@@ -5,7 +5,6 @@
 #include <time.h>
 
 #ifdef HAVE_LIBAUDIT
-#include <fcntl.h>
 #include <libaudit.h>
 #include <unistd.h>
 #endif
@@ -96,13 +95,6 @@ void spine_audit_event(const char *op, const char *detail, int result) {
 		if (g_audit_fd < 0) {
 			g_audit_fd = -2;
 			return;
-		}
-		/* The audit netlink fd outlives any nft_popen'd poll script.
-		 * Flip FD_CLOEXEC so child processes do not inherit a privileged
-		 * audit socket capable of emitting kernel messages. */
-		int fl = fcntl(g_audit_fd, F_GETFD);
-		if (fl >= 0) {
-			(void) fcntl(g_audit_fd, F_SETFD, fl | FD_CLOEXEC);
 		}
 	}
 

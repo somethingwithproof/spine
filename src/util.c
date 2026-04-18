@@ -34,10 +34,8 @@
 #include "common.h"
 #include "spine.h"
 #include "regex.h"
-#include "circuit_breaker.h"
 
 #include <fcntl.h>
-#include <limits.h>
 
 static int nopts = 0;
 
@@ -52,31 +50,6 @@ void spine_capture_startup_euid(void) {
 	if (spine_startup_euid == (uid_t)-1) {
 		spine_startup_euid = geteuid();
 	}
-}
-
-/* Guarded snprintf accumulator. Advances *cursor by the bytes actually
- * written and shrinks *remaining to match, leaving the target NUL-terminated
- * on truncation. Returns 0 on success, -1 on overflow or snprintf error so
- * callers can short-circuit without stepping past the buffer. */
-static int spine_sql_append(char **cursor, size_t *remaining, const char *fmt, ...) {
-	va_list ap;
-	int n;
-
-	if (*remaining == 0) {
-		return -1;
-	}
-
-	va_start(ap, fmt);
-	n = vsnprintf(*cursor, *remaining, fmt, ap);
-	va_end(ap);
-
-	if (n < 0 || (size_t)n >= *remaining) {
-		return -1;
-	}
-
-	*cursor    += n;
-	*remaining -= (size_t)n;
-	return 0;
 }
 
 /* Forward declaration so spine_log() can reach the JSON escaper defined
@@ -152,12 +125,11 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 		if (mysql_num_rows(result) > 0) {
 			mysql_row = mysql_fetch_row(result);
 
-			if (mysql_row != NULL && mysql_row[0] != NULL) {
+			if (mysql_row != NULL) {
 				retval = strdup(mysql_row[0]);
 				db_free_result(result);
 				return retval;
 			}else{
-				db_free_result(result);
 				return strdup("");
 			}
 		}else{
@@ -241,12 +213,11 @@ static char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 		if (mysql_num_rows(result) > 0) {
 			mysql_row = mysql_fetch_row(result);
 
-			if (mysql_row != NULL && mysql_row[0] != NULL) {
+			if (mysql_row != NULL) {
 				retval = strdup(mysql_row[0]);
 				db_free_result(result);
 				return retval;
 			} else {
-				db_free_result(result);
 				return 0;
 			}
 		} else {
@@ -337,12 +308,11 @@ static char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
 		if (mysql_num_rows(result) > 0) {
 			mysql_row = mysql_fetch_row(result);
 
-			if (mysql_row != NULL && mysql_row[1] != NULL) {
+			if (mysql_row != NULL) {
 				retval = strdup(mysql_row[1]);
 				db_free_result(result);
 				return retval;
 			} else {
-				db_free_result(result);
 				return 0;
 			}
 		} else {
@@ -730,29 +700,12 @@ void read_config_options(void) {
 
 	/* log the requirement for the script server */
 	if (!strlen(set.host_id_list)) {
-		size_t remaining = BUFSIZE;
-		int n;
 		sqlp = sqlbuf;
-		do {
-			n = snprintf(sqlp, remaining, "SELECT SQL_NO_CACHE action FROM poller_item");
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			sqlp += append_hostrange(sqlp, "host_id");
-			remaining = BUFSIZE - (size_t)(sqlp - sqlbuf);
-
-			n = snprintf(sqlp, remaining, " AND poller_id=%i", set.poller_id);
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " LIMIT 1");
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-		} while (0);
+		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
+		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		sqlp += append_hostrange(sqlp, "host_id");
+		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
+		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
 		num_rows = mysql_num_rows(result);
@@ -765,30 +718,12 @@ void read_config_options(void) {
 			set.end_host_id,
 			num_rows));
 	} else {
-		size_t remaining = BUFSIZE;
-		int n;
 		sqlp = sqlbuf;
-		do {
-			n = snprintf(sqlp, remaining, "SELECT SQL_NO_CACHE action FROM poller_item");
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " AND host_id IN(%s)", set.host_id_list);
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " AND poller_id=%i", set.poller_id);
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-
-			n = snprintf(sqlp, remaining, " LIMIT 1");
-			if (n < 0 || (size_t)n >= remaining) break;
-			sqlp += n; remaining -= (size_t)n;
-		} while (0);
+		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
+		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		sqlp += snprintf(sqlp, BUFSIZE, " AND host_id IN(%s)", set.host_id_list);
+		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
+		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
 		num_rows = mysql_num_rows(result);
@@ -821,49 +756,38 @@ void read_config_options(void) {
 	/* log the snmp_max_get_size variable */
 	SPINE_LOG_DEBUG(("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp_max_get_size));
 
-	/*
-	 * append_csv_token: bounded append of token to buf, prepending ','
-	 * if buf is non-empty. Silently truncates on overflow rather than
-	 * running off the end of the fixed BUFSIZE array.
-	 */
-	#define APPEND_CSV_TOKEN(buf, tok) do {                                    \
-		size_t _used = strlen(buf);                                            \
-		if (_used < BUFSIZE - 1) {                                             \
-			snprintf((buf) + _used, BUFSIZE - _used, "%s%s",                   \
-				_used > 0 ? "," : "", (tok));                                  \
-		}                                                                      \
-	} while (0)
-
 	#ifndef NETSNMP_DISABLE_MD5
-	APPEND_CSV_TOKEN(spine_auth, "MD5");
+	strcat(spine_auth, "MD5");
 	#endif
 
-	APPEND_CSV_TOKEN(spine_auth, "SHA");
+	strcat(spine_auth, (strlen(spine_auth) > 0 ? ",SHA":"SHA"));
 
 	#if defined(NETSNMP_USMAUTH_HMAC128SHA224)
-	APPEND_CSV_TOKEN(spine_auth, "SHA224");
-	APPEND_CSV_TOKEN(spine_auth, "SHA256");
+	strcat(spine_auth, ",SHA224,SHA256");
 	#endif
 
 	#if defined(NETSNMP_USMAUTH_HMAC192SHA256)
-	APPEND_CSV_TOKEN(spine_auth, "SHA384");
-	APPEND_CSV_TOKEN(spine_auth, "SHA512");
+	strcat(spine_auth, ",SHA384,SHA512");
 	#endif
 
 	#ifndef NETSNMP_DISABLE_DES
-	APPEND_CSV_TOKEN(spine_priv, "DES");
+	strcat(spine_priv, "DES");
 	#endif
 
 	#ifdef HAVE_AES
-	APPEND_CSV_TOKEN(spine_priv, "AES128");
+	// cppcheck-suppress knownConditionTrueFalse
+	strcat(spine_priv, (strlen(spine_priv) > 0 ? ",AES128":"AES128"));
 	#endif
 
 	#if defined(NETSNMP_DRAFT_BLUMENTHAL_AES_04)
-	APPEND_CSV_TOKEN(spine_priv, "AES192");
-	APPEND_CSV_TOKEN(spine_priv, "AES256");
+	// cppcheck-suppress knownConditionTrueFalse
+	strcat(spine_priv, (strlen(spine_priv) > 0 ? ",AES192":"AES192"));
 	#endif
 
-	#undef APPEND_CSV_TOKEN
+	#if defined(NETSNMP_DRAFT_BLUMENTHAL_AES_04)
+	// cppcheck-suppress knownConditionTrueFalse
+	strcat(spine_priv, (strlen(spine_priv) > 0 ? ",AES256":"AES256"));
+	#endif
 
 	snprintf(spine_capabilities, BUFSIZE, "{ authProtocols: \"%s\", privProtocols: \"%s\" }", spine_auth, spine_priv);
 
@@ -887,6 +811,7 @@ void poller_push_data_to_main(void) {
 	int        rows;
 	char       sqlbuf[HUGE_BUFSIZE];
 	char       *sqlp = sqlbuf;
+	int        remaining;
 	char       query[MEGA_BUFSIZE];
 	char       prefix[BUFSIZE];
 	char       suffix[BUFSIZE];
@@ -982,61 +907,83 @@ void poller_push_data_to_main(void) {
 		if (num_rows > 0) {
 			while ((row = mysql_fetch_row(result))) {
 				if (rows < 500) {
-					size_t remsz;
 					if (rows == 0) {
 						sqlp  = sqlbuf;
-						remsz = HUGE_BUFSIZE;
-						if (spine_sql_append(&sqlp, &remsz, "%s", prefix) < 0) break;
-						if (spine_sql_append(&sqlp, &remsz, " (") < 0) break;
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, "%s", prefix);
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, " (");
 					} else {
-						remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-						if (spine_sql_append(&sqlp, &remsz, ", (") < 0) break;
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, ", (");
 					}
 
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[0]) < 0) break; // id mediumint
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[0]); // id mediumint
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[1]); // snmp_sysDescr varchar(300)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // snmp_sysObjectID varchar(128)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[3]); // snmp_sysUpTimeInstance bigint
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[4]); // snmp_sysContact varchar(300)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[5]); // snmp_sysName varchar(300)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[6]); // snmp_sysLocation varchar(300)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[7]); // status tinyint
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[8]) < 0) break; // status_event_count mediumint
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[8]); // status_event_count mediumint
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[9]);  // status_fail_date timestamp
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[10]); // status_rec_date timestamp
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[11]); // status_last_error varchar(255)
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[12]) < 0) break; // min_time decimal(10,5)
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[13]) < 0) break; // max_time decimal(10,5)
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[14]) < 0) break; // cur_time decimal(10,5)
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[15]) < 0) break; // avg_time decimal(10,5)
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[16]) < 0) break; // polling_time double
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[17]) < 0) break; // total_polls int
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[18]) < 0) break; // failed_polls int
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[19]) < 0) break; // availability decimal(8,5)
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[12]); // min_time decimal(10,5)
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[13]); // max_time decimal(10,5)
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[14]); // cur_time decimal(10,5)
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[15]); // avg_time decimal(10,5)
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[16]); // polling_time double
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[17]); // total_polls int
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[18]); // failed_polls int
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[19]); // availability decimal(8,5)
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[20]); // last_updated timestamp
-					if (spine_sql_append(&sqlp, &remsz, "'%s'", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s'", tmpstr);
 
-					if (spine_sql_append(&sqlp, &remsz, ")") < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, ")");
 
 					rows++;
 				} else {
-					size_t remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-					(void)spine_sql_append(&sqlp, &remsz, "%s", suffix);
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s", suffix);
 					db_insert(&mysqlr, REMOTE, sqlbuf);
 
 					rows = 0;
@@ -1045,8 +992,8 @@ void poller_push_data_to_main(void) {
 		}
 
 		if (rows > 0) {
-			size_t remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-			(void)spine_sql_append(&sqlp, &remsz, "%s", suffix);
+			remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+			sqlp += snprintf(sqlp, remaining, "%s", suffix);
 			db_insert(&mysqlr, REMOTE, sqlbuf);
 		}
 	}
@@ -1084,32 +1031,38 @@ void poller_push_data_to_main(void) {
 		if (num_rows > 0) {
 			while ((row = mysql_fetch_row(result))) {
 				if (rows < 10000) {
-					size_t remsz;
 					if (rows == 0) {
-						sqlp  = sqlbuf;
-						remsz = HUGE_BUFSIZE;
-						if (spine_sql_append(&sqlp, &remsz, "%s", prefix) < 0) break;
-						if (spine_sql_append(&sqlp, &remsz, " (") < 0) break;
+						sqlp = sqlbuf;
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, "%s", prefix);
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, " (");
 					} else {
-						remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-						if (spine_sql_append(&sqlp, &remsz, ", (") < 0) break;
+						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+						sqlp += snprintf(sqlp, remaining, ", (");
 					}
 
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[0]) < 0) break; // local_data_id
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[1]) < 0) break; // host_id
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[0]); // local_data_id
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[1]); // host_id
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // rrd_name
-					if (spine_sql_append(&sqlp, &remsz, "'%s', ", tmpstr) < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
 
-					if (spine_sql_append(&sqlp, &remsz, "%s, ", row[3]) < 0) break; // rrd_step
-					if (spine_sql_append(&sqlp, &remsz, "%s",   row[4]) < 0) break; // rrd_next_step
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s, ", row[3]); // rrd_step
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s",   row[4]); // rrd_next_step
 
-					if (spine_sql_append(&sqlp, &remsz, ")") < 0) break;
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, ")");
 
 					rows++;
 				} else {
-					size_t remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-					(void)spine_sql_append(&sqlp, &remsz, "%s", suffix);
+					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+					sqlp += snprintf(sqlp, remaining, "%s", suffix);
 					db_insert(&mysqlr, REMOTE, sqlbuf);
 
 					rows = 0;
@@ -1118,8 +1071,8 @@ void poller_push_data_to_main(void) {
 		}
 
 		if (rows > 0) {
-			size_t remsz = HUGE_BUFSIZE - (size_t)(sqlp - sqlbuf);
-			(void)spine_sql_append(&sqlp, &remsz, "%s", suffix);
+			remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+			sqlp += snprintf(sqlp, remaining, "%s", suffix);
 			db_insert(&mysqlr, REMOTE, sqlbuf);
 
 			rows = 0;
@@ -1132,133 +1085,6 @@ void poller_push_data_to_main(void) {
 	db_disconnect(&mysqlr);
 }
 
-/* Security-relevant config warnings must surface even when stderr is not a
- * tty (systemd captures them into the journal). Range errors, truncation,
- * and unknown directives all indicate either misconfiguration or tampering
- * and are cheap to emit. */
-static void spine_config_warn(const char *fmt, ...)
-	__attribute__((format(printf, 1, 2)));
-
-static void spine_config_warn(const char *fmt, ...) {
-	va_list ap;
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-}
-
-/* Parse an unsigned integer directive within [lo, hi]. Returns 1 on success
- * and writes to *out; returns 0 and leaves *out untouched on range error or
- * trailing garbage. Accepts leading whitespace only; a leading '-' or '+' is
- * rejected because spine never uses negative or explicitly-positive values
- * for these fields. */
-static int spine_parse_bounded_ulong(const char *key, const char *val,
-                                     unsigned long lo, unsigned long hi,
-                                     unsigned long *out) {
-	if (val == NULL || *val == '\0' || *val == '-' || *val == '+') {
-		spine_config_warn("WARNING: %s=%s rejected: not a non-negative integer\n",
-			key, val ? val : "(null)");
-		return 0;
-	}
-	errno = 0;
-	char *end = NULL;
-	unsigned long v = strtoul(val, &end, 10);
-	if (errno != 0 || end == val || (end && *end != '\0')) {
-		spine_config_warn("WARNING: %s=%s rejected: not a valid integer\n", key, val);
-		return 0;
-	}
-	if (v < lo || v > hi) {
-		spine_config_warn("WARNING: %s=%s rejected: out of range [%lu, %lu]\n",
-			key, val, lo, hi);
-		return 0;
-	}
-	*out = v;
-	return 1;
-}
-
-/* Split buff into keyword (p1) and value (p2). Preserves embedded whitespace
- * in the value so passwords containing spaces round-trip. Returns 1 on a
- * parseable directive, 0 on blank/comment lines, -1 on a hard parse error
- * (keyword too long, embedded NUL, overlong line). Trailing CR/LF are
- * stripped. The caller must zero buff before fgets so this function can
- * detect embedded NUL bytes: fgets writes through a NUL in the input, so
- * the buffer tail past strlen stays zero only when no NUL was embedded.
- * fp is used to drain the rest of an over-length line so the next fgets
- * starts on the following line. */
-static int spine_config_tokenize(char *buff, size_t buff_len,
-                                 char *p1, size_t p1_cap,
-                                 char *p2, size_t p2_cap,
-                                 const char *file, int lineno, FILE *fp) {
-	size_t read_len = strnlen(buff, buff_len);
-	int has_newline = (read_len > 0 && buff[read_len - 1] == '\n');
-
-	/* Overlong line: fgets filled buff_len-1 without '\n'. */
-	if (!has_newline && read_len == buff_len - 1) {
-		spine_config_warn("WARNING: %s:%d line exceeds %zu bytes; rejected\n",
-			file, lineno, buff_len - 1);
-		int ch;
-		while ((ch = fgetc(fp)) != EOF && ch != '\n') { /* drain */ }
-		return -1;
-	}
-	/* Embedded NUL: the buffer was pre-zeroed, so any non-zero byte beyond
-	 * read_len implies fgets wrote through a NUL byte in the input. */
-	if (read_len < buff_len - 1) {
-		for (size_t i = read_len + 1; i < buff_len; i++) {
-			if (buff[i] != '\0') {
-				spine_config_warn("WARNING: %s:%d embedded NUL byte rejected\n",
-					file, lineno);
-				return -1;
-			}
-		}
-	}
-	size_t len = read_len;
-	/* Strip trailing CR/LF (handles both LF and CRLF line endings). */
-	while (len > 0 && (buff[len - 1] == '\n' || buff[len - 1] == '\r')) {
-		buff[--len] = '\0';
-	}
-	/* Blank line or comment. */
-	if (len == 0 || buff[0] == '#') {
-		return 0;
-	}
-
-	/* Locate the first whitespace run that separates keyword from value. */
-	size_t ks = 0;
-	while (ks < len && (buff[ks] == ' ' || buff[ks] == '\t')) ks++;
-	if (ks == len) return 0;
-	size_t ke = ks;
-	while (ke < len && buff[ke] != ' ' && buff[ke] != '\t') ke++;
-
-	size_t klen = ke - ks;
-	if (klen >= p1_cap) {
-		spine_config_warn("WARNING: %s:%d keyword exceeds %zu bytes; rejected\n",
-			file, lineno, p1_cap - 1);
-		return -1;
-	}
-	memcpy(p1, buff + ks, klen);
-	p1[klen] = '\0';
-
-	/* Skip the whitespace run between keyword and value. */
-	size_t vs = ke;
-	while (vs < len && (buff[vs] == ' ' || buff[vs] == '\t')) vs++;
-
-	/* Value runs to end-of-line; trailing whitespace is trimmed so
-	 * "DB_Port  123   " parses as "123". Interior whitespace is kept
-	 * so passwords with spaces (rare, but valid) survive. */
-	size_t ve = len;
-	while (ve > vs && (buff[ve - 1] == ' ' || buff[ve - 1] == '\t')) ve--;
-
-	size_t vlen = ve - vs;
-	if (vlen >= p2_cap) {
-		spine_config_warn("WARNING: %s:%d value for %s exceeds %zu bytes; rejected\n",
-			file, lineno, p1, p2_cap - 1);
-		return -1;
-	}
-	if (vlen > 0) {
-		memcpy(p2, buff + vs, vlen);
-	}
-	p2[vlen] = '\0';
-	return 1;
-}
-
 /*! \fn int read_spine_config(const char *file)
  *  \brief obtain default startup variables from the spine.conf file.
  *  \param file the spine config file
@@ -1267,177 +1093,118 @@ static int spine_config_tokenize(char *buff, size_t buff_len,
  */
 int read_spine_config(const char *file) {
 	FILE *fp;
-	int fd;
 	char buff[BUFSIZE];
-	/* Keyword cap of 64 bytes accommodates every current directive with
-	 * room for future additions; anything longer is almost certainly a
-	 * malformed or truncated line. Value cap matches the struct member
-	 * sizes in spine.h (BUFSIZE). */
-	char p1[64];
+	char p1[BUFSIZE];
 	char p2[BUFSIZE];
-	int  lineno = 0;
+	char *chars;
 
-	/* O_NOFOLLOW refuses to traverse a symlink at the final component so an
-	 * attacker who can plant a symlink at /etc/spine.conf cannot redirect
-	 * credential loading to a file they control. O_CLOEXEC keeps the fd
-	 * out of child processes spawned via posix_spawn or nft_popen. */
-	fd = open(file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-	if (fd < 0) {
-		int open_errno = errno;
-		if (open_errno == ELOOP) {
-			if (!set.stderr_notty) {
-				fprintf(stderr, "FATAL: spine config [%s] is a symlink; refusing to start\n", file);
-			}
-			return -1;
-		}
+	if ((fp = fopen(file, "rb")) == NULL) {
 		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
 			if (!set.stderr_notty) {
-				fprintf(stderr, "ERROR: Could not open config file [%s]: %s\n", file, strerror(open_errno));
+				fprintf(stderr, "ERROR: Could not open config file [%s]\n", file);
 			}
 		}
 		return -1;
-	}
-
-	fp = fdopen(fd, "rb");
-	if (fp == NULL) {
-		close(fd);
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
-			if (!set.stderr_notty) {
-				fprintf(stderr, "ERROR: Could not fdopen config file [%s]\n", file);
-			}
-		}
-		return -1;
-	}
-
-	/* spine.conf carries DB credentials. SECURITY.md commits to refusing
-	 * startup unless mode is 0600 owned by root or the startup euid, so
-	 * enforce that here: any group/world bit set, or any ownership
-	 * outside the approved set, is fatal. */
-	{
+	} else {
+		/* spine.conf carries DB credentials. Hard-fail only on the bits that
+		 * actually leak or corrupt them: world-readable (password exfil) or
+		 * group/world-writable (tamper). Soft-warn on owner mismatch because
+		 * many deployments ship spine under a service account distinct from
+		 * the user invoking it, and on fstat errors (unusual filesystems). */
 		struct stat conf_stat;
-		if (fstat(fileno(fp), &conf_stat) != 0) {
-			if (!set.stderr_notty) {
-				fprintf(stderr, "FATAL: fstat failed on config [%s]: %s\n", file, strerror(errno));
+		if (fstat(fileno(fp), &conf_stat) == 0) {
+			mode_t perms = conf_stat.st_mode & 0777;
+			if (conf_stat.st_mode & S_IROTH) {
+				if (!set.stderr_notty) {
+					fprintf(stderr,
+						"WARNING: spine config [%s] is world-readable (mode 0%o); tighten to 0600 to protect DB credentials\n",
+						file, perms);
+				}
 			}
-			fclose(fp);
-			return -1;
-		}
-		if (conf_stat.st_mode & (S_IRGRP | S_IWGRP | S_IXGRP |
-					 S_IROTH | S_IWOTH | S_IXOTH)) {
-			if (!set.stderr_notty) {
-				fprintf(stderr,
-					"FATAL: spine config [%s] mode 0%o exposes credentials to group or world; require 0600\n",
-					file, (unsigned)(conf_stat.st_mode & 0777));
+			if (conf_stat.st_mode & (S_IWGRP | S_IWOTH)) {
+				if (!set.stderr_notty) {
+					fprintf(stderr,
+						"FATAL: spine config [%s] is group/world-writable (mode 0%o); refusing to start\n",
+						file, perms);
+				}
+				fclose(fp);
+				return -1;
 			}
-			fclose(fp);
-			return -1;
-		}
-		/* Accept the file only if it is owned by root or by the euid
-		 * spine booted with (captured before drop_root). This matches
-		 * the SECURITY.md promise and keeps a root-owned /etc/spine.conf
-		 * valid after spine hands off to its service account. */
-		uid_t owner  = conf_stat.st_uid;
-		int owner_ok = (owner == 0)
-			|| (spine_startup_euid != (uid_t)-1 && owner == spine_startup_euid);
-		if (!owner_ok) {
-			if (!set.stderr_notty) {
-				fprintf(stderr,
-					"FATAL: spine config [%s] owner uid %d is not root or the startup euid; refusing to start\n",
-					file, (int)owner);
+			/* Accept the file if it is owned by root, by the euid spine
+			 * booted with (captured before drop_root), by the current
+			 * euid, or by the real uid. Comparing against the live euid
+			 * alone trips once spine hands off to its service account
+			 * on a root-owned /etc/spine.conf. */
+			uid_t cur_euid = geteuid();
+			uid_t cur_ruid = getuid();
+			uid_t owner    = conf_stat.st_uid;
+			int owner_ok   = (owner == 0)
+				|| (owner == cur_euid)
+				|| (owner == cur_ruid)
+				|| (spine_startup_euid != (uid_t)-1 && owner == spine_startup_euid);
+			if (!owner_ok) {
+				if (!set.stderr_notty) {
+					fprintf(stderr,
+						"WARNING: spine config [%s] owner uid %d is not root, the startup euid, or the running user\n",
+						file, (int)owner);
+				}
 			}
-			fclose(fp);
-			return -1;
 		}
+
+		if (!set.stdout_notty) {
+			fprintf(stdout, "SPINE: Using spine config file [%s]\n", file);
+		}
+
+		while (!feof(fp)) {
+			chars = fgets(buff, BUFSIZE, fp);
+
+			if (chars != NULL && !feof(fp) && *buff != '#' && *buff != ' ' && *buff != '\n') {
+				sscanf(buff, "%15s %255s", p1, p2);
+
+				if (STRIMATCH(p1, "RDB_Host"))              STRNCOPY(set.rdb_host, p2);
+				else if (STRIMATCH(p1, "RDB_Database"))     STRNCOPY(set.rdb_db, p2);
+				else if (STRIMATCH(p1, "RDB_User"))         STRNCOPY(set.rdb_user, p2);
+				else if (STRIMATCH(p1, "RDB_Pass"))         STRNCOPY(set.rdb_pass, p2);
+				else if (STRIMATCH(p1, "RDB_Port"))         set.rdb_port    = atoi(p2);
+				else if (STRIMATCH(p1, "RDB_UseSSL"))       set.rdb_ssl     = atoi(p2);
+				else if (STRIMATCH(p1, "RDB_SSL_Key"))      STRNCOPY(set.rdb_ssl_key, p2);
+				else if (STRIMATCH(p1, "RDB_SSL_Cert"))     STRNCOPY(set.rdb_ssl_cert, p2);
+				else if (STRIMATCH(p1, "RDB_SSL_CA"))       STRNCOPY(set.rdb_ssl_ca, p2);
+				else if (STRIMATCH(p1, "DB_Host"))          STRNCOPY(set.db_host, p2);
+				else if (STRIMATCH(p1, "DB_Database"))      STRNCOPY(set.db_db, p2);
+				else if (STRIMATCH(p1, "DB_User"))          STRNCOPY(set.db_user, p2);
+				else if (STRIMATCH(p1, "DB_Pass"))          STRNCOPY(set.db_pass, p2);
+				else if (STRIMATCH(p1, "DB_Port"))          set.db_port    = atoi(p2);
+				else if (STRIMATCH(p1, "DB_UseSSL"))        set.db_ssl     = atoi(p2);
+				else if (STRIMATCH(p1, "DB_SSL_Key"))       STRNCOPY(set.db_ssl_key, p2);
+				else if (STRIMATCH(p1, "DB_SSL_Cert"))      STRNCOPY(set.db_ssl_cert, p2);
+				else if (STRIMATCH(p1, "DB_SSL_CA"))        STRNCOPY(set.db_ssl_ca, p2);
+				else if (STRIMATCH(p1, "Poller"))           set.poller_id = atoi(p2);
+				else if (STRIMATCH(p1, "DB_PreG")) {
+					if (!set.stderr_notty) {
+						fprintf(stderr,"WARNING: DB_PreG is no longer supported\n");
+					}
+				} else if (STRIMATCH(p1, "Cacti_Log")) {
+					STRNCOPY(set.path_logfile, p2);
+					set.logfile_processed = 1;
+					set.log_destination = LOGDEST_BOTH;
+				} else if (STRIMATCH(p1, "SNMP_Clientaddr"))  STRNCOPY(set.snmp_clientaddr, p2);
+				else if (STRIMATCH(p1, "CircuitBreakerThreshold")) set.circuit_breaker_threshold = atoi(p2);
+				else if (!set.stderr_notty) {
+					fprintf(stderr,"WARNING: Unrecognized directive: %s=%s in %s\n", p1, p2, file);
+				}
+
+				*p1 = '\0';
+				*p2 = '\0';
+			}
+		}
+
+		if (strlen(set.db_pass) == 0) *set.db_pass = '\0';
+
+		fclose(fp);
+
+		return 0;
 	}
-
-	if (!set.stdout_notty) {
-		fprintf(stdout, "SPINE: Using spine config file [%s]\n", file);
-	}
-
-	for (;;) {
-		memset(buff, 0, sizeof(buff));
-		if (fgets(buff, BUFSIZE, fp) == NULL) break;
-		lineno++;
-		p1[0] = '\0';
-		p2[0] = '\0';
-		int t = spine_config_tokenize(buff, sizeof(buff),
-		                              p1, sizeof(p1),
-		                              p2, sizeof(p2),
-		                              file, lineno, fp);
-		if (t <= 0) {
-			/* blank, comment, or rejected line; carry on */
-			continue;
-		}
-
-		if (STRIMATCH(p1, "RDB_Host"))              STRNCOPY(set.rdb_host, p2);
-		else if (STRIMATCH(p1, "RDB_Database"))     STRNCOPY(set.rdb_db, p2);
-		else if (STRIMATCH(p1, "RDB_User"))         STRNCOPY(set.rdb_user, p2);
-		else if (STRIMATCH(p1, "RDB_Pass"))         STRNCOPY(set.rdb_pass, p2);
-		else if (STRIMATCH(p1, "RDB_Port")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("RDB_Port", p2, 1, 65535, &v)) {
-				set.rdb_port = (int)v;
-			}
-		}
-		else if (STRIMATCH(p1, "RDB_UseSSL")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("RDB_UseSSL", p2, 0, 1, &v)) {
-				set.rdb_ssl = (int)v;
-			}
-		}
-		else if (STRIMATCH(p1, "RDB_SSL_Key"))      STRNCOPY(set.rdb_ssl_key, p2);
-		else if (STRIMATCH(p1, "RDB_SSL_Cert"))     STRNCOPY(set.rdb_ssl_cert, p2);
-		else if (STRIMATCH(p1, "RDB_SSL_CA"))       STRNCOPY(set.rdb_ssl_ca, p2);
-		else if (STRIMATCH(p1, "DB_Host"))          STRNCOPY(set.db_host, p2);
-		else if (STRIMATCH(p1, "DB_Database"))      STRNCOPY(set.db_db, p2);
-		else if (STRIMATCH(p1, "DB_User"))          STRNCOPY(set.db_user, p2);
-		else if (STRIMATCH(p1, "DB_Pass"))          STRNCOPY(set.db_pass, p2);
-		else if (STRIMATCH(p1, "DB_Port")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("DB_Port", p2, 1, 65535, &v)) {
-				set.db_port = (int)v;
-			}
-		}
-		else if (STRIMATCH(p1, "DB_UseSSL")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("DB_UseSSL", p2, 0, 1, &v)) {
-				set.db_ssl = (int)v;
-			}
-		}
-		else if (STRIMATCH(p1, "DB_SSL_Key"))       STRNCOPY(set.db_ssl_key, p2);
-		else if (STRIMATCH(p1, "DB_SSL_Cert"))      STRNCOPY(set.db_ssl_cert, p2);
-		else if (STRIMATCH(p1, "DB_SSL_CA"))        STRNCOPY(set.db_ssl_ca, p2);
-		else if (STRIMATCH(p1, "Poller")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("Poller", p2, 0, INT_MAX, &v)) {
-				set.poller_id = (int)v;
-			}
-		}
-		else if (STRIMATCH(p1, "DB_PreG")) {
-			spine_config_warn("WARNING: DB_PreG is no longer supported\n");
-		} else if (STRIMATCH(p1, "Cacti_Log")) {
-			STRNCOPY(set.path_logfile, p2);
-			set.logfile_processed = 1;
-			set.log_destination = LOGDEST_BOTH;
-		} else if (STRIMATCH(p1, "SNMP_Clientaddr"))  STRNCOPY(set.snmp_clientaddr, p2);
-		else if (STRIMATCH(p1, "CircuitBreakerThreshold")) {
-			unsigned long v;
-			if (spine_parse_bounded_ulong("CircuitBreakerThreshold", p2,
-			                              1, 1000000, &v)) {
-				set.circuit_breaker_threshold = (int)v;
-			}
-		}
-		else {
-			spine_config_warn("WARNING: Unrecognized directive: %s=%s in %s\n",
-				p1, p2, file);
-		}
-	}
-
-	if (strlen(set.db_pass) == 0) *set.db_pass = '\0';
-
-	fclose(fp);
-
-	return 0;
 }
 
 /*! \fn void config_defaults(void)
@@ -1470,35 +1237,6 @@ void config_defaults(void) {
 	STRNCOPY(config_paths[3], CONFIG_PATH_4);
 
 	set.log_destination = LOGDEST_FILE;
-}
-
-/* Volatile-pointer memset that the compiler is forbidden from optimizing
- * out. Used as the portable fallback when explicit_bzero is unavailable. */
-static void spine_volatile_bzero(void *p, size_t n) {
-	volatile unsigned char *vp = (volatile unsigned char *)p;
-	while (n--) *vp++ = 0;
-}
-
-/*! \fn void spine_scrub_secrets(void)
- *  \brief zero credential fields in the `set` struct before process exit.
- *
- * Covers DB / RDB passwords and usernames. SSL key paths are filesystem
- * references, not secret material, so they stay. Signal handlers must
- * remain async-signal-safe; this helper is therefore only safe to call
- * from main() and die() on the normal exit path.
- */
-void spine_scrub_secrets(void) {
-#ifdef HAVE_EXPLICIT_BZERO
-	explicit_bzero(set.db_pass,  sizeof(set.db_pass));
-	explicit_bzero(set.rdb_pass, sizeof(set.rdb_pass));
-	explicit_bzero(set.db_user,  sizeof(set.db_user));
-	explicit_bzero(set.rdb_user, sizeof(set.rdb_user));
-#else
-	spine_volatile_bzero(set.db_pass,  sizeof(set.db_pass));
-	spine_volatile_bzero(set.rdb_pass, sizeof(set.rdb_pass));
-	spine_volatile_bzero(set.db_user,  sizeof(set.db_user));
-	spine_volatile_bzero(set.rdb_user, sizeof(set.rdb_user));
-#endif
 }
 
 /*! \fn void die(const char *format, ...)
@@ -1549,10 +1287,6 @@ void die(const char *format, ...) {
 			php_close(PHP_INIT);
 		}
 	}
-
-	/* Scrub credentials before the process image disappears so a core
-	 * dump or last-moment memory scan cannot recover them. */
-	spine_scrub_secrets();
 
 	exit(set.exit_code);
 }
@@ -1684,10 +1418,6 @@ int spine_log(const char *format, ...) {
 	ulog_len   = strlen(ulogmessage);
 	flog_len   = 0;
 
-	/* strftime returns 0 on failure and leaves flogmessage unmodified, so
-	 * downstream strncat would read uninitialized stack. */
-	flogmessage[0] = '\0';
-
 	if ((flog_len = strftime(flogmessage, 50, log_fmt, now_ptr)) == (int) 0) {
 		fp = stderr;
 
@@ -1746,7 +1476,7 @@ int spine_log(const char *format, ...) {
 			 * sensitive file. O_NOFOLLOW fails the open if the final component
 			 * is a symlink; O_APPEND|O_CREAT handles first-write creation. */
 			int log_fd = open(set.path_logfile,
-				O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+				O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW,
 				S_IRUSR | S_IWUSR | S_IRGRP);
 			if (log_fd >= 0) {
 				log_file = fdopen(log_fd, "a");
@@ -2423,7 +2153,7 @@ int get_cacti_version(MYSQL *psql, int mode) {
 		if (mysql_num_rows(result) > 0) {
 			mysql_row = mysql_fetch_row(result);
 
-			if (mysql_row != NULL && mysql_row[0] != NULL) {
+			if (mysql_row != NULL) {
 				retval = strdup(mysql_row[0]);
 				db_free_result(result);
 
@@ -2440,7 +2170,6 @@ int get_cacti_version(MYSQL *psql, int mode) {
 					return cacti_version;
 				}
 			}else{
-				db_free_result(result);
 				return 0;
 			}
 		}else{
@@ -2616,158 +2345,4 @@ void spine_dump_config(void) {
 	printf("LogFormat = %d\n",       set.log_format);
 	printf("DryRun = %d\n",          set.dry_run);
 	printf("CircuitBreakerThreshold = %d\n", set.circuit_breaker_threshold);
-}
-
-/* Flags whose value is credential material. Short flags match a single
- * character (e.g. "c" matches "-c"), long flags match a whole word
- * (e.g. "community" matches "--community"). Kept separate so "-community"
- * does not accidentally redact. */
-static const char *const cred_short_flags[] = {
-	"c", "u", "a", "x", "p", NULL
-};
-
-static const char *const cred_long_flags[] = {
-	"community", "password", "secret", NULL
-};
-
-static int is_space_byte(char c) {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-}
-
-/* Append a single char; silently truncates and keeps out NUL-terminated. */
-static void redact_putc(char *out, size_t outsz, size_t *pos, char c) {
-	if (*pos + 1 < outsz) {
-		out[*pos] = c;
-		(*pos)++;
-	}
-	out[(*pos < outsz) ? *pos : (outsz ? outsz - 1 : 0)] = '\0';
-}
-
-static void redact_puts(char *out, size_t outsz, size_t *pos, const char *s) {
-	while (*s) {
-		redact_putc(out, outsz, pos, *s++);
-	}
-}
-
-/* Emit the mask value. The "=" form keeps the equals sign; the bare form
- * inserts a single space so the redacted VAL stays tokenised. */
-static void emit_mask(char *out, size_t outsz, size_t *pos) {
-	redact_puts(out, outsz, pos, "***");
-}
-
-static int short_flag_is_cred(const char *flag, size_t flag_len) {
-	int i;
-	if (flag_len != 1) return 0;
-	for (i = 0; cred_short_flags[i] != NULL; i++) {
-		if (flag[0] == cred_short_flags[i][0]) return 1;
-	}
-	return 0;
-}
-
-static int long_flag_is_cred(const char *flag, size_t flag_len) {
-	int i;
-	size_t n;
-	for (i = 0; cred_long_flags[i] != NULL; i++) {
-		n = strlen(cred_long_flags[i]);
-		if (flag_len == n && strncmp(flag, cred_long_flags[i], n) == 0) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-void spine_redact_args(const char *cmd, char *out, size_t outsz) {
-	size_t pos = 0;
-	const char *p;
-
-	if (out == NULL || outsz == 0) return;
-	out[0] = '\0';
-	if (cmd == NULL) return;
-
-	p = cmd;
-	while (*p) {
-		/* Copy runs of whitespace verbatim. */
-		if (is_space_byte(*p)) {
-			redact_putc(out, outsz, &pos, *p);
-			p++;
-			continue;
-		}
-
-		/* Token starts. Detect flag shape. */
-		if (*p == '-') {
-			int is_long = 0;
-			const char *flag_start;
-			const char *eq;
-			const char *token_start = p;
-			size_t flag_len;
-
-			redact_putc(out, outsz, &pos, *p);
-			p++;
-			if (*p == '-') {
-				is_long = 1;
-				redact_putc(out, outsz, &pos, *p);
-				p++;
-			}
-
-			flag_start = p;
-			while (*p && !is_space_byte(*p) && *p != '=') {
-				p++;
-			}
-			flag_len = (size_t)(p - flag_start);
-			eq = (*p == '=') ? p : NULL;
-
-			/* Copy the flag name verbatim. */
-			{
-				const char *q;
-				for (q = flag_start; q < flag_start + flag_len; q++) {
-					redact_putc(out, outsz, &pos, *q);
-				}
-			}
-
-			int redact = is_long ? long_flag_is_cred(flag_start, flag_len)
-			                     : short_flag_is_cred(flag_start, flag_len);
-
-			if (eq != NULL) {
-				/* --flag=VAL or -c=VAL */
-				redact_putc(out, outsz, &pos, '=');
-				p++;
-				if (redact) {
-					/* Mask to end of token. */
-					while (*p && !is_space_byte(*p)) p++;
-					emit_mask(out, outsz, &pos);
-				} else {
-					while (*p && !is_space_byte(*p)) {
-						redact_putc(out, outsz, &pos, *p);
-						p++;
-					}
-				}
-				continue;
-			}
-
-			if (!redact) {
-				(void)token_start;
-				continue;
-			}
-
-			/* Flag takes next token as value. Preserve spacing, mask value. */
-			while (*p && is_space_byte(*p)) {
-				redact_putc(out, outsz, &pos, *p);
-				p++;
-			}
-			if (*p == '\0') break;
-			while (*p && !is_space_byte(*p)) p++;
-			emit_mask(out, outsz, &pos);
-			continue;
-		}
-
-		/* Non-flag token: copy verbatim. */
-		while (*p && !is_space_byte(*p)) {
-			redact_putc(out, outsz, &pos, *p);
-			p++;
-		}
-	}
-
-	if (outsz > 0) {
-		out[(pos < outsz) ? pos : outsz - 1] = '\0';
-	}
 }

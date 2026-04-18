@@ -335,9 +335,7 @@ int nft_popen(const char * command, const char * type) {
 		argv, child_env, 3, 50000);
 
 	if (spawn_err != 0) {
-		char redacted_cmd[BUFSIZE];
-		spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
-		SPINE_LOG(("ERROR: SCRIPT: posix_spawn failed: %s (cmd='%s')", spine_platform_error_string(spawn_err, error_buffer, sizeof(error_buffer)), redacted_cmd));
+		SPINE_LOG(("ERROR: SCRIPT: posix_spawn failed: %s", spine_platform_error_string(spawn_err, error_buffer, sizeof(error_buffer))));
 		posix_spawn_file_actions_destroy(&fa);
 		if (attr_initialized) {
 			posix_spawnattr_destroy(&attr);
@@ -396,7 +394,7 @@ int nft_popen(const char * command, const char * type) {
  *------------------------------------------------------------------------------
  */
 int nft_pchild(int fd) {
-	struct pid *cur;
+	const struct pid *cur;
 	spine_pid_t	pid = 0;
 
 	/* Find the appropriate file descriptor. */
@@ -502,15 +500,7 @@ close_cleanup(void * arg)
 			break;
 		}
 
-		/* A concurrent path may have already unlinked this entry; we
-		 * still own 'cur' via the cancellation stack, so fall through
-		 * to free() rather than abort under a release build. */
-		if (prev == NULL) {
-			pthread_mutex_unlock(&ListMutex);
-			SPINE_LOG_DEBUG(("DEBUG: close_cleanup: pid entry already unlinked"));
-			free(cur);
-			return;
-		}
+		assert(prev != NULL);	/* Search should not fail */
 	}
 
 	pthread_mutex_unlock(&ListMutex);
