@@ -18,9 +18,10 @@ if ((BASH_VERSINFO[0] < 4)); then
   exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
 
-DISTROS=(
+distros=(
   rockylinux:9
   rockylinux:8
   almalinux:9
@@ -33,13 +34,13 @@ DISTROS=(
   alpine:3.20
 )
 if [[ $# -gt 0 ]]; then
-  DISTROS=("$@")
+  distros=("$@")
 fi
 
 mkdir -p "$REPO_ROOT/build-reports"
 declare -A RESULTS
 
-for distro in "${DISTROS[@]}"; do
+for distro in "${distros[@]}"; do
   # Security: validate distro name to prevent command injection
   if [[ ! "$distro" =~ ^[a-zA-Z0-9\._/:-]+$ ]]; then
     echo "ERROR: invalid distro name: $distro" >&2
@@ -50,7 +51,7 @@ for distro in "${DISTROS[@]}"; do
   logfile="$REPO_ROOT/build-reports/${safe}.log"
   echo "=== $distro ===" | tee "$logfile"
 
-  CC_ENV=""
+  cc_env=""
   case "$distro" in
     rockylinux* | almalinux*)
       PKG='dnf install -y epel-release && dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel'
@@ -65,7 +66,7 @@ for distro in "${DISTROS[@]}"; do
       # Leap 15 ships GCC 7 by default, which rejects -std=c17. gcc13
       # is in the default repos and provides the C17 dialect spine needs.
       PKG='zypper --non-interactive install cmake gcc13 make net-snmp-devel libmariadb-devel libopenssl-devel pkg-config systemd-devel'
-      CC_ENV='CC=gcc-13'
+      cc_env='CC=gcc-13'
       ;;
     alpine*)
       PKG='apk add --no-cache bash cmake gcc make musl-dev net-snmp-dev mariadb-connector-c-dev openssl-dev pkgconfig linux-headers'
@@ -88,7 +89,7 @@ for distro in "${DISTROS[@]}"; do
     -w /src \
     -e CMAKE_BUILD_PARALLEL_LEVEL="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" \
     "$distro" \
-    sh -c "$PKG && $CC_ENV cmake -B build-$safe -DCMAKE_BUILD_TYPE=Debug && cmake --build build-$safe -j && ./build-$safe/spine --help | head -3" 2>&1 | tee -a "$logfile"; then
+    sh -c "$PKG && $cc_env cmake -B build-$safe -DCMAKE_BUILD_TYPE=Debug && cmake --build build-$safe -j && ./build-$safe/spine --help | head -3" 2>&1 | tee -a "$logfile"; then
     RESULTS[$distro]=PASS
   else
     RESULTS[$distro]=FAIL

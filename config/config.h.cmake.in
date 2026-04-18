@@ -67,6 +67,7 @@
 
 /* MySQL/MariaDB */
 #cmakedefine HAVE_MYSQL 1
+#cmakedefine HAVE_MYSQL_ASYNC @HAVE_MYSQL_ASYNC@
 
 /* Net-SNMP */
 #cmakedefine SNMP_LOCALNAME @SNMP_LOCALNAME@

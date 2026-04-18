@@ -63,6 +63,10 @@
 #include <execinfo.h>
 #endif
 
+#ifdef HAVE_LIBUV
+#include <uv.h>
+#endif
+
 #include "platform/platform_process.h"
 
 /* if a host is legal, return TRUE */
@@ -514,13 +518,13 @@ typedef struct snmp_oids {
 typedef struct poller_thread {
 	int device_counter;
 	int host_id;
-	int host_thread;
-	int host_threads;
+	int spine_host_thread;
+	int spine_host_threads;
 	int host_data_ids;
 	int threads_complete;
 	int complete;
-	char host_time[40];
-	double host_time_double;
+	char spine_host_time[40];
+	double spine_host_time_double;
 	spine_sem_t *thread_init_sem;
 } poller_thread_t;
 
@@ -585,7 +589,7 @@ typedef struct host_struct {
 	int    ignore_host;
 	void   *snmp_session;
 	int    snmp_status;
-} host_t;
+} spine_spine_host_t;
 
 /*! Host Reindex Structure
  *
@@ -649,6 +653,9 @@ typedef struct db_connection {
 
 /* Globals */
 extern config_t set;
+#ifdef HAVE_LIBUV
+extern uv_loop_t *loop;
+#endif
 extern php_t  *php_processes;
 extern char   start_datetime[20];
 extern char   config_paths[CONFIG_PATHS][BUFSIZE];

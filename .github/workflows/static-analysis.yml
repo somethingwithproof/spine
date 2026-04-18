@@ -74,25 +74,7 @@ jobs:
       - name: Run shfmt and shellcheck
         run: |
           set -euo pipefail
-          mapfile -t shell_files < <(
-            git ls-files | while read -r file; do
-              [[ -f "${file}" ]] || continue
-              case "${file}" in
-                *.sh) echo "${file}"; continue ;;
-              esac
-              if head -n 1 "${file}" | grep -Eq '^#!.*\b(bash|sh)\b'; then
-                echo "${file}"
-              fi
-            done | sort -u
-          )
-
-          if [[ "${#shell_files[@]}" -eq 0 ]]; then
-            echo 'No shell files found for linting.'
-            exit 0
-          fi
-
-          shfmt -d -i 2 -ci "${shell_files[@]}"
-          shellcheck -x "${shell_files[@]}"
+          bash scripts/lint-shell.sh
 
   codespell:
     name: codespell
@@ -110,17 +92,7 @@ jobs:
       - name: Run codespell on tracked source/docs
         run: |
           set -euo pipefail
-          mapfile -t files < <(git ls-files '*.c' '*.h' '*.md' '*.txt' '*.yml' '*.yaml' 'CMakeLists.txt' 'cmake/*.cmake')
-          if [[ "${#files[@]}" -eq 0 ]]; then
-            echo "No eligible files found for codespell."
-            exit 0
-          fi
-
-          codespell \
-            --quiet-level=2 \
-            --ignore-words=.codespell-ignore-words.txt \
-            "${files[@]}" \
-            | tee codespell-report.txt
+          bash scripts/lint-codespell.sh | tee codespell-report.txt
 
       - name: Upload codespell report
         if: always()
@@ -220,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p scan-build-report
-          scan-build --status-bugs --keep-going --output scan-build-report \
+          scan-build --status-bugs --keep-going -o scan-build-report \
             cmake --build build -j"$(nproc)"
 
       - name: Upload scan-build report

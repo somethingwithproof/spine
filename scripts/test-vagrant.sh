@@ -9,8 +9,9 @@
 #   scripts/test-vagrant.sh all          # every VM including Alpine
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
+cd "${REPO_ROOT}"
 
 command -v vagrant >/dev/null 2>&1 || {
   echo "ERROR: install vagrant (brew install --cask vagrant)"

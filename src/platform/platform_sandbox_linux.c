@@ -273,12 +273,28 @@ static int apply_landlock(void) {
 #endif /* HAVE_LANDLOCK */
 
 #ifdef HAVE_LIBSECCOMP
+static int seccomp_add_allowlist_by_name(scmp_filter_ctx ctx, const char *const *names, size_t count) {
+	for (size_t i = 0; i < count; i++) {
+		int nr = seccomp_syscall_resolve_name(names[i]);
+		if (nr == __NR_SCMP_ERROR) continue;
+		(void)seccomp_rule_add(ctx, SCMP_ACT_ALLOW, nr, 0);
+	}
+	return 0;
+}
+
+static int seccomp_resolve_nr(const char *name) {
+	return seccomp_syscall_resolve_name(name);
+}
+
 /* Syscall surface for a running spine poller. Derived from strace of a
  * local + remote poll cycle against MariaDB 10.11 and net-snmp 5.9 on
  * glibc 2.39. Missing a syscall here manifests as EPERM returns and
  * silent poll stalls, so anything plausibly on the hot path is included.
  *
- * Duplicates across platforms are harmless; seccomp_rule_add dedupes. */
+ * Duplicates across platforms are harmless; seccomp_rule_add dedupes.
+ *
+ * Policy is data-driven by syscall name to avoid compile-time dependence on
+ * libc/libseccomp __SNR_* macro coverage across distro matrices. */
 static int apply_seccomp(void) {
 	if (getenv("SPINE_NO_SECCOMP")) return 0;
 
@@ -300,65 +316,65 @@ static int apply_seccomp(void) {
 	(void)seccomp_arch_add(ctx, SCMP_ARCH_X32);
 #endif
 
-	static const int allow[] = {
+	static const char *const allow[] = {
 		/* I/O */
-		SCMP_SYS(read), SCMP_SYS(write), SCMP_SYS(pread64), SCMP_SYS(pwrite64),
-		SCMP_SYS(readv), SCMP_SYS(writev), SCMP_SYS(preadv), SCMP_SYS(pwritev),
-		SCMP_SYS(preadv2), SCMP_SYS(pwritev2),
-		SCMP_SYS(close), SCMP_SYS(close_range),
-		SCMP_SYS(lseek), SCMP_SYS(dup), SCMP_SYS(dup2), SCMP_SYS(dup3),
+		"read", "write", "pread64", "pwrite64",
+		"readv", "writev", "preadv", "pwritev",
+		"preadv2", "pwritev2",
+		"close", "close_range",
+		"lseek", "dup", "dup2", "dup3",
 
 		/* File descriptors / stat family */
-		SCMP_SYS(open), SCMP_SYS(openat), SCMP_SYS(openat2),
-		SCMP_SYS(fcntl), SCMP_SYS(fcntl64),
-		SCMP_SYS(fstat), SCMP_SYS(fstat64),
-		SCMP_SYS(stat), SCMP_SYS(stat64),
-		SCMP_SYS(lstat), SCMP_SYS(lstat64),
-		SCMP_SYS(newfstatat), SCMP_SYS(statx),
-		SCMP_SYS(access), SCMP_SYS(faccessat), SCMP_SYS(faccessat2),
-		SCMP_SYS(readlink), SCMP_SYS(readlinkat), // flawfinder: ignore
-		SCMP_SYS(getdents), SCMP_SYS(getdents64),
-		SCMP_SYS(getcwd), SCMP_SYS(chdir), SCMP_SYS(fchdir),
-		SCMP_SYS(unlink), SCMP_SYS(unlinkat),
-		SCMP_SYS(rename), SCMP_SYS(renameat), SCMP_SYS(renameat2),
-		SCMP_SYS(mkdir), SCMP_SYS(mkdirat),
-		SCMP_SYS(chmod), SCMP_SYS(fchmod), SCMP_SYS(fchmodat), // flawfinder: ignore
-		SCMP_SYS(chown), SCMP_SYS(fchown), SCMP_SYS(fchownat), SCMP_SYS(lchown), // flawfinder: ignore
-		SCMP_SYS(utimensat), SCMP_SYS(utimes), SCMP_SYS(futimesat),
-		SCMP_SYS(umask),
-		SCMP_SYS(flock), SCMP_SYS(fsync), SCMP_SYS(fdatasync),
-		SCMP_SYS(truncate), SCMP_SYS(ftruncate),
-		SCMP_SYS(sync_file_range), SCMP_SYS(fadvise64),
-		SCMP_SYS(copy_file_range), SCMP_SYS(sendfile), SCMP_SYS(sendfile64),
+		"open", "openat",
+		"fcntl", "fcntl64",
+		"fstat", "fstat64",
+		"stat", "stat64",
+		"lstat", "lstat64",
+		"newfstatat", "statx",
+		"access", "faccessat", "faccessat2",
+		"readlink", "readlinkat", // flawfinder: ignore
+		"getdents", "getdents64",
+		"getcwd", "chdir", "fchdir",
+		"unlink", "unlinkat",
+		"rename", "renameat", "renameat2",
+		"mkdir", "mkdirat",
+		"chmod", "fchmod", "fchmodat", // flawfinder: ignore
+		"chown", "fchown", "fchownat", "lchown", // flawfinder: ignore
+		"utimensat", "utimes", "futimesat",
+		"umask",
+		"flock", "fsync", "fdatasync",
+		"truncate", "ftruncate",
+		"sync_file_range", "fadvise64",
+		"copy_file_range", "sendfile", "sendfile64",
 
 		/* Pipes, polling, eventfd */
-		SCMP_SYS(pipe), SCMP_SYS(pipe2),
-		SCMP_SYS(select), SCMP_SYS(_newselect), SCMP_SYS(pselect6),
-		SCMP_SYS(poll), SCMP_SYS(ppoll),
-		SCMP_SYS(epoll_create), SCMP_SYS(epoll_create1),
-		SCMP_SYS(epoll_wait), SCMP_SYS(epoll_pwait), SCMP_SYS(epoll_pwait2),
-		SCMP_SYS(epoll_ctl),
-		SCMP_SYS(eventfd), SCMP_SYS(eventfd2),
-		SCMP_SYS(timerfd_create), SCMP_SYS(timerfd_settime), SCMP_SYS(timerfd_gettime),
-		SCMP_SYS(signalfd), SCMP_SYS(signalfd4),
+		"pipe", "pipe2",
+		"select", "_newselect", "pselect6",
+		"poll", "ppoll",
+		"epoll_create", "epoll_create1",
+		"epoll_wait", "epoll_pwait",
+		"epoll_ctl",
+		"eventfd", "eventfd2",
+		"timerfd_create", "timerfd_settime", "timerfd_gettime",
+		"signalfd", "signalfd4",
 
 		/* Networking. net-snmp (UDP), MySQL (TCP/Unix), ICMP raw sockets. */
-		SCMP_SYS(socket), SCMP_SYS(socketpair),
-		SCMP_SYS(connect), SCMP_SYS(accept), SCMP_SYS(accept4),
-		SCMP_SYS(bind), SCMP_SYS(listen),
-		SCMP_SYS(shutdown),
-		SCMP_SYS(sendto), SCMP_SYS(recvfrom),
-		SCMP_SYS(sendmsg), SCMP_SYS(recvmsg), SCMP_SYS(sendmmsg), SCMP_SYS(recvmmsg),
-		SCMP_SYS(getsockname), SCMP_SYS(getpeername),
-		SCMP_SYS(setsockopt), SCMP_SYS(getsockopt),
+		"socket", "socketpair",
+		"connect", "accept", "accept4",
+		"bind", "listen",
+		"shutdown",
+		"sendto", "recvfrom",
+		"sendmsg", "recvmsg", "sendmmsg", "recvmmsg",
+		"getsockname", "getpeername",
+		"setsockopt", "getsockopt",
 
 		/* Memory */
-		SCMP_SYS(brk),
-		SCMP_SYS(mmap), SCMP_SYS(mmap2),
-		SCMP_SYS(mremap), SCMP_SYS(munmap), SCMP_SYS(mprotect),
-		SCMP_SYS(madvise), SCMP_SYS(mlock), SCMP_SYS(munlock),
-		SCMP_SYS(mlockall), SCMP_SYS(munlockall),
-		SCMP_SYS(mincore), SCMP_SYS(msync),
+		"brk",
+		"mmap", "mmap2",
+		"mremap", "munmap", "mprotect",
+		"madvise", "mlock", "munlock",
+		"mlockall", "munlockall",
+		"mincore", "msync",
 
 		/* Process / threading. spine forks PHP script servers and spawns
 		 * pollers via posix_spawn(), which uses clone/execve underneath.
@@ -366,65 +382,69 @@ static int apply_seccomp(void) {
 		 * a user-space struct the filter cannot inspect, so we deny it
 		 * outright below and rely on glibc falling back to clone() on
 		 * kernels that offer both. */
-		SCMP_SYS(clone),
-		SCMP_SYS(fork), SCMP_SYS(vfork),
-		SCMP_SYS(execve), SCMP_SYS(execveat),
-		SCMP_SYS(exit), SCMP_SYS(exit_group),
-		SCMP_SYS(wait4), SCMP_SYS(waitid),
-		SCMP_SYS(set_tid_address), SCMP_SYS(set_robust_list), SCMP_SYS(get_robust_list),
-		SCMP_SYS(gettid), SCMP_SYS(getpid), SCMP_SYS(getppid), SCMP_SYS(getpgrp),
-		SCMP_SYS(getpgid), SCMP_SYS(setpgid), SCMP_SYS(setsid),
-		SCMP_SYS(getsid), SCMP_SYS(tgkill), SCMP_SYS(tkill), SCMP_SYS(kill),
+		"clone",
+		"fork", "vfork",
+		"execve", "execveat",
+		"exit", "exit_group",
+		"wait4", "waitid",
+		"set_tid_address", "set_robust_list", "get_robust_list",
+		"gettid", "getpid", "getppid", "getpgrp",
+		"getpgid", "setpgid", "setsid",
+		"getsid", "tgkill", "tkill", "kill",
 
 		/* Identity */
-		SCMP_SYS(getuid), SCMP_SYS(geteuid),
-		SCMP_SYS(getgid), SCMP_SYS(getegid),
-		SCMP_SYS(getgroups), SCMP_SYS(setgroups),
-		SCMP_SYS(setresuid), SCMP_SYS(setresgid),
-		SCMP_SYS(setreuid), SCMP_SYS(setregid),
-		SCMP_SYS(setuid), SCMP_SYS(setgid),
+		"getuid", "geteuid",
+		"getgid", "getegid",
+		"getgroups", "setgroups",
+		"setresuid", "setresgid",
+		"setreuid", "setregid",
+		"setuid", "setgid",
 
 		/* Signals */
-		SCMP_SYS(rt_sigaction), SCMP_SYS(rt_sigprocmask),
-		SCMP_SYS(rt_sigreturn), SCMP_SYS(rt_sigqueueinfo),
-		SCMP_SYS(rt_sigsuspend), SCMP_SYS(rt_sigpending), SCMP_SYS(rt_sigtimedwait),
-		SCMP_SYS(sigaltstack), SCMP_SYS(pause),
+		"rt_sigaction", "rt_sigprocmask",
+		"rt_sigreturn", "rt_sigqueueinfo",
+		"rt_sigsuspend", "rt_sigpending", "rt_sigtimedwait",
+		"sigaltstack", "pause",
 
 		/* Sync / futex */
-		SCMP_SYS(futex), SCMP_SYS(futex_waitv),
-		SCMP_SYS(sched_yield), SCMP_SYS(sched_getaffinity), SCMP_SYS(sched_setaffinity),
-		SCMP_SYS(sched_getparam), SCMP_SYS(sched_getscheduler),
+		"futex",
+		"sched_yield", "sched_getaffinity", "sched_setaffinity",
+		"sched_getparam", "sched_getscheduler",
 
 		/* Time */
-		SCMP_SYS(clock_gettime), SCMP_SYS(clock_gettime64),
-		SCMP_SYS(clock_getres), SCMP_SYS(clock_nanosleep), SCMP_SYS(clock_nanosleep_time64),
-		SCMP_SYS(nanosleep), SCMP_SYS(gettimeofday), SCMP_SYS(time),
+		"clock_gettime", "clock_gettime64",
+		"clock_getres", "clock_nanosleep", "clock_nanosleep_time64",
+		"nanosleep", "gettimeofday", "time",
 
 		/* System info / random */
-		SCMP_SYS(uname), SCMP_SYS(sysinfo),
-		SCMP_SYS(getrandom),
-		SCMP_SYS(getrusage),
+		"uname", "sysinfo",
+		"getrandom",
+		"getrusage",
 
 		/* Resource limits */
-		SCMP_SYS(prlimit64), SCMP_SYS(getrlimit), SCMP_SYS(setrlimit),
-		SCMP_SYS(getpriority), SCMP_SYS(setpriority),
+		"prlimit64", "getrlimit", "setrlimit",
+		"getpriority", "setpriority",
 
 		/* Misc control */
-		SCMP_SYS(prctl), SCMP_SYS(arch_prctl),
-		SCMP_SYS(ioctl),
-		SCMP_SYS(restart_syscall),
+		"prctl", "arch_prctl",
+		"ioctl",
+		"restart_syscall",
 	};
 
-	for (size_t i = 0; i < sizeof(allow) / sizeof(allow[0]); i++) {
-		/* A syscall number of -1 (__NR_SCMP_ERROR) means libseccomp has
-		 * no mapping for this arch; skip silently so the cross-platform
-		 * list above stays simple. */
-		if (allow[i] < 0) continue;
-		if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, allow[i], 0) != 0) {
-			/* Non-fatal: a single missing syscall shouldn't drop the
-			 * whole filter. Keep loading the rest. */
-		}
-	}
+	(void)seccomp_add_allowlist_by_name(ctx, allow, sizeof(allow) / sizeof(allow[0]));
+
+	/* Optional newer syscalls. Some distro/libseccomp combinations ship
+	 * older syscall tables. Resolve by name and allow when present. */
+	static const char *const optional_allow[] = {
+		"openat2",
+		"epoll_pwait2",
+		"futex_waitv",
+	};
+	(void)seccomp_add_allowlist_by_name(ctx, optional_allow, sizeof(optional_allow) / sizeof(optional_allow[0]));
+
+	const int ioctl_nr = seccomp_resolve_nr("ioctl");
+	const int clone_nr = seccomp_resolve_nr("clone");
+	const int clone3_nr = seccomp_resolve_nr("clone3");
 
 	/* Block ioctl(TIOCSTI) regardless of the generic ioctl allow above.
 	 * TIOCSTI lets a process inject keystrokes into its controlling tty,
@@ -432,24 +452,30 @@ static int apply_seccomp(void) {
 	 * terminal (systemd's TTYPath= or an operator running it under sudo).
 	 * libseccomp evaluates argument-scoped rules ahead of unqualified
 	 * ALLOW rules for the same syscall, so this stays additive. */
-	(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(ioctl), 1,
-	                       SCMP_A1(SCMP_CMP_EQ, (scmp_datum_t)TIOCSTI));
+	if (ioctl_nr != __NR_SCMP_ERROR) {
+		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), ioctl_nr, 1,
+		                       SCMP_A1(SCMP_CMP_EQ, (scmp_datum_t)TIOCSTI));
+	}
 
 	/* Block clone(CLONE_NEWUSER): user namespaces let an unprivileged
 	 * process acquire CAP_SYS_ADMIN inside the new ns, and spine never
 	 * needs one. The SCMP_CMP_MASKED_EQ check matches any clone() whose
 	 * flags include CLONE_NEWUSER, regardless of other bits set. */
-	(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(clone), 1,
-	                       SCMP_A0(SCMP_CMP_MASKED_EQ,
-	                               (scmp_datum_t)CLONE_NEWUSER,
-	                               (scmp_datum_t)CLONE_NEWUSER));
+	if (clone_nr != __NR_SCMP_ERROR) {
+		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), clone_nr, 1,
+		                       SCMP_A0(SCMP_CMP_MASKED_EQ,
+		                               (scmp_datum_t)CLONE_NEWUSER,
+		                               (scmp_datum_t)CLONE_NEWUSER));
+	}
 
 	/* clone3 takes its flags inside a user-space struct that bpf cannot
 	 * dereference, so we cannot do a masked_eq on CLONE_NEWUSER there.
 	 * Deny the whole syscall: glibc 2.34+ probes for clone3 at runtime
 	 * and falls back to clone on ENOSYS. This is a measurable slowdown
 	 * for processes that clone() in a hot loop; spine does not. */
-	(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(clone3), 0);
+	if (clone3_nr != __NR_SCMP_ERROR) {
+		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), clone3_nr, 0);
+	}
 
 	int rc = seccomp_load(ctx);
 	seccomp_release(ctx);

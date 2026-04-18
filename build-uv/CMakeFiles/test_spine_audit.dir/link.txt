@@ -1,0 +1,1 @@
+/usr/bin/cc  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_spine_audit.dir/tests/unit/test_spine_audit.c.o CMakeFiles/test_spine_audit.dir/src/spine_audit.c.o -o test_spine_audit

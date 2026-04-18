@@ -117,23 +117,33 @@
  *
  * SIGTERM sets a graceful stop flag. The main loop checks it between devices
  * and exits cleanly so poller_output rows flush and the DB disconnects.
- *
- * volatile sig_atomic_t is the only type async-signal-safe for set/read
- * across the signal-handler boundary. */
+ */
 static volatile sig_atomic_t spine_reload_requested = 0;
 static volatile sig_atomic_t spine_stop_requested   = 0;
 
-static void spine_sighup_handler(int signo) {
-    (void)signo;
-    spine_reload_requested = 1;
-}
+#ifdef HAVE_LIBUV
+uv_loop_t *loop = NULL;
 
-static void spine_sigterm_handler(int signo) {
-    (void)signo;
-    spine_stop_requested = 1;
+static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
+    (void)handle;
+    if (signo == SIGHUP) {
+        spine_reload_requested = 1;
+    } else if (signo == SIGTERM || signo == SIGINT) {
+        spine_stop_requested = 1;
+    }
 }
+#endif
 
 static void spine_install_reload_handler(void) {
+#ifdef HAVE_LIBUV
+    static uv_signal_t sig_hup, sig_term, sig_int;
+    uv_signal_init(loop, &sig_hup);
+    uv_signal_start(&sig_hup, spine_uv_signal_handler, SIGHUP);
+    uv_signal_init(loop, &sig_term);
+    uv_signal_start(&sig_term, spine_uv_signal_handler, SIGTERM);
+    uv_signal_init(loop, &sig_int);
+    uv_signal_start(&sig_int, spine_uv_signal_handler, SIGINT);
+#else
     struct sigaction sa;
     sa.sa_handler = spine_sighup_handler;
     sigemptyset(&sa.sa_mask);
@@ -144,6 +154,7 @@ static void spine_install_reload_handler(void) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGTERM, &sa, NULL);
+#endif
 }
 
 /* Global Variables */
@@ -247,8 +258,8 @@ int main(int argc, char *argv[]) {
 	int valid_conf_file = FALSE;
 	int opt_mlock = FALSE;
 	char querybuf[MEGA_BUFSIZE], *qp = querybuf;
-	char *host_time = NULL;
-	double host_time_double = 0;
+	char *spine_host_time = NULL;
+	double spine_host_time_double = 0;
 	int items_per_thread = 0;
 	int device_threads;
 	spine_sem_t thread_init_sem;
@@ -294,6 +305,10 @@ int main(int argc, char *argv[]) {
 	/* we must initialize snmp in the main thread */
 
 	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
+
+#ifdef HAVE_LIBUV
+	loop = uv_default_loop();
+#endif
 
 	/* install the spine signal handler */
 	install_spine_signal_handler();
@@ -847,11 +862,11 @@ int main(int argc, char *argv[]) {
 			die("ERROR: Fatal malloc error: spine.c host id's!");
 		}
 
-		if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
-			die("ERROR: Fatal malloc error: util.c host_time");
+		if (!(spine_host_time = (char *) malloc(SMALL_BUFSIZE))) {
+			die("ERROR: Fatal malloc error: util.c spine_host_time");
 		}
 
-		memset(host_time, 0, SMALL_BUFSIZE);
+		memset(spine_host_time, 0, SMALL_BUFSIZE);
 	}
 
 	/* mark the spine process as started */
@@ -1011,11 +1026,11 @@ int main(int argc, char *argv[]) {
 
 				db_free_result(tresult);
 
-				snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-				host_time_double = get_time_as_double();
-			} else if (host_time_double == 0 || host_time == 0 || host_time == NULL) {
-				snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-				host_time_double = get_time_as_double();
+				snprintf(spine_host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
+				spine_host_time_double = get_time_as_double();
+			} else if (spine_host_time_double == 0 || spine_host_time == 0 || spine_host_time == NULL) {
+				snprintf(spine_host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
+				spine_host_time_double = get_time_as_double();
 			}
 		} else {
 			snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i AND rrd_next_step <=0", host_id);
@@ -1026,8 +1041,8 @@ int main(int argc, char *argv[]) {
 
 			db_free_result(tresult);
 
-			snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-			host_time_double = get_time_as_double();
+			snprintf(spine_host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
+			spine_host_time_double = get_time_as_double();
 		}
 
 		/* populate the thread structure */
@@ -1037,13 +1052,13 @@ int main(int argc, char *argv[]) {
 
 		poller_details->device_counter   = device_counter;
 		poller_details->host_id          = host_id;
-		poller_details->host_thread      = current_thread;
-		poller_details->host_threads     = device_threads;
+		poller_details->spine_host_thread      = current_thread;
+		poller_details->spine_host_threads     = device_threads;
 		poller_details->host_data_ids    = items_per_thread;
 
-		snprintf(poller_details->host_time, 40, "%s", host_time);
+		snprintf(poller_details->spine_host_time, 40, "%s", spine_host_time);
 
-		poller_details->host_time_double = host_time_double;
+		poller_details->spine_host_time_double = spine_host_time_double;
 		poller_details->thread_init_sem  = &thread_init_sem;
 		poller_details->complete         = FALSE;
 		poller_details->threads_complete = 0;
@@ -1146,7 +1161,12 @@ int main(int argc, char *argv[]) {
 
 			thread_mutex_lock(LOCK_HOST_TIME);
 
+#ifdef HAVE_LIBUV
+			spine_queue_poll(poller_details);
+			thread_status = 0;
+#else
 			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);
+#endif
 
 			if (thread_status == 0) {
 				SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", poller_details->host_id, (unsigned long int)threads[device_counter]));
@@ -1160,12 +1180,12 @@ int main(int argc, char *argv[]) {
 
 				spine_sem_post(&thread_init_sem);
 
-				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
-					" host_threads = %d, host_data_ids = %d, complete = %d",
+				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, spine_host_thread = %d,"
+					" spine_host_threads = %d, host_data_ids = %d, complete = %d",
 					device_counter-1,
 					poller_details->host_id,
-					poller_details->host_thread,
-					poller_details->host_threads,
+					poller_details->spine_host_thread,
+					poller_details->spine_host_threads,
 					poller_details->host_data_ids,
 					poller_details->complete));
 			} else if (thread_status == EAGAIN) {
@@ -1243,15 +1263,15 @@ int main(int argc, char *argv[]) {
 				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
 					det->host_id,
 					det->complete ? "":"in",
-					det->host_data_ids * (det->host_thread - 1),
-					det->host_data_ids * (det->host_thread)));
+					det->host_data_ids * (det->spine_host_thread - 1),
+					det->host_data_ids * (det->spine_host_thread)));
 
-				SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, host_thread = %d,"
-					" host_threads = %d, host_data_ids = %d, complete = %d",
+				SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, spine_host_thread = %d,"
+					" spine_host_threads = %d, host_data_ids = %d, complete = %d",
 					threads_count,
 					det->host_id,
-					det->host_thread,
-					det->host_threads,
+					det->spine_host_thread,
+					det->spine_host_threads,
 					det->host_data_ids,
 					det->complete));
 			}
@@ -1318,7 +1338,7 @@ int main(int argc, char *argv[]) {
 	SPINE_FREE(threads);
 	SPINE_FREE(ids);
 	SPINE_FREE(conf_file);
-	SPINE_FREE(host_time);
+	SPINE_FREE(spine_host_time);
 	SPINE_FREE(php_processes);
 
 	SPINE_LOG_DEBUG(("DEBUG: Allocated Variable Memory Freed"));
@@ -1337,6 +1357,12 @@ int main(int argc, char *argv[]) {
 	snmp_spine_close();
 
 	SPINE_LOG_DEBUG(("DEBUG: Net-SNMP Close Completed"));
+
+#ifdef HAVE_LIBUV
+	SPINE_LOG_DEBUG(("DEBUG: Entering libuv event loop"));
+	uv_run(loop, UV_RUN_DEFAULT);
+	uv_loop_close(loop);
+#endif
 
 	/* finally add some statistics to the log and exit */
 	end_time = get_time_as_double();

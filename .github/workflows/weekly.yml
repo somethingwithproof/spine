@@ -124,9 +124,7 @@ jobs:
       - name: Run codespell
         run: |
           set -euo pipefail
-          codespell --skip="*.o,*.a,*.so,*.dylib,build*,third_party/*,uthash.h" \
-            --ignore-words-list="oid,oids,numer,hte,teh" \
-            src/ || true
+          bash scripts/lint-codespell.sh || true
 
   # changelog-check: disabled pending CHANGELOG format standardization
   # changelog-check:

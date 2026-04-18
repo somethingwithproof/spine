@@ -1,0 +1,1 @@
+/usr/bin/cc -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Wvla -Wshadow -D_FORTIFY_SOURCE=2 -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_json_log.dir/tests/unit/test_json_log.c.o CMakeFiles/test_json_log.dir/tests/unit/json_escape_tu.c.o -o test_json_log

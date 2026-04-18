@@ -418,7 +418,7 @@ void snmp_host_cleanup(void *snmp_session) {
 	}
 }
 
-/*! \fn char *snmp_get_base(host_t *current_host, const char *snmp_oid, bool should_fail)
+/*! \fn char *snmp_get_base(spine_spine_host_t *current_host, const char *snmp_oid, bool should_fail)
  *  \brief performs a single snmp_get for a specific snmp OID
  *
  *	This function will poll a specific snmp OID for a host.  The host snmp
@@ -428,7 +428,7 @@ void snmp_host_cleanup(void *snmp_session) {
  *  unsuccessful.
  *
  */
-char *snmp_get_base(host_t *current_host, const char *snmp_oid, bool should_fail) {
+char *snmp_get_base(spine_spine_host_t *current_host, const char *snmp_oid, bool should_fail) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
 	struct variable_list *vars = NULL;
@@ -667,11 +667,11 @@ char *snmp_get_base(host_t *current_host, const char *snmp_oid, bool should_fail
 	return result_string;
 }
 
-char *snmp_get(host_t *current_host, const char *snmp_oid) {
+char *snmp_get(spine_spine_host_t *current_host, const char *snmp_oid) {
 	return snmp_get_base(current_host, snmp_oid, true);
 }
 
-/*! \fn char *snmp_getnext(host_t *current_host, const char *snmp_oid)
+/*! \fn char *snmp_getnext(spine_spine_host_t *current_host, const char *snmp_oid)
  *  \brief performs a single snmp_getnext for a specific snmp OID
  *
  *	This function will poll a specific snmp OID for a host.  The host snmp
@@ -681,7 +681,7 @@ char *snmp_get(host_t *current_host, const char *snmp_oid) {
  *  unsuccessful.
  *
  */
-char *snmp_getnext(host_t *current_host, const char *snmp_oid) {
+char *snmp_getnext(spine_spine_host_t *current_host, const char *snmp_oid) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
 	struct variable_list *vars = NULL;
@@ -845,7 +845,7 @@ char *snmp_getnext(host_t *current_host, const char *snmp_oid) {
 	return result_string;
 }
 
-/*! \fn char *snmp_count(host_t *current_host, char *snmp_oid)
+/*! \fn char *snmp_count(spine_spine_host_t *current_host, char *snmp_oid)
  *  \brief counts entries of snmp table specified by a specific snmp OID
  *
  *	This function will poll a specific snmp OID for a host.  The host snmp
@@ -854,7 +854,7 @@ char *snmp_getnext(host_t *current_host, const char *snmp_oid) {
  *  \return returns count of table entries
  *
  */
-int snmp_count(host_t *current_host, const char *snmp_oid) {
+int snmp_count(spine_spine_host_t *current_host, const char *snmp_oid) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
 	struct variable_list *vars = NULL;
@@ -877,7 +877,7 @@ int snmp_count(host_t *current_host, const char *snmp_oid) {
 
 	if (current_host->snmp_session != NULL) {
 		rootlen = MAX_OID_LEN;
-		/* parse input parm to an array for use with snmp functions */
+			/* parse input param to an array for use with snmp functions */
 		if (!snmp_parse_oid(snmp_oid, root, &rootlen)) {
 			SPINE_LOG(("Device[%i] ERROR: SNMP Count Problems parsing SNMP OID %s", current_host->id, snmp_oid));
 			return count;
@@ -984,7 +984,7 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
 	}
 }
 
-/*! \fn char *snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids)
+/*! \fn char *snmp_get_multi(spine_spine_host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids)
  *  \brief performs multiple OID snmp_get's in a single network call
  *
  *	This function will a group of snmp OID's for a host.  The host snmp
@@ -992,7 +992,7 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
  *  the snmp_oids array with the results from the snmp api call.
  *
  */
-void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids) {
+void snmp_get_multi(spine_spine_host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids) {
 	SPINE_PROBE1(snmp_query, current_host->id);
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;

@@ -1,0 +1,1 @@
+/usr/bin/cc -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Wvla -Wshadow -D_FORTIFY_SOURCE=2 -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_ping_reply_validation.dir/tests/unit/test_ping_reply_validation.c.o CMakeFiles/test_ping_reply_validation.dir/src/ping_validate.c.o -o test_ping_reply_validation

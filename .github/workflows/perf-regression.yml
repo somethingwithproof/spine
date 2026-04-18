@@ -148,6 +148,7 @@ jobs:
       - name: Start local SNMP simulator and benchmark
         run: |
           set -euo pipefail
+          export MIBS=""
 
           cat > snmpd-ci.conf <<'EOF'
           agentAddress udp:127.0.0.1:1161
@@ -156,7 +157,7 @@ jobs:
           sysContact "ci@example.com"
           EOF
 
-          snmpd -f -Lo -C -c snmpd-ci.conf udp:127.0.0.1:1161 > snmpd.log 2>&1 &
+          snmpd -f -Lo -C -c snmpd-ci.conf > snmpd.log 2>&1 &
           snmpd_pid=$!
           trap 'kill "${snmpd_pid}" 2>/dev/null || true' EXIT
 

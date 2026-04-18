@@ -277,7 +277,7 @@ static int resolve_sockaddr(struct sockaddr_storage *address, socklen_t *address
 }
 
 #ifdef _WIN32
-static int ping_icmp_windows(host_t *host, ping_t *ping, int family) {
+static int ping_icmp_windows(spine_spine_host_t *host, ping_t *ping, int family) {
 	struct sockaddr_storage destination;
 	socklen_t destination_len;
 	int retry_count;
@@ -437,10 +437,10 @@ static int ping_icmp_windows(host_t *host, ping_t *ping, int family) {
 	return HOST_DOWN;
 }
 #else
-static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
+static int ping_icmp_ipv6(spine_spine_host_t *host, ping_t *ping) {
 	spine_socket_t icmp_socket;
 	double begin_time, end_time, total_time;
-	double host_timeout;
+	double spine_host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
 	struct sockaddr_in6 recvname;
@@ -529,7 +529,7 @@ static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
 #endif
 	}
 
-	host_timeout = host->ping_timeout;
+	spine_host_timeout = host->ping_timeout;
 	packet_len = (int) sizeof(struct icmp6_hdr) + (int) sizeof(spine_ping_payload_t);
 
 	if (!(packet = malloc(packet_len))) {
@@ -586,8 +586,8 @@ static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
 			goto cleanup;
 		}
 
-		timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-		timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+		timeout.tv_sec  = rint((spine_host_timeout - total_time) / 1000);
+		timeout.tv_usec = ((int) (spine_host_timeout - total_time) % 1000) * 1000;
 		spine_socket_set_timeout(icmp_socket, &timeout);
 
 		return_code = spine_socket_sendto(icmp_socket, packet, packet_len, 0, (struct sockaddr *) &fromname, fromlen);
@@ -605,7 +605,7 @@ keep_listening_ipv6:
 		end_time = get_time_as_double();
 		total_time = (end_time - begin_time) * one_thousand;
 
-		if (return_code > 0 && total_time < host_timeout) {
+		if (return_code > 0 && total_time < spine_host_timeout) {
 			fromlen = sizeof(recvname);
 			return_code = spine_socket_recvfrom(icmp_socket, socket_reply, BUFSIZE, 0, (struct sockaddr *) &recvname, &fromlen);
 
@@ -677,7 +677,7 @@ cleanup:
 }
 #endif
 
-/*! \fn int ping_host(host_t *host, ping_t *ping)
+/*! \fn int ping_host(spine_spine_host_t *host, ping_t *ping)
  *  \brief ping a host to determine if it is reachable for polling
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -687,7 +687,7 @@ cleanup:
  *
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  */
-int ping_host(host_t *host, ping_t *ping) {
+int ping_host(spine_spine_host_t *host, ping_t *ping) {
 	int ping_result;
 	int snmp_result;
 	double snmp_start_time;
@@ -788,7 +788,7 @@ int ping_host(host_t *host, ping_t *ping) {
 	}
 }
 
-/*! \fn int ping_snmp(host_t *host, ping_t *ping)
+/*! \fn int ping_snmp(spine_spine_host_t *host, ping_t *ping)
  *  \brief ping a host using snmp sysUptime
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -799,7 +799,7 @@ int ping_host(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_snmp(host_t *host, ping_t *ping) {
+int ping_snmp(spine_spine_host_t *host, ping_t *ping) {
 	char *poll_result = NULL;
 	char *oid;
 	double begin_time, end_time, total_time;
@@ -889,7 +889,7 @@ int ping_snmp(host_t *host, ping_t *ping) {
 	}
 }
 
-/*! \fn int ping_icmp(host_t *host, ping_t *ping)
+/*! \fn int ping_icmp(spine_spine_host_t *host, ping_t *ping)
  *  \brief ping a host using an ICMP packet
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -901,7 +901,7 @@ int ping_snmp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_icmp(host_t *host, ping_t *ping) {
+int ping_icmp(spine_spine_host_t *host, ping_t *ping) {
 #ifdef _WIN32
 	if (get_address_type(host) == SPINE_IPV6) {
 		return ping_icmp_windows(host, ping, AF_INET6);
@@ -912,7 +912,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	spine_socket_t icmp_socket;
 
 	double begin_time, end_time, total_time;
-	double host_timeout;
+	double spine_host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
 
@@ -981,7 +981,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	}
 
 	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
+	spine_host_timeout = host->ping_timeout;
 
 	/* allocate the packet in memory */
 	packet_len = ICMP_HDR_SIZE + (int) sizeof(spine_ping_payload_t);
@@ -1043,8 +1043,8 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				}
 
 				/* decrement the timeout value by the total time */
-				timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-				timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+				timeout.tv_sec  = rint((spine_host_timeout - total_time) / 1000);
+				timeout.tv_usec = ((int) (spine_host_timeout - total_time) % 1000) * 1000;
 
 				/* set the socket send and receive timeout */
 				spine_socket_set_timeout(icmp_socket, &timeout);
@@ -1071,7 +1071,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				/* calculate total time */
 				total_time = (end_time - begin_time) * one_thousand;
 
-				if (total_time < host_timeout) {
+				if (total_time < spine_host_timeout) {
 					return_code = spine_socket_recvfrom(icmp_socket, socket_reply, BUFSIZE, spine_socket_ping_icmp_recv_flags(), (struct sockaddr *) &recvname, &fromlen);
 
 					if (return_code < 0) {
@@ -1113,7 +1113,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 						if (pkt->icmp_type != ICMP_ECHOREPLY) {
 							/* received a response other than an echo reply; the enclosing
-							 * total_time < host_timeout branch means a retry bump here
+							 * total_time < spine_host_timeout branch means a retry bump here
 							 * is unreachable. Drop and keep listening. */
 							continue;
 						}
@@ -1228,7 +1228,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 #endif
 }
 
-/*! \fn int ping_udp(host_t *host, ping_t *ping)
+/*! \fn int ping_udp(spine_spine_host_t *host, ping_t *ping)
  *  \brief ping a host using an UDP datagram
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -1240,9 +1240,9 @@ int ping_icmp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_udp(host_t *host, ping_t *ping) {
+int ping_udp(spine_spine_host_t *host, ping_t *ping) {
 	double begin_time, end_time, total_time;
-	double host_timeout;
+	double spine_host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
 	spine_socket_t udp_socket;
@@ -1266,7 +1266,7 @@ int ping_udp(host_t *host, ping_t *ping) {
 	begin_time = get_time_as_double();
 
 	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
+	spine_host_timeout = host->ping_timeout;
 
 	/* initialize the socket */
 	udp_socket = SPINE_INVALID_SOCKET_HANDLE;
@@ -1310,15 +1310,15 @@ int ping_udp(host_t *host, ping_t *ping) {
 				/* record start time */
 				if (total_time == 0) {
 					/* establish timeout value */
-					timeout.tv_sec  = rint(host_timeout / 1000);
-					timeout.tv_usec = rint((int) host_timeout % 1000) * 1000;
+					timeout.tv_sec  = rint(spine_host_timeout / 1000);
+					timeout.tv_usec = rint((int) spine_host_timeout % 1000) * 1000;
 
 					/* set the socket send and receive timeout */
 					spine_socket_set_timeout(udp_socket, &timeout);
 				} else {
 					/* decrement the timeout value by the total time */
-					timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-					timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+					timeout.tv_sec  = rint((spine_host_timeout - total_time) / 1000);
+					timeout.tv_usec = ((int) (spine_host_timeout - total_time) % 1000) * 1000;
 
 					/* set the socket send and receive timeout */
 					spine_socket_set_timeout(udp_socket, &timeout);
@@ -1398,7 +1398,7 @@ int ping_udp(host_t *host, ping_t *ping) {
 }
 
 
-/*! \fn int ping_tcp(host_t *host, ping_t *ping)
+/*! \fn int ping_tcp(spine_spine_host_t *host, ping_t *ping)
  *  \brief ping a host using an TCP syn
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -1410,9 +1410,9 @@ int ping_udp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_tcp(host_t *host, ping_t *ping) {
+int ping_tcp(spine_spine_host_t *host, ping_t *ping) {
 	double begin_time, end_time, total_time;
-	double host_timeout;
+	double spine_host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
 	spine_socket_t tcp_socket;
@@ -1428,7 +1428,7 @@ int ping_tcp(host_t *host, ping_t *ping) {
 	}
 
 	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
+	spine_host_timeout = host->ping_timeout;
 
 	/* initialize the socket */
 	tcp_socket = SPINE_INVALID_SOCKET_HANDLE;
@@ -1459,8 +1459,8 @@ int ping_tcp(host_t *host, ping_t *ping) {
 
 			while (1) {
 				/* establish timeout value */
-				timeout.tv_sec  = rint(host_timeout / 1000);
-				timeout.tv_usec = ((int) host_timeout % 1000) * 1000;
+				timeout.tv_sec  = rint(spine_host_timeout / 1000);
+				timeout.tv_usec = ((int) spine_host_timeout % 1000) * 1000;
 
 				/* set the socket send and receive timeout */
 				spine_socket_set_timeout(tcp_socket, &timeout);
@@ -1511,12 +1511,12 @@ int ping_tcp(host_t *host, ping_t *ping) {
 	}
 }
 
-/*! \fn int get_address_type(host_t *host)
+/*! \fn int get_address_type(spine_spine_host_t *host)
  *  \brief determines using getaddrinfo the iptype and returns the iptype
  *
  *  \return 1 - IPv4, 2 - IPv6, 0 - Unknown
  */
-int get_address_type(host_t *host) {
+int get_address_type(spine_spine_host_t *host) {
 	struct addrinfo hints, *res, *res_list;
 	char addrstr[255];
 	void *ptr = NULL;
@@ -1736,7 +1736,7 @@ unsigned short int get_checksum(void* buf, int len) {
 	return answer;
 }
 
-/*! \fn void update_host_status(int status, host_t *host, ping_t *ping, int availability_method)
+/*! \fn void update_host_status(int status, spine_spine_host_t *host, ping_t *ping, int availability_method)
  *  \brief update the host table in Cacti with the result of the ping of the host.
  *  \param status the current poll status of the host, either HOST_UP, or HOST_DOWN
  *  \param host a pointer to the current host structure
@@ -1748,7 +1748,7 @@ unsigned short int get_checksum(void* buf, int len) {
  *  with the calculated status.
  *
  */
-void update_host_status(int status, host_t *host, ping_t *ping, int availability_method) {
+void update_host_status(int status, spine_spine_host_t *host, ping_t *ping, int availability_method) {
 	int    issue_log_message = FALSE;
 	double ping_time;
  	double hundred_percent = 100.00;

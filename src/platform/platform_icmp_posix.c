@@ -6,7 +6,7 @@
  * handling and socket wrappers), so this translation unit is
  * intentionally minimal: it just exposes a numeric-address oneshot
  * primitive backed by the same underlying machinery. Callers that
- * need the host_t-driven poller path should continue to call
+ * need the spine_spine_host_t-driven poller path should continue to call
  * ping_icmp() / ping_icmp_ipv6() directly.
  */
 #include "platform_icmp.h"

@@ -35,9 +35,12 @@ extern void *child(void *arg);
 extern void child_cleanup(void *arg);
 extern void child_cleanup_thread(void *arg);
 extern void child_cleanup_script(void *arg);
-extern void poll_host(int device_counter, int host_id, int host_thread, int host_threads, int host_data_ids, char *host_time, int *host_errors, double host_time_double);
-extern char *exec_poll(host_t *current_host, char *command, int id, const char *type);
-extern void get_system_information(host_t *host, MYSQL *mysql, int system);
+extern void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
+#ifdef HAVE_LIBUV
+extern void spine_queue_poll(poller_thread_t *det);
+#endif
+extern char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const char *type);
+extern void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system);
 extern int is_multipart_output(char *result);
 extern int validate_result(char *result);
 extern void buffer_output_errors(char * error_string, int * buf_size, int * buf_errors, int device_id, int thread_id, int local_data_id, bool flush);

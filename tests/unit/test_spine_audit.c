@@ -26,7 +26,7 @@ static time_t mock_clock(void) { return g_mock_now; }
  * we care about here; the libaudit write path has its own integration
  * coverage. The rate-limit window itself is decided by the in-source
  * constants SPINE_AUDIT_RATE_MAX (10) and SPINE_AUDIT_RATE_WINDOW_SECS
- * (60); if either is retuned, update the expectations below. */
+ * (60); if either is returned, update the expectations below. */
 
 static void test_rate_limit_per_bucket(void) {
 	spine_audit_set_clock(mock_clock);

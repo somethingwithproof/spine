@@ -1,0 +1,1 @@
+/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_platform_socket.dir/tests/unit/test_platform_socket.c.o -o test_platform_socket  libspine_platform_test_support.a -lm -lm
