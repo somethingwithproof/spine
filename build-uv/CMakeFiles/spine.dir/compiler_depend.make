@@ -7801,7 +7801,6 @@ CMakeFiles/spine.dir/src/host_polling_service.c.o: /Users/thomasvincent/Develope
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stdint.h \
   config/config.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/keywords.h \
@@ -8241,7 +8240,6 @@ CMakeFiles/spine.dir/src/host_polling_stages.c.o: /Users/thomasvincent/Developer
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stdint.h \
   config/config.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h \
@@ -12373,7 +12371,6 @@ CMakeFiles/spine.dir/src/poller.c.o: /Users/thomasvincent/Developer/github.com/C
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h \
@@ -12818,7 +12815,6 @@ CMakeFiles/spine.dir/src/results_flush_service.c.o: /Users/thomasvincent/Develop
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stdint.h \
   config/config.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/keywords.h \

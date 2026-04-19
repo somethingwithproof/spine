@@ -437,5 +437,4 @@ CMakeFiles/spine.dir/src/results_flush_service.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/results_flush_service.h
