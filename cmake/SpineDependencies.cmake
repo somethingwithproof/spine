@@ -94,22 +94,10 @@ if(NOT SPINE_HAVE_LIBUV)
                       "Install libuv1-dev or set CMAKE_PREFIX_PATH.")
 endif()
 
-# c-ares: Async DNS resolver.
-pkg_check_modules(CARES QUIET libc-ares)
-if(NOT CARES_FOUND)
-  find_path(CARES_INCLUDE_DIR ares.h)
-  find_library(CARES_LIBRARY NAMES cares)
-  if(CARES_INCLUDE_DIR AND CARES_LIBRARY)
-    set(CARES_FOUND TRUE)
-    set(CARES_LIBRARIES ${CARES_LIBRARY})
-    set(CARES_INCLUDE_DIRS ${CARES_INCLUDE_DIR})
-  endif()
-endif()
-
-if(CARES_FOUND)
-  set(HAVE_CARES 1)
-  message(STATUS "c-ares: ${CARES_LIBRARIES}")
-endif()
+# async DNS uses uv_getaddrinfo (libuv threadpool). A c-ares bridge was
+# removed because it was never wired to libuv's poll loop; if it is
+# re-introduced it needs uv_poll_t on every ares fd plus a uv_timer_t
+# driving ares_process_fd from ares_timeout().
 
 # jemalloc: High-performance multi-threaded allocator.
 find_package(PkgConfig QUIET)

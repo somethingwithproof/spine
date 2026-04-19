@@ -366,12 +366,6 @@ else()
         target_link_libraries(spine_platform PUBLIC ${LIBUV_LIBRARY})
     endif()
 
-    # c-ares linkage
-    if(HAVE_CARES)
-        target_compile_definitions(spine_platform PUBLIC HAVE_CARES=1)
-        target_include_directories(spine_platform PUBLIC ${CARES_INCLUDE_DIRS})
-        target_link_libraries(spine_platform PUBLIC ${CARES_LIBRARIES})
-    endif()
 endif()
 
 add_library(spine_platform_test_support STATIC $<TARGET_OBJECTS:spine_platform>)
