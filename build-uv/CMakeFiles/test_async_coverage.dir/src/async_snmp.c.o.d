@@ -436,6 +436,4 @@ CMakeFiles/test_async_coverage.dir/src/async_snmp.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/util.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/nft_popen.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state_internal.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h
