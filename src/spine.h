@@ -510,6 +510,9 @@ typedef struct snmp_oids {
 	char   result[RESULTS_BUFFER];
 } snmp_oids_t;
 
+struct host_struct;
+typedef struct host_struct spine_spine_host_t;
+
 /*! Poller Structure
  *
  * This structure holds thread polling instructions.
@@ -518,6 +521,7 @@ typedef struct snmp_oids {
 typedef struct poller_thread {
 	int device_counter;
 	int host_id;
+	spine_spine_host_t *host;
 	int spine_host_thread;
 	int spine_host_threads;
 	int host_data_ids;

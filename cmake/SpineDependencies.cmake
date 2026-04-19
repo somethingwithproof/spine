@@ -111,6 +111,19 @@ if(CARES_FOUND)
   message(STATUS "c-ares: ${CARES_LIBRARIES}")
 endif()
 
+# jemalloc: High-performance multi-threaded allocator.
+find_package(PkgConfig QUIET)
+pkg_check_modules(JEMALLOC QUIET jemalloc)
+if(JEMALLOC_FOUND)
+  message(STATUS "jemalloc: ${JEMALLOC_LIBRARIES}")
+endif()
+
+# mimalloc: Compact high-performance allocator from Microsoft.
+pkg_check_modules(MIMALLOC QUIET mimalloc)
+if(MIMALLOC_FOUND)
+  message(STATUS "mimalloc: ${MIMALLOC_LIBRARIES}")
+endif()
+
 function(spine_require_mysql)
   if(TARGET spine_mysql)
     return()

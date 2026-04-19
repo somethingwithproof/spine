@@ -4,20 +4,17 @@
 #include "common.h"
 #include "spine.h"
 
-typedef struct RuntimeConfig {
-	const config_t *set;
-} RuntimeConfig;
+typedef struct RuntimeConfig RuntimeConfig;
+typedef struct RuntimeState RuntimeState;
+typedef struct Logger Logger;
 
-typedef struct RuntimeState {
-	double start_time;
-} RuntimeState;
-
-typedef struct Logger {
-	int (*write)(const char *format, ...);
-} Logger;
+typedef int (*LoggerWriteFn)(const char *format, ...);
 
 const RuntimeConfig *runtime_config_current(void);
 const RuntimeState *runtime_state_current(void);
 const Logger *runtime_logger_current(void);
+const config_t *runtime_config_set(const RuntimeConfig *config);
+double runtime_state_start_time(const RuntimeState *state);
+LoggerWriteFn runtime_logger_write_fn(const Logger *logger);
 
 #endif

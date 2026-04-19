@@ -1074,6 +1074,7 @@ int main(int argc, char *argv[]) {
 
 		poller_details->device_counter   = device_counter;
 		poller_details->host_id          = host_id;
+		poller_details->host             = NULL; /* We will use host_id to retrieve it in async mode if needed */
 		poller_details->spine_host_thread      = current_thread;
 		poller_details->spine_host_threads     = device_threads;
 		poller_details->host_data_ids    = items_per_thread;

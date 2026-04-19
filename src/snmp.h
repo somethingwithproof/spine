@@ -31,8 +31,6 @@
  +-------------------------------------------------------------------------+
 */
 
-#define SNMP_SESSION_FREE(s) { if (s != NULL) { snmp_host_cleanup(s); s = NULL; } }
-
 extern void snmp_spine_init(void);
 extern void snmp_spine_close(void);
 extern void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community, char *snmp_username, char *snmp_password, char *snmp_auth_protocol, char *snmp_priv_passphrase, char *snmp_priv_protocol, char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout);
@@ -44,5 +42,15 @@ extern int snmp_count(spine_spine_host_t *current_host, const char *snmp_oid);
 extern void snmp_get_multi(spine_spine_host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids);
 extern void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, struct variable_list *variable);
 
-/* macro to safely cleanup an snmp session and null out the pointer */
-#define SNMP_FREE(s) { if (s != NULL) { snmp_host_cleanup(s); s = NULL; } }
+/* Override Net-SNMP's generic free() helper for session pointers in Spine. */
+#ifdef SNMP_FREE
+#undef SNMP_FREE
+#endif
+#define SNMP_FREE(s) do { \
+	if ((s) != NULL) { \
+		snmp_host_cleanup((s)); \
+		(s) = NULL; \
+	} \
+} while (0)
+
+#define SNMP_SESSION_FREE(s) SNMP_FREE(s)

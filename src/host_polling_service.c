@@ -2,6 +2,11 @@
 #include "spine.h"
 #include "host_polling_service.h"
 
+typedef struct HostPollingStagePlan {
+	HostPollingStage stage;
+	int retries_allowed;
+} HostPollingStagePlan;
+
 static HostPollingStageFn host_polling_stage_fn(const HostPollingRequest *request, HostPollingStage stage) {
 	switch (stage) {
 	case HOST_POLL_STAGE_LOAD_WORK_ITEMS:
@@ -52,10 +57,16 @@ static ResultCode host_polling_execute_stage(const HostPollingRequest *request, 
 	} while (1);
 }
 
-HostPollingResult host_polling_service_run(const HostPollingRequest *request, const spine_services_t *services) {
+HostPollingResult host_polling_service_run(const HostPollingRequest *request) {
+	static const HostPollingStagePlan stage_plan[] = {
+		{ HOST_POLL_STAGE_LOAD_WORK_ITEMS, 0 },
+		{ HOST_POLL_STAGE_CHECK_AVAILABILITY, 0 },
+		{ HOST_POLL_STAGE_POLL_ITEMS, -1 },
+		{ HOST_POLL_STAGE_PERSIST_RESULTS, 0 },
+		{ HOST_POLL_STAGE_UPDATE_HOST_STATE, 0 }
+	};
 	HostPollingResult result = {0};
-
-	UNUSED_PARAMETER(services);
+	size_t i;
 
 	result.failed_stage = HOST_POLL_STAGE_UPDATE_HOST_STATE;
 
@@ -66,25 +77,16 @@ HostPollingResult host_polling_service_run(const HostPollingRequest *request, co
 		return result;
 	}
 
-	if (host_polling_execute_stage(request, HOST_POLL_STAGE_LOAD_WORK_ITEMS, &result, 0) != RESULT_CODE_OK) {
-		result.code = RESULT_CODE_ERROR;
-		return result;
-	}
-	if (host_polling_execute_stage(request, HOST_POLL_STAGE_CHECK_AVAILABILITY, &result, 0) != RESULT_CODE_OK) {
-		result.code = RESULT_CODE_ERROR;
-		return result;
-	}
-	if (host_polling_execute_stage(request, HOST_POLL_STAGE_POLL_ITEMS, &result, request->max_retries) != RESULT_CODE_OK) {
-		result.code = RESULT_CODE_ERROR;
-		return result;
-	}
-	if (host_polling_execute_stage(request, HOST_POLL_STAGE_PERSIST_RESULTS, &result, 0) != RESULT_CODE_OK) {
-		result.code = RESULT_CODE_ERROR;
-		return result;
-	}
-	if (host_polling_execute_stage(request, HOST_POLL_STAGE_UPDATE_HOST_STATE, &result, 0) != RESULT_CODE_OK) {
-		result.code = RESULT_CODE_ERROR;
-		return result;
+	for (i = 0; i < sizeof(stage_plan) / sizeof(stage_plan[0]); i++) {
+		int retries_allowed = stage_plan[i].retries_allowed;
+		if (retries_allowed < 0) {
+			retries_allowed = request->max_retries;
+		}
+
+		if (host_polling_execute_stage(request, stage_plan[i].stage, &result, retries_allowed) != RESULT_CODE_OK) {
+			result.code = RESULT_CODE_ERROR;
+			return result;
+		}
 	}
 
 	result.code = RESULT_CODE_OK;

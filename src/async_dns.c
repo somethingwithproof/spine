@@ -23,18 +23,6 @@ static void on_ares_resolved(void *arg, int status, int timeouts, struct hostent
     free(ctx);
 }
 
-static void __attribute__((unused)) on_ares_poll(uv_poll_t* handle, int status, int events) {
-    ares_channel channel = (ares_channel)handle->data;
-    (void)status;
-
-    uv_os_fd_t fd;
-    uv_fileno((uv_handle_t*)handle, &fd);
-
-    ares_process_fd(channel, 
-        (events & UV_READABLE) ? (ares_socket_t)fd : ARES_SOCKET_BAD,
-        (events & UV_WRITABLE) ? (ares_socket_t)fd : ARES_SOCKET_BAD);
-}
-
 int spine_async_dns_lookup(const char *hostname, async_dns_cb cb, void *data) {
     static ares_channel channel;
     static bool ares_is_init = false;

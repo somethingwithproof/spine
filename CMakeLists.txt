@@ -400,6 +400,16 @@ if(SPINE_BUILD_MAIN)
         spine_hardening
         Threads::Threads
     )
+
+    # Performance: Link high-performance allocator if available
+    if(MIMALLOC_FOUND)
+        target_link_libraries(spine PRIVATE ${MIMALLOC_LIBRARIES})
+        target_include_directories(spine PRIVATE ${MIMALLOC_INCLUDE_DIRS})
+    elseif(JEMALLOC_FOUND)
+        target_link_libraries(spine PRIVATE ${JEMALLOC_LIBRARIES})
+        target_include_directories(spine PRIVATE ${JEMALLOC_INCLUDE_DIRS})
+    endif()
+
     if(TARGET spine_build_options)
         target_link_libraries(spine PRIVATE spine_build_options)
     endif()

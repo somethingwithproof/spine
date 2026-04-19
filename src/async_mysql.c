@@ -40,7 +40,9 @@ static void mysql_poll_cb(uv_poll_t* handle, int status, int events) {
 }
 
 int spine_async_mysql_query(MYSQL *mysql, const char *query, async_mysql_cb cb, void *data) {
-    if (!mysql) return -1;
+    if (!mysql) {
+        return -1;
+    }
 
     async_mysql_ctx_t *ctx = calloc(1, sizeof(async_mysql_ctx_t));
     ctx->mysql = mysql;
@@ -68,6 +70,7 @@ int spine_async_mysql_query(MYSQL *mysql, const char *query, async_mysql_cb cb, 
 #else
 
 int spine_async_mysql_query(MYSQL *mysql, const char *query, async_mysql_cb cb, void *data) {
+    if (!mysql) return -1;
     // Fallback for non-async MySQL
     int ret = mysql_real_query(mysql, query, strlen(query));
     cb(mysql, ret, data);

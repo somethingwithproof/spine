@@ -25,6 +25,8 @@ static void on_new_connection(uv_stream_t* server, int status) {
     if (status < 0) return;
 
     uv_pipe_t* client = malloc(sizeof(uv_pipe_t));
+    if (!client) return;
+
     uv_pipe_init(loop, client, 0);
 
     if (uv_accept(server, (uv_stream_t*)client) == 0) {
@@ -33,13 +35,24 @@ static void on_new_connection(uv_stream_t* server, int status) {
             "{\"status\":\"ok\",\"polls\":%llu,\"latency_avg\":%.2f,\"queue\":%d}\n",
             g_metrics.total_polls, g_metrics.avg_latency_ms, g_metrics.queue_depth);
         
-        uv_buf_t res = uv_buf_init(strdup(buffer), strlen(buffer));
+        char *payload = strdup(buffer);
+        if (!payload) {
+            uv_close((uv_handle_t*)client, (uv_close_cb)free);
+            return;
+        }
+
+        uv_buf_t res = uv_buf_init(payload, strlen(payload));
         uv_write_t* req = malloc(sizeof(uv_write_t));
+        if (!req) {
+            free(payload);
+            uv_close((uv_handle_t*)client, (uv_close_cb)free);
+            return;
+        }
         req->data = res.base;
         uv_write(req, (uv_stream_t*)client, &res, 1, on_write);
+    } else {
+        uv_close((uv_handle_t*)client, (uv_close_cb)free);
     }
-    
-    uv_close((uv_handle_t*)client, (uv_close_cb)free);
 }
 
 int spine_telemetry_init(const char *path) {

@@ -22,7 +22,6 @@
 
 extern void spine_dump_config(void);
 
-/* `set` is provided by test_spine_stubs.c. */
 
 static int contains(const char *haystack, const char *needle) {
 	return strstr(haystack, needle) != NULL ? 1 : 0;

@@ -208,7 +208,12 @@ function(spine_add_tests)
     endif()
     add_test(NAME circuit_breaker COMMAND test_circuit_breaker)
 
-    add_executable(test_dump_config tests/unit/test_dump_config.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
+    add_executable(
+      test_dump_config
+      tests/unit/test_dump_config.c
+      tests/unit/test_spine_stubs.c
+      src/util.c
+      ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_dump_config
       PRIVATE ${CMAKE_BINARY_DIR}
@@ -227,7 +232,12 @@ function(spine_add_tests)
     target_link_libraries(test_dump_config PRIVATE spine_hardening)
     add_test(NAME dump_config COMMAND test_dump_config)
 
-    add_executable(test_check_mode tests/unit/test_check_mode.c src/util.c ${SPINE_UTIL_SUPPORT_SOURCES})
+    add_executable(
+      test_check_mode
+      tests/unit/test_check_mode.c
+      tests/unit/test_spine_stubs.c
+      src/util.c
+      ${SPINE_UTIL_SUPPORT_SOURCES})
     target_include_directories(
       test_check_mode
       PRIVATE ${CMAKE_BINARY_DIR}

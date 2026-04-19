@@ -75,7 +75,7 @@ int append_hostrange(char *obuf, const char *colname) {
 	return 0;
 }
 
-int spine_log(const char *format, ...) {
+__attribute__((weak)) int spine_log(const char *format, ...) {
     va_list args;
     va_start(args, format);
     vprintf(format, args);

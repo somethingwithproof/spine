@@ -3,7 +3,6 @@
 
 #include "common.h"
 #include "spine.h"
-#include "composition_root.h"
 
 typedef enum ResultCode {
 	RESULT_CODE_OK = 0,
@@ -52,6 +51,6 @@ typedef struct HostPollingResult {
 	int retries_used;
 } HostPollingResult;
 
-HostPollingResult host_polling_service_run(const HostPollingRequest *request, const spine_services_t *services);
+HostPollingResult host_polling_service_run(const HostPollingRequest *request);
 
 #endif

@@ -37,6 +37,8 @@ extern void child_cleanup_thread(void *arg);
 extern void child_cleanup_script(void *arg);
 extern void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
 #ifdef HAVE_LIBUV
+/* Concurrency Governor: Limit in-flight async handles to avoid OS/Network saturation */
+#define MAX_ASYNC_CONCURRENCY 500
 extern void spine_queue_poll(poller_thread_t *det);
 #endif
 extern char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const char *type);

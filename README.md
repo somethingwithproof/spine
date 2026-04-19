@@ -88,6 +88,24 @@ Disable the systemd integration with `-DWITH_SYSTEMD=OFF` on systems without lib
 SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) cmake --build build -j
 ```
 
+## Performance Recommendations
+
+For production environments running >50,000 data sources, it is highly recommended to build Spine with a high-performance memory allocator to reduce heap fragmentation and lock contention:
+
+- **mimalloc** (Recommended): `apt install libmimalloc-dev` or `brew install mimalloc`
+- **jemalloc**: `apt install libjemalloc-dev` or `brew install jemalloc`
+
+Spine will automatically detect and link against these libraries if they are present on your system during the CMake configuration phase.
+
+### System Tuning
+
+When running in asynchronous mode with high concurrency, you must ensure your system file descriptor limit (`ulimit -n`) is sufficiently high:
+
+```sh
+# Example for 100k data sources
+ulimit -n 102400
+```
+
 ## Configuration
 
 `spine.conf` holds database credentials and poller tuning. A full annotated template ships as [etc/spine.conf.dist](etc/spine.conf.dist). Minimum viable config:

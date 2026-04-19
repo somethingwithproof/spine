@@ -63,6 +63,10 @@ int spine_async_batch_init(MYSQL *mysql, int max_batch_size, int flush_interval_
     g_batch_ctx.max_batch_size = max_batch_size;
     g_batch_ctx.flush_interval_ms = flush_interval_ms;
     g_batch_ctx.query_buffer = malloc(BATCH_BUFFER_SIZE);
+    if (!g_batch_ctx.query_buffer) {
+        SPINE_LOG(("ERROR: Failed to allocate async batch buffer"));
+        return -1;
+    }
     g_batch_ctx.query_buffer[0] = '\0';
     g_batch_ctx.current_batch_size = 0;
     g_batch_ctx.active_queries = 0;
