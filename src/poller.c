@@ -2832,10 +2832,12 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 					if (bytes_read > 0) {
 						result_string[bytes_read] = '\0';
 					} else {
+						char redacted_cmd[BUFSIZE];
+						spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
 						if (STRIMATCH(type,"DS")) {
-							SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
+							SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, redacted_cmd));
 						} else {
-							SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
+							SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, redacted_cmd));
 						}
 						SET_UNDEFINED(result_string);
 					}
@@ -2851,11 +2853,15 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 				nft_pclose(cmd_fd);
 				#endif
 			} else {
-				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, command));
+				char redacted_cmd[BUFSIZE];
+				spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
+				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, redacted_cmd));
 				SET_UNDEFINED(result_string);
 			}
 		} else {
-			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, command));
+			char redacted_cmd[BUFSIZE];
+			spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
+			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, redacted_cmd));
 			SET_UNDEFINED(result_string);
 		}
 

@@ -90,8 +90,10 @@ char *php_cmd(const char *php_command, int php_process) {
 
 	/* if write status is <= 0 then the script server may be hung */
 	if (bytes <= 0) {
+		char redacted_cmd[BUFSIZE];
+		spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));
 		result_string = strdup("U");
-		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server", php_process, command));
+		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server", php_process, redacted_cmd));
 
 		php_close(php_process);
 		php_init(php_process);
