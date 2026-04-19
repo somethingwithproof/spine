@@ -1,1 +1,0 @@
-/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_platform_thread_name.dir/tests/unit/test_platform_thread_name.c.o -o test_platform_thread_name  libspine_platform_test_support.a -lm -lm

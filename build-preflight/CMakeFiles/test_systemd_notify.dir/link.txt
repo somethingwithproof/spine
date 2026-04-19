@@ -1,1 +1,0 @@
-/usr/bin/cc -g -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_systemd_notify.dir/tests/unit/test_systemd_notify.c.o CMakeFiles/test_systemd_notify.dir/src/systemd_notify.c.o -o test_systemd_notify

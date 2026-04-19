@@ -1,1 +1,0 @@
-/usr/bin/cc  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_sandbox.dir/tests/unit/test_sandbox.c.o -o test_sandbox  libspine_platform_test_support.a -lm -lm /opt/homebrew/lib/libuv.dylib /opt/homebrew/lib/libcares.dylib -lpcre2-8

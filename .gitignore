@@ -30,3 +30,7 @@ libtool
 /spine
 *.o
 *.m4
+
+# Build directories (CMake out-of-source + local experiments)
+build/
+build-*/

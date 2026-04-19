@@ -1,2 +1,0 @@
-# Empty dependencies file for test_env_scrub.
-# This may be replaced when dependencies are built.

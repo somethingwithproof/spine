@@ -1,1 +1,0 @@
-/usr/bin/cc --coverage -fprofile-arcs -ftest-coverage -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names --coverage -fprofile-arcs CMakeFiles/test_env_scrub.dir/tests/unit/test_env_scrub.c.o CMakeFiles/test_env_scrub.dir/tests/unit/build_child_env_tu.c.o -o test_env_scrub

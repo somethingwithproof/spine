@@ -1,1 +1,0 @@
-/usr/bin/cc --coverage -fprofile-arcs -ftest-coverage -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names --coverage -fprofile-arcs CMakeFiles/test_ping_ipv6_scope.dir/tests/unit/test_ping_ipv6_scope.c.o CMakeFiles/test_ping_ipv6_scope.dir/src/ping_ipv6_scope.c.o -o test_ping_ipv6_scope
