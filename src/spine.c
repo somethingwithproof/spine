@@ -1399,6 +1399,18 @@ int main(int argc, char *argv[]) {
 
 	SPINE_LOG_DEBUG(("DEBUG: Allocated Variable Memory Freed"));
 
+#ifdef HAVE_LIBUV
+	/* Drain the libuv event loop BEFORE tearing down DB and SNMP.
+	 * Callbacks dispatched from spine_async_poll_start() touch the
+	 * shared MySQL handle and the Net-SNMP session; closing those
+	 * before uv_run completes produced a use-after-free on every
+	 * async build. */
+	SPINE_LOG_DEBUG(("DEBUG: Entering libuv event loop"));
+	uv_run(loop, UV_RUN_DEFAULT);
+	uv_loop_close(loop);
+	SPINE_LOG_DEBUG(("DEBUG: libuv event loop drained"));
+#endif
+
 	/* close mysql */
 	db_free_result(result);
 	db_disconnect(&mysql);
@@ -1413,12 +1425,6 @@ int main(int argc, char *argv[]) {
 	snmp_spine_close();
 
 	SPINE_LOG_DEBUG(("DEBUG: Net-SNMP Close Completed"));
-
-#ifdef HAVE_LIBUV
-	SPINE_LOG_DEBUG(("DEBUG: Entering libuv event loop"));
-	uv_run(loop, UV_RUN_DEFAULT);
-	uv_loop_close(loop);
-#endif
 
 	/* finally add some statistics to the log and exit */
 	end_time = get_time_as_double();
