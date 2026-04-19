@@ -703,6 +703,10 @@ HAVE_STDDEF_H:INTERNAL=1
 HAVE_STDINT_H:INTERNAL=1
 //Have function strerror
 HAVE_STRERROR:INTERNAL=1
+//Have function strlcat
+HAVE_STRLCAT:INTERNAL=1
+//Have function strlcpy
+HAVE_STRLCPY:INTERNAL=1
 //Have function strtoll
 HAVE_STRTOLL:INTERNAL=1
 //Have include sys/sdt.h

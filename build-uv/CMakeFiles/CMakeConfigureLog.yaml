@@ -6548,3 +6548,93 @@ events:
         - "/Network/Library/Frameworks"
         - "/System/Library/Frameworks"
 ...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckFunctionExists.cmake:167 (try_compile)"
+      - "CMakeLists.txt:224 (check_function_exists)"
+    checks:
+      - "Looking for strlcpy"
+    directories:
+      source: "/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP"
+      binary: "/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+    buildResult:
+      variable: "HAVE_STRLCPY"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_43ad2/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_43ad2.dir/build.make CMakeFiles/cmTC_43ad2.dir/build
+        Building C object CMakeFiles/cmTC_43ad2.dir/CheckFunctionExists.c.o
+        /usr/bin/cc   -DCHECK_FUNCTION_EXISTS=strlcpy -std=gnu17 -arch arm64 -MD -MT CMakeFiles/cmTC_43ad2.dir/CheckFunctionExists.c.o -MF CMakeFiles/cmTC_43ad2.dir/CheckFunctionExists.c.o.d -o CMakeFiles/cmTC_43ad2.dir/CheckFunctionExists.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP/CheckFunctionExists.c
+        /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP/CheckFunctionExists.c:7:3: warning: incompatible redeclaration of library function 'strlcpy' [-Wincompatible-library-redeclaration]
+            7 |   CHECK_FUNCTION_EXISTS(void);
+              |   ^
+        <command line>:1:31: note: expanded from macro 'CHECK_FUNCTION_EXISTS'
+            1 | #define CHECK_FUNCTION_EXISTS strlcpy
+              |                               ^
+        /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-Xtd7AP/CheckFunctionExists.c:7:3: note: 'strlcpy' is a builtin with type 'unsigned long (char *, const char *, unsigned long)'
+        <command line>:1:31: note: expanded from macro 'CHECK_FUNCTION_EXISTS'
+            1 | #define CHECK_FUNCTION_EXISTS strlcpy
+              |                               ^
+        1 warning generated.
+        Linking C executable cmTC_43ad2
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_43ad2.dir/link.txt --verbose=1
+        /usr/bin/cc  -DCHECK_FUNCTION_EXISTS=strlcpy -arch arm64 CMakeFiles/cmTC_43ad2.dir/CheckFunctionExists.c.o -o cmTC_43ad2
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/CheckFunctionExists.cmake:167 (try_compile)"
+      - "CMakeLists.txt:225 (check_function_exists)"
+    checks:
+      - "Looking for strlcat"
+    directories:
+      source: "/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6"
+      binary: "/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6"
+    cmakeVariables:
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_OSX_ARCHITECTURES: ""
+      CMAKE_OSX_DEPLOYMENT_TARGET: ""
+      CMAKE_OSX_SYSROOT: ""
+    buildResult:
+      variable: "HAVE_STRLCAT"
+      cached: true
+      stdout: |
+        Change Dir: '/Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6'
+        
+        Run Build Command(s): /opt/homebrew/bin/cmake -E env VERBOSE=1 /usr/bin/make -f Makefile cmTC_eb562/fast
+        /Applications/Xcode.app/Contents/Developer/usr/bin/make  -f CMakeFiles/cmTC_eb562.dir/build.make CMakeFiles/cmTC_eb562.dir/build
+        Building C object CMakeFiles/cmTC_eb562.dir/CheckFunctionExists.c.o
+        /usr/bin/cc   -DCHECK_FUNCTION_EXISTS=strlcat -std=gnu17 -arch arm64 -MD -MT CMakeFiles/cmTC_eb562.dir/CheckFunctionExists.c.o -MF CMakeFiles/cmTC_eb562.dir/CheckFunctionExists.c.o.d -o CMakeFiles/cmTC_eb562.dir/CheckFunctionExists.c.o -c /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6/CheckFunctionExists.c
+        /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6/CheckFunctionExists.c:7:3: warning: incompatible redeclaration of library function 'strlcat' [-Wincompatible-library-redeclaration]
+            7 |   CHECK_FUNCTION_EXISTS(void);
+              |   ^
+        <command line>:1:31: note: expanded from macro 'CHECK_FUNCTION_EXISTS'
+            1 | #define CHECK_FUNCTION_EXISTS strlcat
+              |                               ^
+        /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/CMakeFiles/CMakeScratch/TryCompile-WpRNE6/CheckFunctionExists.c:7:3: note: 'strlcat' is a builtin with type 'unsigned long (char *, const char *, unsigned long)'
+        <command line>:1:31: note: expanded from macro 'CHECK_FUNCTION_EXISTS'
+            1 | #define CHECK_FUNCTION_EXISTS strlcat
+              |                               ^
+        1 warning generated.
+        Linking C executable cmTC_eb562
+        /opt/homebrew/bin/cmake -E cmake_link_script CMakeFiles/cmTC_eb562.dir/link.txt --verbose=1
+        /usr/bin/cc  -DCHECK_FUNCTION_EXISTS=strlcat -arch arm64 CMakeFiles/cmTC_eb562.dir/CheckFunctionExists.c.o -o cmTC_eb562
+        
+      exitCode: 0
+...
