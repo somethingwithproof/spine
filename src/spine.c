@@ -169,12 +169,18 @@ static void spine_install_reload_handler(void) {
     uv_signal_init(loop, &sig_int);
     uv_signal_start(&sig_int, spine_uv_signal_handler, SIGINT);
 #else
+    /* Zero-init defeats garbage in sa_restorer/sa_flags that older glibc
+     * copied into the sigaction syscall, causing the kernel to jump to
+     * stack garbage on signal return. Apply per block before any field
+     * assignment. */
     struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = spine_sighup_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGHUP, &sa, NULL);
 
+    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = spine_sigterm_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
