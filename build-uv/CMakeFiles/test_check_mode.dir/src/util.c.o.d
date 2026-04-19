@@ -442,4 +442,5 @@ CMakeFiles/test_check_mode.dir/src/util.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_formatter.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/log_sink.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/regex.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_regex.h
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_regex.h \
+  /opt/homebrew/include/pcre2.h

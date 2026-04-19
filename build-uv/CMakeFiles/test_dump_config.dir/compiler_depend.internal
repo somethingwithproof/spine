@@ -2643,6 +2643,7 @@ CMakeFiles/test_dump_config.dir/src/util.c.o
  /opt/homebrew/include/openssl/safestack.h
  /opt/homebrew/include/openssl/stack.h
  /opt/homebrew/include/openssl/types.h
+ /opt/homebrew/include/pcre2.h
  /opt/homebrew/opt/mariadb-connector-c/include/mariadb/ma_list.h
  /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_com.h
  /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_ctype.h

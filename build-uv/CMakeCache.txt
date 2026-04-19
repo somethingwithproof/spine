@@ -428,6 +428,9 @@ pkgcfg_lib_LIBUV_pthread:FILEPATH=/Applications/Xcode.app/Contents/Developer/Pla
 pkgcfg_lib_LIBUV_uv:FILEPATH=/opt/homebrew/Cellar/libuv/1.52.1/lib/libuv.dylib
 
 //Path to a library.
+pkgcfg_lib_PCRE2_pcre2-8:FILEPATH=/opt/homebrew/Cellar/pcre2/10.47_1/lib/libpcre2-8.dylib
+
+//Path to a library.
 pkgcfg_lib__OPENSSL_crypto:FILEPATH=/opt/homebrew/Cellar/openssl@3/3.6.2/lib/libcrypto.dylib
 
 //Path to a library.
@@ -878,6 +881,41 @@ OPENSSL_CRYPTO_LIBRARY-ADVANCED:INTERNAL=1
 OPENSSL_INCLUDE_DIR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: OPENSSL_SSL_LIBRARY
 OPENSSL_SSL_LIBRARY-ADVANCED:INTERNAL=1
+PCRE2_CFLAGS:INTERNAL=-I/opt/homebrew/Cellar/pcre2/10.47_1/include
+PCRE2_CFLAGS_I:INTERNAL=
+PCRE2_CFLAGS_OTHER:INTERNAL=
+PCRE2_FOUND:INTERNAL=1
+PCRE2_INCLUDEDIR:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/include
+PCRE2_INCLUDE_DIRS:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/include
+PCRE2_LDFLAGS:INTERNAL=-L/opt/homebrew/Cellar/pcre2/10.47_1/lib;-lpcre2-8
+PCRE2_LDFLAGS_OTHER:INTERNAL=
+PCRE2_LIBDIR:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/lib
+PCRE2_LIBRARIES:INTERNAL=pcre2-8
+PCRE2_LIBRARY_DIRS:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/lib
+PCRE2_LIBS:INTERNAL=
+PCRE2_LIBS_L:INTERNAL=
+PCRE2_LIBS_OTHER:INTERNAL=
+PCRE2_LIBS_PATHS:INTERNAL=
+PCRE2_MODULE_NAME:INTERNAL=libpcre2-8
+PCRE2_PREFIX:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1
+PCRE2_STATIC_CFLAGS:INTERNAL=-I/opt/homebrew/Cellar/pcre2/10.47_1/include
+PCRE2_STATIC_CFLAGS_I:INTERNAL=
+PCRE2_STATIC_CFLAGS_OTHER:INTERNAL=
+PCRE2_STATIC_INCLUDE_DIRS:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/include
+PCRE2_STATIC_LDFLAGS:INTERNAL=-L/opt/homebrew/Cellar/pcre2/10.47_1/lib;-lpcre2-8;-pthread;-lpthread
+PCRE2_STATIC_LDFLAGS_OTHER:INTERNAL=-pthread
+PCRE2_STATIC_LIBDIR:INTERNAL=
+PCRE2_STATIC_LIBRARIES:INTERNAL=pcre2-8;pthread
+PCRE2_STATIC_LIBRARY_DIRS:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/lib
+PCRE2_STATIC_LIBS:INTERNAL=
+PCRE2_STATIC_LIBS_L:INTERNAL=
+PCRE2_STATIC_LIBS_OTHER:INTERNAL=
+PCRE2_STATIC_LIBS_PATHS:INTERNAL=
+PCRE2_VERSION:INTERNAL=10.47
+PCRE2_libpcre2-8_INCLUDEDIR:INTERNAL=
+PCRE2_libpcre2-8_LIBDIR:INTERNAL=
+PCRE2_libpcre2-8_PREFIX:INTERNAL=
+PCRE2_libpcre2-8_VERSION:INTERNAL=
 //ADVANCED property for variable: PKG_CONFIG_ARGN
 PKG_CONFIG_ARGN-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: PKG_CONFIG_EXECUTABLE
@@ -930,6 +968,7 @@ _OPENSSL_openssl_LIBDIR:INTERNAL=
 _OPENSSL_openssl_PREFIX:INTERNAL=
 _OPENSSL_openssl_VERSION:INTERNAL=
 __pkg_config_arguments_LIBUV:INTERNAL=REQUIRED;libuv>=1.40.0
+__pkg_config_arguments_PCRE2:INTERNAL=REQUIRED;libpcre2-8
 __pkg_config_arguments__OPENSSL:INTERNAL=QUIET;openssl
 __pkg_config_checked_CARES:INTERNAL=1
 __pkg_config_checked_JEMALLOC:INTERNAL=1
@@ -937,6 +976,7 @@ __pkg_config_checked_LIBUV:INTERNAL=1
 __pkg_config_checked_MIMALLOC:INTERNAL=1
 __pkg_config_checked_MYSQL:INTERNAL=1
 __pkg_config_checked_NETSNMP:INTERNAL=1
+__pkg_config_checked_PCRE2:INTERNAL=1
 __pkg_config_checked__OPENSSL:INTERNAL=1
 //ADVANCED property for variable: pkgcfg_lib_LIBUV_m
 pkgcfg_lib_LIBUV_m-ADVANCED:INTERNAL=1
@@ -944,9 +984,11 @@ pkgcfg_lib_LIBUV_m-ADVANCED:INTERNAL=1
 pkgcfg_lib_LIBUV_pthread-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: pkgcfg_lib_LIBUV_uv
 pkgcfg_lib_LIBUV_uv-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: pkgcfg_lib_PCRE2_pcre2-8
+pkgcfg_lib_PCRE2_pcre2-8-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: pkgcfg_lib__OPENSSL_crypto
 pkgcfg_lib__OPENSSL_crypto-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: pkgcfg_lib__OPENSSL_ssl
 pkgcfg_lib__OPENSSL_ssl-ADVANCED:INTERNAL=1
-prefix_result:INTERNAL=/opt/homebrew/Cellar/openssl@3/3.6.2/lib
+prefix_result:INTERNAL=/opt/homebrew/Cellar/pcre2/10.47_1/lib
 

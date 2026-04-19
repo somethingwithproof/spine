@@ -12372,7 +12372,6 @@ CMakeFiles/spine.dir/src/poller.c.o: /Users/thomasvincent/Developer/github.com/C
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h \
@@ -17053,6 +17052,7 @@ CMakeFiles/spine.dir/src/util.c.o: /Users/thomasvincent/Developer/github.com/Cac
   /opt/homebrew/include/openssl/safestack.h \
   /opt/homebrew/include/openssl/stack.h \
   /opt/homebrew/include/openssl/types.h \
+  /opt/homebrew/include/pcre2.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/ma_list.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_com.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_ctype.h \
@@ -17060,6 +17060,8 @@ CMakeFiles/spine.dir/src/util.c.o: /Users/thomasvincent/Developer/github.com/Cac
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_version.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mysql.h
 
+
+/opt/homebrew/include/pcre2.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/regex.h:
 

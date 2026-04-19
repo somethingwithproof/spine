@@ -6638,3 +6638,103 @@ events:
         
       exitCode: 0
 ...
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake:761 (find_library)"
+      - "/opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake:811 (_pkg_find_libs)"
+      - "/opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake:1149 (_pkg_recalculate)"
+      - "/opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake:1166 (_pkg_check_modules_internal)"
+      - "cmake/SpineDependencies.cmake:128 (pkg_check_modules)"
+      - "CMakeLists.txt:63 (include)"
+    mode: "library"
+    variable: "pkgcfg_lib_PCRE2_pcre2-8"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "FIRST"
+      SearchAppBundle: "FIRST"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "pcre2-8"
+    candidate_directories:
+      - "/opt/homebrew/Cellar/pcre2/10.47_1/lib/"
+    found: "/opt/homebrew/Cellar/pcre2/10.47_1/lib/libpcre2-8.dylib"
+    search_context:
+      ENV{PATH}:
+        - "/Users/thomasvincent/wikipedia-tools/.venv/bin"
+        - "/Users/thomasvincent/WikiOps/bin"
+        - "/Users/thomasvincent/WikiOps/tools"
+        - "/opt/homebrew/opt/ccache/libexec"
+        - "/Users/thomasvincent/.local/bin"
+        - "/Users/thomasvincent/bin"
+        - "/Users/thomasvincent/wikipedia-tools/.venv/bin"
+        - "/Users/thomasvincent/WikiOps/bin"
+        - "/Users/thomasvincent/WikiOps/tools"
+        - "/opt/homebrew/opt/ccache/libexec"
+        - "/Users/thomasvincent/.local/bin"
+        - "/Users/thomasvincent/bin"
+        - "/Users/thomasvincent/.codex/tmp/arg0/codex-arg0USWFSv"
+        - "/opt/homebrew/opt/php@8.4/bin"
+        - "/opt/homebrew/sbin"
+        - "/Users/thomasvincent/.local/share/mise/installs/node/22/bin"
+        - "/Users/thomasvincent/.local/share/mise/installs/python/3.12/bin"
+        - "/Users/thomasvincent/.local/share/mise/installs/ruby/3.3/bin"
+        - "/Users/thomasvincent/.local/share/mise/shims"
+        - "/opt/homebrew/bin"
+        - "/Users/thomasvincent/.local/share/cargo/bin"
+        - "/opt/homebrew/bin"
+        - "/usr/local/bin"
+        - "/System/Cryptexes/App/usr/bin"
+        - "/usr/bin"
+        - "/bin"
+        - "/usr/sbin"
+        - "/sbin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
+        - "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
+        - "/opt/pkg/env/active/bin"
+        - "/opt/pmk/env/global/bin"
+        - "/Library/Apple/usr/bin"
+        - "/usr/local/share/dotnet"
+        - "~/.dotnet/tools"
+        - "/Users/thomasvincent/wikipedia-tools/.venv/bin"
+        - "/Users/thomasvincent/WikiOps/bin"
+        - "/Users/thomasvincent/WikiOps/tools"
+        - "/opt/homebrew/opt/ccache/libexec"
+        - "/Users/thomasvincent/.local/bin"
+        - "/Users/thomasvincent/bin"
+        - "/Applications/Ghostty.app/Contents/MacOS"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr"
+        - "/opt/homebrew"
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/opt/homebrew"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+        - "/sw"
+        - "/opt/local"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+      CMAKE_SYSTEM_FRAMEWORK_PATH:
+        - "~/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/Network/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks"
+        - "/Applications/Xcode.app/Contents/Developer/Library/Frameworks"
+        - "/Library/Frameworks"
+        - "/Network/Library/Frameworks"
+        - "/System/Library/Frameworks"
+...

@@ -438,7 +438,6 @@ CMakeFiles/spine.dir/src/poller.c.o: \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/spine_probes.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h \
-  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h \
   /Users/thomasvincent/Developer/github.com/Cacti/spine/src/poll_state.h \

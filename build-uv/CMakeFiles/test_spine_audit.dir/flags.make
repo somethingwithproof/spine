@@ -6,7 +6,5 @@ C_DEFINES =
 
 C_INCLUDES = -I/Users/thomasvincent/Developer/github.com/Cacti/spine/src -I/Users/thomasvincent/Developer/github.com/Cacti/spine/tests/unit
 
-C_FLAGSarm64 = -std=gnu17 -arch arm64 -Wall -Wextra -Wformat -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Wvla -Wshadow -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat-security -fPIE
-
-C_FLAGS = -std=gnu17 -arch arm64 -Wall -Wextra -Wformat -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Wvla -Wshadow -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat-security -fPIE
+C_FLAGS = -std=gnu17 -Wall -Wextra -Wformat -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Wvla -Wshadow -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat-security -fPIE
 

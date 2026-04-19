@@ -2637,6 +2637,7 @@ CMakeFiles/test_check_mode.dir/src/util.c.o: /Users/thomasvincent/Developer/gith
   /opt/homebrew/include/openssl/safestack.h \
   /opt/homebrew/include/openssl/stack.h \
   /opt/homebrew/include/openssl/types.h \
+  /opt/homebrew/include/pcre2.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/ma_list.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_com.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_ctype.h \
@@ -3521,6 +3522,8 @@ CMakeFiles/test_check_mode.dir/tests/unit/test_spine_stubs.c.o: /Users/thomasvin
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mariadb_version.h \
   /opt/homebrew/opt/mariadb-connector-c/include/mariadb/mysql.h
 
+
+/opt/homebrew/include/pcre2.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/regex.h:
 

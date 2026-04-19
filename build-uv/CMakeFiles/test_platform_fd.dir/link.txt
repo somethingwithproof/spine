@@ -1,1 +1,1 @@
-/usr/bin/cc  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_platform_fd.dir/tests/unit/test_platform_fd.c.o -o test_platform_fd  libspine_platform_test_support.a -lm -lm /opt/homebrew/lib/libuv.dylib /opt/homebrew/lib/libcares.dylib
+/usr/bin/cc -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_platform_fd.dir/tests/unit/test_platform_fd.c.o -o test_platform_fd  libspine_platform_test_support.a -lm -lm /opt/homebrew/lib/libuv.dylib /opt/homebrew/lib/libcares.dylib -lpcre2-8
