@@ -2899,7 +2899,10 @@ static void process_result_string(char *result, target_t *item, int host_id) {
 #include "async_dns.h"
 #include "async_snmp.h"
 #include "async_exec.h"
-#include "async_icmp.h"
+/* async ICMP is not implemented; the real ping runs through the sync
+ * ping_host path in poll_host(). The async stage is collapsed to a
+ * state transition so HAVE_LIBUV builds do not falsely report hosts as
+ * reachable while the implementation is absent. */
 #include "async_mysql.h"
 #include "async_batch.h"
 
@@ -2952,13 +2955,6 @@ static void on_dns_complete(struct addrinfo *res, int status, void *data) {
 	(void)res;
 	poll_context_t *ctx = (poll_context_t *)data;
 	ctx->state = (status == 0) ? POLL_STATE_PING : POLL_STATE_ERROR;
-	poll_step(ctx);
-}
-
-static void on_ping_complete(const char *result, int status, void *data) {
-	(void)result; (void)status;
-	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->state = POLL_STATE_SNMP_SEND;
 	poll_step(ctx);
 }
 
@@ -3016,9 +3012,8 @@ static int stage_dns(poll_context_t *ctx) {
 }
 
 static int stage_ping(poll_context_t *ctx) {
-	if (ctx->host && ctx->host->hostname[0] != '\0') {
-		return spine_async_icmp_ping(ctx->host->hostname, on_ping_complete, ctx);
-	}
+	/* async ICMP not implemented - advance to SNMP. Availability decisions
+	 * happen in the sync poll_host() path on non-async builds. */
 	ctx->state = POLL_STATE_SNMP_SEND;
 	return 1;
 }

@@ -141,7 +141,6 @@ set(SPINE_CORE_SOURCES
     src/async_snmp.c
     src/async_mysql.c
     src/async_batch.c
-    src/async_icmp.c
     src/async_dns.c
     src/php.c
     src/ping.c
