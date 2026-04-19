@@ -12396,11 +12396,13 @@ CMakeFiles/spine.dir/src/poller.c.o
  /Users/thomasvincent/Developer/github.com/Cacti/spine/build-uv/config/config.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_batch.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_dns.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_exec.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_icmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_mysql.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/async_snmp.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/circuit_breaker.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/common.h
+ /Users/thomasvincent/Developer/github.com/Cacti/spine/src/composition_root.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/error.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_service.h
  /Users/thomasvincent/Developer/github.com/Cacti/spine/src/host_polling_stages.h
