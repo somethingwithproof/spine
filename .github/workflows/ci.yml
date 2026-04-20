@@ -17,16 +17,6 @@ permissions:
   contents: read
 
 jobs:
-  build-system-guard:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
-
-      - name: Enforce CMake-only build system
-        run: |
-          set -euo pipefail
-          bash scripts/check-no-autotools.sh
-
   flawfinder:
     runs-on: ubuntu-latest
     steps:

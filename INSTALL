@@ -63,8 +63,7 @@ commands sent to the PHP script server to prevent protocol subversion.
 Build System
 ------------
 
-CMake is the only supported build system for this repository.
-Autotools (`configure`, `configure.ac`, `Makefile.am`) is not supported.
+CMake is the build system for this repository.
 
 -----------------------------------------------------------------------------
 

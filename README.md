@@ -2,8 +2,6 @@
 
 Multi-threaded SNMP and script poller for Cacti.
 
-Build system policy: Spine is CMake-only. Autotools (`configure`, `configure.ac`, `Makefile.am`) is not supported.
-
 [![distro matrix](https://github.com/Cacti/spine/actions/workflows/distro-matrix.yml/badge.svg)](https://github.com/Cacti/spine/actions/workflows/distro-matrix.yml)
 [![ci](https://github.com/Cacti/spine/actions/workflows/ci.yml/badge.svg)](https://github.com/Cacti/spine/actions/workflows/ci.yml)
 [![license: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
