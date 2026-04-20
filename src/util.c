@@ -1491,6 +1491,44 @@ void spine_scrub_secrets(void) {
 #endif
 }
 
+/* Zero SNMP credential fields on one target_t row. */
+static void spine_scrub_one_target(target_t *t) {
+	if (t == NULL) return;
+
+#ifdef HAVE_EXPLICIT_BZERO
+#define SPINE_BZ(p, n) explicit_bzero((p), (n))
+#else
+#define SPINE_BZ(p, n) spine_volatile_bzero((p), (n))
+#endif
+	SPINE_BZ(t->snmp_community,       sizeof(t->snmp_community));
+	SPINE_BZ(t->snmp_username,        sizeof(t->snmp_username));
+	SPINE_BZ(t->snmp_password,        sizeof(t->snmp_password));
+	SPINE_BZ(t->snmp_priv_passphrase, sizeof(t->snmp_priv_passphrase));
+#undef SPINE_BZ
+}
+
+void spine_scrub_target_secrets(struct target_struct *items, int count) {
+	if (items == NULL || count <= 0) return;
+
+	for (int i = 0; i < count; i++) {
+		spine_scrub_one_target(&items[i]);
+	}
+}
+
+void spine_scrub_host_secrets(struct host_struct *host) {
+	if (host == NULL) return;
+
+#ifdef HAVE_EXPLICIT_BZERO
+#define SPINE_BZ(p, n) explicit_bzero((p), (n))
+#else
+#define SPINE_BZ(p, n) spine_volatile_bzero((p), (n))
+#endif
+	SPINE_BZ(host->snmp_community,       sizeof(host->snmp_community));
+	SPINE_BZ(host->snmp_password,        sizeof(host->snmp_password));
+	SPINE_BZ(host->snmp_priv_passphrase, sizeof(host->snmp_priv_passphrase));
+#undef SPINE_BZ
+}
+
 /*! \fn void die(const char *format, ...)
  *  \brief a method to end Spine while returning the fatal error to stderr
  *

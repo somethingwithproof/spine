@@ -42,6 +42,18 @@ extern void config_defaults(void);
  * handlers must stay AS-safe and therefore do NOT invoke this. */
 extern void spine_scrub_secrets(void);
 
+/* Zero SNMP credential fields (community, v3 username/password,
+ * auth/priv passphrases) in a target_t array before free. Each poll
+ * cycle populates these buffers from DB rows; scrubbing them as the
+ * cycle unwinds narrows the window in which a core dump or cross-
+ * process memory scan can recover per-device credentials. */
+struct target_struct;
+extern void spine_scrub_target_secrets(struct target_struct *items, int count);
+
+/* Zero SNMP credential fields on a single host row. */
+struct host_struct;
+extern void spine_scrub_host_secrets(struct host_struct *host);
+
 /* Capture the effective uid at process startup before any privilege drop.
  * Used by the spine.conf owner check so a root-owned config stays valid
  * once spine drops to its service account. */

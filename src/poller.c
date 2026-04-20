@@ -2364,13 +2364,17 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 			SPINE_FREE(query12);
 		}
 
-			SPINE_FREE(poller_items);
+		/* Zero per-device SNMP credentials before release so a late
+		 * memory scan or a delayed core dump cannot read them back. */
+		spine_scrub_target_secrets(poller_items, (int)num_rows);
+		SPINE_FREE(poller_items);
 		SPINE_FREE(snmp_oids);
 	} else {
 		/* free the mysql result */
 		db_free_result(result);
 	}
 
+	spine_scrub_host_secrets(host);
 	SPINE_FREE(host);
 	SPINE_FREE(reindex);
 	SPINE_FREE(ping);
