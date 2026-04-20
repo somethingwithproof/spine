@@ -34,7 +34,8 @@ On Rocky, Alma, Fedora, or RHEL derivatives:
 sudo dnf install selinux-policy-devel
 make -C etc/selinux -f /usr/share/selinux/devel/Makefile
 sudo semodule -i etc/selinux/spine.pp
-sudo restorecon -Rv /usr/local/spine /var/log/cacti /var/run/spine
+sudo restorecon -v /usr/sbin/spine
+sudo restorecon -Rv /var/log/cacti /var/run/spine
 ```
 
 ## Permissive mode for audit2allow
@@ -74,7 +75,7 @@ sudo semanage permissive -d spine_t
 
 ## Interaction with the systemd unit
 
-`etc/systemd/spine.service` applies kernel-level sandboxing via
+`etc/systemd/spine.service.in` (rendered at install time) applies kernel-level sandboxing via
 `ProtectSystem=strict`, `ProtectHome=yes`, and a `SystemCallFilter`.
 SELinux layers on top: a call that systemd allows is still subject to
 SELinux type-enforcement, so the policy module can be tighter than the

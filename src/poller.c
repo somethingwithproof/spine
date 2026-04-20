@@ -75,12 +75,22 @@ static void spine_after_poll_work_cb(uv_work_t *req, int status) {
 	free(sw);
 }
 
-void spine_queue_poll(poller_thread_t *det) {
+int spine_queue_poll(poller_thread_t *det) {
 	spine_work_t *sw = malloc(sizeof(spine_work_t));
+	int rc;
+	if (sw == NULL) {
+		return ENOMEM;
+	}
 	sw->work.data = sw;
 	sw->details = det;
 
-	uv_queue_work(loop, &sw->work, spine_poll_work_cb, spine_after_poll_work_cb);
+	rc = uv_queue_work(det->event_loop, &sw->work, spine_poll_work_cb, spine_after_poll_work_cb);
+	if (rc != 0) {
+		free(sw);
+		return EAGAIN;
+	}
+
+	return 0;
 }
 #endif
 
@@ -205,7 +215,6 @@ typedef struct HostPollPipelineData {
 void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
 	HostPollingRequest request;
 	HostPollingResult result;
-	const spine_services_t *services;
 	HostPollPipelineData pipeline_data;
 
 	memset(&request, 0, sizeof(request));
@@ -226,7 +235,6 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 	request.on_persist_results = host_poll_stage_persist_results;
 	request.on_update_host_state = host_poll_stage_update_host_state;
 
-	services = spine_services_default();
 	result = host_polling_service_run(&request);
 	if (host_errors != NULL) {
 		*host_errors = result.host_errors;
@@ -2874,225 +2882,15 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 	return result_string;
 }
 
-/* --- Result Processing Logic --- */
-
-static void process_result_string(char *result, target_t *item, int host_id) {
-	if (IS_UNDEFINED(result)) return;
-
-	if (is_hexadecimal(result, TRUE)) {
-		unsigned long long val = hex2dec(result);
-		snprintf(result, RESULTS_BUFFER, "%llu", val);
-	}
-	else if (!is_numeric(result) && !is_multipart_output(result)) {
-		char *stripped = strip_alpha(result);
-		const char *replaced = regex_replace(REGEX_NUMBER, stripped);
-		if (replaced) strncpy(result, replaced, RESULTS_BUFFER);
-	}
-
-	if (item->output_regex[0] != 0) {
-		const char *replaced = regex_replace(item->output_regex, result);
-		if (replaced) strncpy(result, replaced, RESULTS_BUFFER);
-	}
-
-	if (!validate_result(result)) {
-		SPINE_LOG_DEBUG(("WARNING: Device[%i] Invalid Result filtered: %s", host_id, result));
-		SET_UNDEFINED(result);
-	}
-}
-
 #ifdef HAVE_LIBUV
-#include "poll_state_internal.h"
-#include "async_dns.h"
-#include "async_snmp.h"
-#include "async_exec.h"
-/* async ICMP is not implemented; the real ping runs through the sync
- * ping_host path in poll_host(). The async stage is collapsed to a
- * state transition so HAVE_LIBUV builds do not falsely report hosts as
- * reachable while the implementation is absent. */
-#include "async_mysql.h"
-#include "async_batch.h"
-
-extern spine_spine_host_t *host_get(int host_id);
-
-static int g_active_handles = 0;
-static poll_context_t *g_wait_queue_head = NULL;
-static poll_context_t *g_wait_queue_tail = NULL;
-
-static void poll_step(poll_context_t *ctx);
-
-static void governor_release_slot(void) {
-	g_active_handles--;
-	if (g_wait_queue_head) {
-		poll_context_t *next = g_wait_queue_head;
-		g_wait_queue_head = next->next_in_queue;
-		if (!g_wait_queue_head) g_wait_queue_tail = NULL;
-		next->next_in_queue = NULL;
-		poll_step(next);
-	}
-}
-
-static int governor_acquire_slot(poll_context_t *ctx) {
-	if (g_active_handles < MAX_ASYNC_CONCURRENCY) {
-		g_active_handles++;
-		return 0;
-	}
-	ctx->next_in_queue = NULL;
-	if (g_wait_queue_tail) {
-		g_wait_queue_tail->next_in_queue = ctx;
-		g_wait_queue_tail = ctx;
-	} else {
-		g_wait_queue_head = g_wait_queue_tail = ctx;
-	}
-	return -1;
-}
-
-static void on_handle_closed(uv_handle_t *handle) {
-	poll_context_t *ctx = (poll_context_t *)handle->data;
-	ctx->handles_closed++;
-	if (ctx->handles_closed == 2) {
-		if (ctx->sessp) snmp_sess_close(ctx->sessp);
-		spine_sem_post(&available_threads);
-		governor_release_slot();
-		free(ctx);
-	}
-}
-
-static void on_dns_complete(struct addrinfo *res, int status, void *data) {
-	(void)res;
-	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->state = (status == 0) ? POLL_STATE_PING : POLL_STATE_ERROR;
-	poll_step(ctx);
-}
-
-static void extract_and_format_pdu(struct snmp_pdu *pdu, poll_context_t *ctx) {
-	struct variable_list *vars;
-	char result[RESULTS_BUFFER];
-	target_t *item;
-
-	if (!pdu || !ctx || !ctx->host) return;
-	item = &ctx->poller_items[ctx->current_item_idx];
-
-	for (vars = pdu->variables; vars; vars = vars->next_variable) {
-		snmp_snprint_value(result, sizeof(result), vars->name, vars->name_length, vars);
-		process_result_string(result, item, ctx->host->id);
-		strncpy(item->result, result, RESULTS_BUFFER);
-		
-		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DS[%i] SNMP: v%i: %s, dsname: %s, value: %s", 
-			ctx->host->id, ctx->spine_host_thread, item->local_data_id, 
-			item->snmp_version, ctx->host->hostname, item->rrd_name, result));
-	}
-}
-
-static void on_snmp_complete(void *sessp, struct snmp_pdu *pdu, void *data) {
-	(void)sessp;
-	poll_context_t *ctx = (poll_context_t *)data;
-	extract_and_format_pdu(pdu, ctx);
-	ctx->state = POLL_STATE_SCRIPTS;
-	poll_step(ctx);
-}
-
-static void on_exec_complete(const char *result, int exit_status, int term_signal, void *data) {
-	(void)exit_status; (void)term_signal;
-	poll_context_t *ctx = (poll_context_t *)data;
-	target_t *item = &ctx->poller_items[ctx->current_item_idx];
-	strncpy(item->result, result, RESULTS_BUFFER);
-	process_result_string(item->result, item, ctx->host->id);
-	ctx->state = POLL_STATE_FLUSH;
-	poll_step(ctx);
-}
-
-static void __attribute__((unused)) on_db_complete(MYSQL *mysql, int status, void *data) {
-	(void)mysql; (void)status;
-	poll_context_t *ctx = (poll_context_t *)data;
-	ctx->state = POLL_STATE_DONE;
-	poll_step(ctx);
-}
-
-static int stage_dns(poll_context_t *ctx) {
-	if (ctx->host && ctx->host->hostname[0] != '\0') {
-		if (governor_acquire_slot(ctx) != 0) return -1;
-		return spine_async_dns_lookup(ctx->host->hostname, on_dns_complete, ctx);
-	}
-	ctx->state = POLL_STATE_PING;
-	return 1; 
-}
-
-static int stage_ping(poll_context_t *ctx) {
-	/* async ICMP not implemented - advance to SNMP. Availability decisions
-	 * happen in the sync poll_host() path on non-async builds. */
-	ctx->state = POLL_STATE_SNMP_SEND;
-	return 1;
-}
-
-static int stage_snmp(poll_context_t *ctx) {
-	if (ctx->num_items > 0) {
-		return spine_async_snmp_get(ctx->sessp, ".1.3.6.1.2.1.1.1.0", on_snmp_complete, ctx);
-	}
-	ctx->state = POLL_STATE_SCRIPTS;
-	return 1;
-}
-
-static int stage_scripts(poll_context_t *ctx) {
-	target_t *item = &ctx->poller_items[ctx->current_item_idx];
-	if (item->snmp_version == 0) {
-		return spine_async_exec(item->command, 3000, on_exec_complete, ctx);
-	}
-	ctx->state = POLL_STATE_FLUSH;
-	return 1;
-}
-
-static int stage_flush(poll_context_t *ctx) {
-	spine_async_batch_enqueue("SELECT 1 /* dummy flush */");
-	ctx->state = POLL_STATE_DONE;
-	return 1; 
-}
-
-static const spine_async_stage_f polling_pipeline[] = {
-	[POLL_STATE_DNS]       = stage_dns,
-	[POLL_STATE_PING]      = stage_ping,
-	[POLL_STATE_SNMP_SEND] = stage_snmp,
-	[POLL_STATE_SCRIPTS]   = stage_scripts,
-	[POLL_STATE_FLUSH]     = stage_flush,
-};
-
-static void poll_step(poll_context_t *ctx) {
-	if (ctx->state >= POLL_STATE_DONE) {
-		uv_timer_stop(&ctx->snmp_timer);
-		if (ctx->active_fd != -1) {
-			uv_poll_stop(&ctx->snmp_poll);
-			uv_close((uv_handle_t *)&ctx->snmp_poll, on_handle_closed);
-		} else {
-			ctx->handles_closed++;
-		}
-		uv_close((uv_handle_t *)&ctx->snmp_timer, on_handle_closed);
-		return;
-	}
-
-	spine_async_stage_f handler = polling_pipeline[ctx->state];
-	if (handler) {
-		int r = handler(ctx);
-		if (r > 0) poll_step(ctx);
-	} else {
-		ctx->state++;
-		poll_step(ctx);
-	}
-}
-
 void spine_transition_state(poll_context_t *ctx) {
-	poll_step(ctx);
+	UNUSED_PARAMETER(ctx);
 }
 
 void spine_async_poll_start(poller_thread_t *det) {
-	poll_context_t *ctx = calloc(1, sizeof(poll_context_t));
-	if (ctx) {
-		ctx->state = POLL_STATE_DNS;
-		ctx->active_fd = -1;
-		ctx->spine_host_thread = det->spine_host_thread;
-		ctx->host = det->host;
-		uv_timer_init(loop, &ctx->snmp_timer);
-		ctx->snmp_timer.data = ctx;
-		poll_step(ctx);
-	}
+	/* Route libuv mode through the proven poll_host() path executed in
+	 * uv_queue_work workers for behavior parity with pthread mode. */
+	(void)spine_queue_poll(det);
 }
 #else
 void spine_async_poll_start(poller_thread_t *det) { UNUSED_PARAMETER(det); }

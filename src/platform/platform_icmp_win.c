@@ -67,36 +67,18 @@ static pfn_IcmpCloseHandle  p_IcmpCloseHandle  = NULL;
 static pfn_IcmpSendEcho2Ex  p_IcmpSendEcho2Ex  = NULL;
 static pfn_Icmp6CreateFile  p_Icmp6CreateFile  = NULL;
 static pfn_Icmp6SendEcho2   p_Icmp6SendEcho2   = NULL;
-static volatile LONG g_init_once = 0;
-static volatile LONG g_load_ok = 0;   /* 0 = pending, 1 = ok, -1 = failed */
+static INIT_ONCE g_iphlpapi_once = INIT_ONCE_STATIC_INIT;
+static LONG g_load_ok = 0;   /* 0 = not initialized, 1 = ok, -1 = failed */
 
-/* One-time loader. The first thread to enter runs the load; losers
- * spin until the winner publishes g_load_ok. Critical: all
- * function-pointer stores must be globally visible BEFORE g_load_ok
- * is published, and a loser thread that observes the published flag
- * must then see the initialized pointers, not stale NULLs. On ARM64
- * a plain `volatile` read is NOT an acquire, so we drive the spin
- * through InterlockedCompareExchange (a full barrier on every ISA
- * Windows supports) and close with MemoryBarrier() before the caller
- * dereferences the function pointers. */
-static void load_iphlpapi(void) {
-    if (InterlockedCompareExchange(&g_init_once, 1, 0) != 0) {
-        /* Acquire-read g_load_ok via an interlocked no-op. A plain
-         * load on ARM64 / weakly ordered hardware can satisfy the
-         * `!= 0` check while the function pointer stores published
-         * before g_load_ok are still invisible to this core. */
-        while (InterlockedCompareExchange(&g_load_ok, 0, 0) == 0) {
-            Sleep(0);  /* another thread is loading */
-        }
-        MemoryBarrier();
-        return;
-    }
+static BOOL CALLBACK spine_icmp_load_once(PINIT_ONCE init_once, PVOID param, PVOID *context) {
+    (void)init_once;
+    (void)param;
+    (void)context;
 
     g_iphlpapi = LoadLibraryW(L"iphlpapi.dll");
     if (g_iphlpapi == NULL) {
-        MemoryBarrier();
-        InterlockedExchange(&g_load_ok, -1);
-        return;
+        g_load_ok = -1;
+        return TRUE;
     }
 
     p_IcmpCreateFile  = (pfn_IcmpCreateFile)  GetProcAddress(g_iphlpapi, "IcmpCreateFile");
@@ -105,16 +87,18 @@ static void load_iphlpapi(void) {
     p_Icmp6CreateFile = (pfn_Icmp6CreateFile) GetProcAddress(g_iphlpapi, "Icmp6CreateFile");
     p_Icmp6SendEcho2  = (pfn_Icmp6SendEcho2)  GetProcAddress(g_iphlpapi, "Icmp6SendEcho2");
 
-    /* Publish all pointer stores ahead of g_load_ok so a concurrent
-     * reader cannot observe a ready flag while pointers are still NULL. */
-    MemoryBarrier();
-
     if (p_IcmpCreateFile && p_IcmpCloseHandle && p_IcmpSendEcho2Ex
         && p_Icmp6CreateFile && p_Icmp6SendEcho2) {
-        InterlockedExchange(&g_load_ok, 1);
+        g_load_ok = 1;
     } else {
-        InterlockedExchange(&g_load_ok, -1);
+        g_load_ok = -1;
     }
+
+    return TRUE;
+}
+
+static void load_iphlpapi(void) {
+    (void)InitOnceExecuteOnce(&g_iphlpapi_once, spine_icmp_load_once, NULL, NULL);
 }
 
 /* Default payload used when the caller passes NULL. Mirrors the POSIX
@@ -149,16 +133,18 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
                        spine_icmp_result_t *result) {
     struct in_addr dst;
     IPAddr dst_addr;
-    HANDLE h;
+    HANDLE h = INVALID_HANDLE_VALUE;
     DWORD reply_size;
-    void *reply_buf;
+    void *reply_buf = NULL;
     DWORD replies;
     spine_ping_payload_t default_payload;
     const void *send_payload;
     size_t send_len;
 
+    int rc = -1;
+
     if (result == NULL) {
-        return -1;
+        return rc;
     }
     result->status = SPINE_ICMP_ERROR;
     result->rtt_us = 0;
@@ -166,7 +152,7 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
 
     if (ip == NULL || payload_len > 0xFF00U) {
         result->system_errno = ERROR_INVALID_PARAMETER;
-        return -1;
+        return rc;
     }
 
     /* Own payload composition when the caller did not provide one.
@@ -174,7 +160,7 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
      * inside iphlpapi.dll, so reject that case explicitly. */
     if (payload == NULL && payload_len > 0) {
         result->system_errno = ERROR_INVALID_PARAMETER;
-        return -1;
+        return rc;
     }
     if (payload == NULL) {
         win_default_payload(&default_payload);
@@ -188,12 +174,12 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
     load_iphlpapi();
     if (g_load_ok != 1) {
         result->system_errno = (int) GetLastError();
-        return -1;
+        return rc;
     }
 
     if (InetPtonA(AF_INET, ip, &dst) != 1) {
         result->system_errno = WSAGetLastError();
-        return -1;
+        goto cleanup;
     }
     dst_addr = dst.S_un.S_addr;
 
@@ -208,9 +194,8 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
     reply_size = (DWORD)(sizeof(ICMP_ECHO_REPLY) + send_len + 8);
     reply_buf = calloc(1, reply_size);
     if (reply_buf == NULL) {
-        p_IcmpCloseHandle(h);
         result->system_errno = ERROR_NOT_ENOUGH_MEMORY;
-        return -1;
+        goto cleanup;
     }
 
     replies = p_IcmpSendEcho2Ex(h, NULL, NULL, NULL,
@@ -228,9 +213,14 @@ int spine_icmp_echo_v4(const char *ip, uint32_t timeout_ms,
         result->system_errno = (int) err;
     }
 
+    rc = 0;
+
+cleanup:
     SPINE_ICMP_FREE(reply_buf);
-    p_IcmpCloseHandle(h);
-    return 0;
+    if (h != NULL && h != INVALID_HANDLE_VALUE) {
+        p_IcmpCloseHandle(h);
+    }
+    return rc;
 }
 
 int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
@@ -238,16 +228,18 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
                        spine_icmp_result_t *result) {
     struct sockaddr_in6 src;
     struct sockaddr_in6 dst;
-    HANDLE h;
+    HANDLE h = INVALID_HANDLE_VALUE;
     DWORD reply_size;
-    void *reply_buf;
+    void *reply_buf = NULL;
     DWORD replies;
     spine_ping_payload_t default_payload;
     const void *send_payload;
     size_t send_len;
 
+    int rc = -1;
+
     if (result == NULL) {
-        return -1;
+        return rc;
     }
     result->status = SPINE_ICMP_ERROR;
     result->rtt_us = 0;
@@ -255,12 +247,12 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
 
     if (ip == NULL || payload_len > 0xFF00U) {
         result->system_errno = ERROR_INVALID_PARAMETER;
-        return -1;
+        return rc;
     }
 
     if (payload == NULL && payload_len > 0) {
         result->system_errno = ERROR_INVALID_PARAMETER;
-        return -1;
+        return rc;
     }
     if (payload == NULL) {
         win_default_payload(&default_payload);
@@ -274,7 +266,7 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
     load_iphlpapi();
     if (g_load_ok != 1) {
         result->system_errno = (int) GetLastError();
-        return -1;
+        return rc;
     }
 
     memset(&src, 0, sizeof(src));
@@ -284,21 +276,20 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
 
     if (InetPtonA(AF_INET6, ip, &dst.sin6_addr) != 1) {
         result->system_errno = WSAGetLastError();
-        return -1;
+        return rc;
     }
 
     h = p_Icmp6CreateFile();
     if (h == INVALID_HANDLE_VALUE) {
         result->system_errno = (int) GetLastError();
-        return -1;
+        goto cleanup;
     }
 
     reply_size = (DWORD)(sizeof(ICMPV6_ECHO_REPLY) + send_len + 8);
     reply_buf = calloc(1, reply_size);
     if (reply_buf == NULL) {
-        p_IcmpCloseHandle(h);
         result->system_errno = ERROR_NOT_ENOUGH_MEMORY;
-        return -1;
+        goto cleanup;
     }
 
     replies = p_Icmp6SendEcho2(h, NULL, NULL, NULL,
@@ -316,9 +307,14 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
         result->system_errno = (int) err;
     }
 
+    rc = 0;
+
+cleanup:
     SPINE_ICMP_FREE(reply_buf);
-    p_IcmpCloseHandle(h);
-    return 0;
+    if (h != NULL && h != INVALID_HANDLE_VALUE) {
+        p_IcmpCloseHandle(h);
+    }
+    return rc;
 }
 
 #endif /* _WIN32 */

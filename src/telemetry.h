@@ -7,7 +7,7 @@
  * Initialize the asynchronous telemetry server.
  * Listens on a Unix Domain Socket or TCP port for metrics requests.
  */
-int spine_telemetry_init(const char *path);
+int spine_telemetry_init(uv_loop_t *runtime_loop, const char *path);
 
 /**
  * Update internal metrics.

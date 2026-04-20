@@ -17,6 +17,16 @@ permissions:
   contents: read
 
 jobs:
+  build-system-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Enforce CMake-only build system
+        run: |
+          set -euo pipefail
+          bash scripts/check-no-autotools.sh
+
   flawfinder:
     runs-on: ubuntu-latest
     steps:
@@ -161,7 +171,7 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    continue-on-error: true
+    continue-on-error: false
     defaults:
       run:
         shell: msys2 {0}
@@ -213,11 +223,8 @@ jobs:
       - name: Run CTest
         run: |
           set -euo pipefail
-          if [ "${{ steps.netsnmp.outputs.available }}" = "true" ]; then
-            ctest --test-dir build --output-on-failure
-          else
-            ctest --test-dir build --output-on-failure
-          fi
+          ctest --test-dir build --output-on-failure
+          ctest --test-dir build --output-on-failure -R "^icmp_win_loader$"
 
       - name: Upload binary
         if: steps.netsnmp.outputs.available == 'true' && success()

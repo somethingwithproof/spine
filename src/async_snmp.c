@@ -1,6 +1,5 @@
 #include "common.h"
 #include "spine.h"
-#include "poll_state_internal.h"
 #include "async_snmp.h"
 
 typedef struct {
@@ -10,7 +9,28 @@ typedef struct {
     void *data;
     int closed_handles;
     int fd;
+    bool callback_fired;
+    bool closing;
 } async_snmp_ctx_t;
+
+static void on_poll_close(uv_handle_t *handle);
+
+static void async_snmp_finish(async_snmp_ctx_t *ctx, struct snmp_pdu *pdu) {
+    if (ctx == NULL) {
+        return;
+    }
+
+    if (!ctx->callback_fired) {
+        ctx->callback_fired = true;
+        ctx->callback(ctx->sessp, pdu, ctx->data);
+    }
+
+    if (!ctx->closing) {
+        ctx->closing = true;
+        uv_poll_stop(&ctx->poll);
+        uv_close((uv_handle_t *)&ctx->poll, on_poll_close);
+    }
+}
 
 static void on_poll_close(uv_handle_t *handle) {
     async_snmp_ctx_t *ctx = (async_snmp_ctx_t *)handle->data;
@@ -23,11 +43,10 @@ static void on_poll_close(uv_handle_t *handle) {
 static void __attribute__((unused)) on_snmp_timeout(uv_timer_t *handle);
 
 static void on_snmp_readable(uv_poll_t *handle, int status, int events) {
-    poll_context_t *ctx = (poll_context_t *)handle->data;
+    async_snmp_ctx_t *ctx = (async_snmp_ctx_t *)handle->data;
 
     if (status < 0) {
-        ctx->state = POLL_STATE_ERROR;
-        spine_transition_state(ctx);
+        async_snmp_finish(ctx, NULL);
         return;
     }
 
@@ -46,7 +65,7 @@ static void on_snmp_readable(uv_poll_t *handle, int status, int events) {
 }
 
 static void __attribute__((unused)) on_snmp_timeout(uv_timer_t *handle) {
-    poll_context_t *ctx = (poll_context_t *)handle->data;
+    async_snmp_ctx_t *ctx = (async_snmp_ctx_t *)handle->data;
 
     /* net-snmp handles the internal retry counter.
        If it exhausts retries, it triggers the callback with NETSNMP_CALLBACK_OP_TIMED_OUT */
@@ -56,23 +75,24 @@ static void __attribute__((unused)) on_snmp_timeout(uv_timer_t *handle) {
 /* Internal Net-SNMP response callback */
 static int async_response_handler(int operation, struct snmp_session *sp, 
                                   int reqid, struct snmp_pdu *pdu, void *magic) {
+    (void)operation;
     (void)sp;
     (void)reqid;
     async_snmp_ctx_t *ctx = (async_snmp_ctx_t *)magic;
 
-    ctx->callback(ctx->sessp, pdu, ctx->data);
-    
-    /* Request libuv to stop polling and close handle. */
-    uv_poll_stop(&ctx->poll);
-    uv_close((uv_handle_t *)&ctx->poll, on_poll_close);
+    async_snmp_finish(ctx, pdu);
     
     return 1; /* Acknowledge we handled the PDU */
 }
 
-int spine_async_snmp_get(void *sessp, const char *oid_str, async_snmp_cb cb, void *data) {
+int spine_async_snmp_get(uv_loop_t *runtime_loop, void *sessp, const char *oid_str, async_snmp_cb cb, void *data) {
     struct snmp_pdu *pdu;
     oid anOID[MAX_OID_LEN];
     size_t anOID_len = MAX_OID_LEN;
+
+    if (!runtime_loop || !sessp || !oid_str || !cb) {
+        return -EINVAL;
+    }
 
     if (!snmp_parse_oid(oid_str, anOID, &anOID_len)) {
         return -1;
@@ -103,9 +123,15 @@ int spine_async_snmp_get(void *sessp, const char *oid_str, async_snmp_cb cb, voi
     for (int i = 0; i < fds; i++) {
         if (FD_ISSET(i, &fdset)) {
             ctx->fd = i;
-            uv_poll_init(loop, &ctx->poll, i);
+            if (uv_poll_init(runtime_loop, &ctx->poll, i) != 0) {
+                free(ctx);
+                return -1;
+            }
             ctx->poll.data = ctx;
-            uv_poll_start(&ctx->poll, UV_READABLE, on_snmp_readable);
+            if (uv_poll_start(&ctx->poll, UV_READABLE, on_snmp_readable) != 0) {
+                uv_close((uv_handle_t *)&ctx->poll, on_poll_close);
+                return -1;
+            }
             fd_found = 1;
             break;
         }

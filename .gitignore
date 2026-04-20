@@ -34,3 +34,7 @@ libtool
 # Build directories (CMake out-of-source + local experiments)
 build/
 build-*/
+
+# Agent / tooling session state
+.omc/
+.claude/worktrees/

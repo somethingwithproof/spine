@@ -38,6 +38,7 @@
 #include "config_repository.h"
 #include "log_formatter.h"
 #include "log_sink.h"
+#include "systemd_notify.h"
 #include "regex.h"
 
 #include <fcntl.h>
@@ -1779,6 +1780,8 @@ int spine_log(const char *format, ...) {
 
 			if (use_json) {
 				const char *level = "INFO";
+				unsigned long pid_ul = (unsigned long)spine_platform_process_id();
+				unsigned long tid_ul = (unsigned long)pthread_self();
 				if      (strstr(ulogmessage, "FATAL"))   level = "FATAL";
 				else if (strstr(ulogmessage, "ERROR"))   level = "ERROR";
 				else if (strstr(ulogmessage, "WARNING")) level = "WARN";
@@ -1799,11 +1802,24 @@ int spine_log(const char *format, ...) {
 				fprintf(fp,
 					"{\"ts\":\"%s\",\"level\":\"%s\",\"poller\":%d,\"pid\":%lu,\"tid\":%lu,\"msg\":\"%s\"}\n",
 					ts, level, set.poller_id,
-					(unsigned long)spine_platform_process_id(),
-					(unsigned long)pthread_self(),
+					pid_ul,
+					tid_ul,
 					msg_esc);
+				spine_sd_journal_log(level, ulogmessage, set.poller_id, pid_ul, tid_ul);
 			} else {
 				fprintf(fp, "%s", flogmessage);
+				{
+					const char *level = "INFO";
+					unsigned long pid_ul = (unsigned long)spine_platform_process_id();
+					unsigned long tid_ul = (unsigned long)pthread_self();
+
+					if      (strstr(ulogmessage, "FATAL"))   level = "FATAL";
+					else if (strstr(ulogmessage, "ERROR"))   level = "ERROR";
+					else if (strstr(ulogmessage, "WARNING")) level = "WARN";
+					else if (strstr(ulogmessage, "DEBUG"))   level = "DEBUG";
+
+					spine_sd_journal_log(level, ulogmessage, set.poller_id, pid_ul, tid_ul);
+				}
 			}
 		}
 	}

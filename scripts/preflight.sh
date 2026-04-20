@@ -25,6 +25,10 @@ cpu_count() {
 main() {
   cd "${REPO_ROOT}"
 
+  echo "=== build system guard (cmake-only) ==="
+  bash scripts/check-no-autotools.sh
+
+  echo
   echo "=== shell lint ==="
   bash scripts/lint-shell.sh
 

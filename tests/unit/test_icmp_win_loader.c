@@ -5,10 +5,10 @@
  +-------------------------------------------------------------------------+
  | icmp_win_loader: smoke test the multi-threaded iphlpapi one-shot
  | loader in platform_icmp_win.c. N threads all call spine_icmp_echo_v4()
- | simultaneously; the first thread through InterlockedCompareExchange
- | runs the DLL load, and every loser spins until the flag is published.
- | This test fails if the loser path reads a stale NULL function pointer
- | before the acquire fence (the bug the H1 fix addresses).
+ | simultaneously; the first thread through InitOnceExecuteOnce runs the
+ | DLL load while losers block behind the kernel one-time primitive.
+ | This test fails if the one-time path publishes a partially-initialized
+ | function table.
  |
  | On weakly-ordered hardware this is not a deterministic test. A clean
  | run does not prove the code is correct; a crash or NULL deref does

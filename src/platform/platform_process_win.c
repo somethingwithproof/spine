@@ -11,6 +11,7 @@
 #include <windows.h>
 
 #include "platform.h"
+#include "platform_win_error.h"
 
 static wchar_t *spine_windows_utf8_to_wide(const char *input) {
 	int required_chars;
@@ -164,32 +165,6 @@ static wchar_t *spine_windows_build_command_line(char *const argv[]) {
 	return command_line;
 }
 
-static int spine_windows_map_error_to_errno(DWORD error_code) {
-	switch (error_code) {
-	case ERROR_NOT_ENOUGH_MEMORY:
-	case ERROR_OUTOFMEMORY:
-		return ENOMEM;
-	case ERROR_FILE_NOT_FOUND:
-	case ERROR_PATH_NOT_FOUND:
-		return ENOENT;
-	case ERROR_ACCESS_DENIED:
-	case ERROR_INVALID_ACCESS:
-		return EACCES;
-	case ERROR_INVALID_HANDLE:
-		return EBADF;
-	case ERROR_INVALID_PARAMETER:
-		return EINVAL;
-	case ERROR_TOO_MANY_OPEN_FILES:
-		return EMFILE;
-	case ERROR_RETRY:
-	case ERROR_NOT_READY:
-	case ERROR_BUSY:
-		return EAGAIN;
-	default:
-		return EINVAL;
-	}
-}
-
 int spine_process_pipe(int pipe_fds[2]) {
 	return _pipe(pipe_fds, 4096, _O_BINARY);
 }
@@ -213,7 +188,7 @@ int spine_process_wait(spine_pid_t pid, int *status) {
 	process_handle = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
 	if (process_handle == NULL) {
 		last_error = GetLastError();
-		errno = last_error != 0 ? spine_windows_map_error_to_errno(last_error) : ESRCH;
+		errno = last_error != 0 ? spine_win32_error_to_errno(last_error) : ESRCH;
 		return -1;
 	}
 
@@ -222,7 +197,7 @@ int spine_process_wait(spine_pid_t pid, int *status) {
 		last_error = GetLastError();
 		CloseHandle(process_handle);
 		if (last_error != 0) {
-			errno = spine_windows_map_error_to_errno(last_error);
+			errno = spine_win32_error_to_errno(last_error);
 		} else {
 			errno = ECHILD;
 		}
@@ -234,7 +209,7 @@ int spine_process_wait(spine_pid_t pid, int *status) {
 			last_error = GetLastError();
 			CloseHandle(process_handle);
 			if (last_error != 0) {
-				errno = spine_windows_map_error_to_errno(last_error);
+				errno = spine_win32_error_to_errno(last_error);
 			} else {
 				errno = ECHILD;
 			}
@@ -262,7 +237,7 @@ int spine_process_terminate(spine_pid_t pid) {
 	process_handle = OpenProcess(PROCESS_TERMINATE, FALSE, process_id);
 	if (process_handle == NULL) {
 		last_error = GetLastError();
-		errno = last_error != 0 ? spine_windows_map_error_to_errno(last_error) : ESRCH;
+		errno = last_error != 0 ? spine_win32_error_to_errno(last_error) : ESRCH;
 		return -1;
 	}
 
@@ -270,14 +245,16 @@ int spine_process_terminate(spine_pid_t pid) {
 
 	if (terminate_result == 0) {
 		last_error = GetLastError();
+		CloseHandle(process_handle);
 		if (last_error != 0) {
-			errno = spine_windows_map_error_to_errno(last_error);
+			errno = spine_win32_error_to_errno(last_error);
 		} else {
 			errno = ESRCH;
 		}
 		return -1;
 	}
 
+	CloseHandle(process_handle);
 	return 0;
 }
 
@@ -299,6 +276,7 @@ int spine_process_spawn_retry(
 	BOOL create_result;
 	int retry_count;
 	int spawn_error;
+	int rc;
 	DWORD last_error;
 	DWORD creation_flags;
 
@@ -306,6 +284,7 @@ int spine_process_spawn_retry(
 	(void) spawn_attr;
 
 	retry_count = 0;
+	rc = 0;
 	/* CREATE_SUSPENDED + AssignProcessToJobObject + ResumeThread is the
 	 * documented pattern for binding a child to a Job Object before it can
 	 * execute any user code. Without CREATE_SUSPENDED the child may exit or
@@ -318,9 +297,9 @@ int spine_process_spawn_retry(
 	wide_path = spine_windows_utf8_to_wide(path);
 	command_line_template = spine_windows_build_command_line(argv);
 	if (wide_path == NULL || command_line_template == NULL) {
-		free(wide_path);
-		free(command_line_template);
-		return ENOMEM;
+		errno = ENOMEM;
+		rc = ENOMEM;
+		goto cleanup;
 	}
 
 	memset(&startup_info, 0, sizeof(startup_info));
@@ -330,9 +309,9 @@ int spine_process_spawn_retry(
 	do {
 		command_line = _wcsdup(command_line_template);
 		if (command_line == NULL) {
-			free(wide_path);
-			free(command_line_template);
-			return ENOMEM;
+			errno = ENOMEM;
+			rc = ENOMEM;
+			goto cleanup;
 		}
 
 		create_result = CreateProcessW(
@@ -355,28 +334,31 @@ int spine_process_spawn_retry(
 				 * it just won't be cleaned up on spine exit. Don't abort. */
 				(void) AssignProcessToJobObject(job, process_info.hProcess);
 			}
-			ResumeThread(process_info.hThread);
-			CloseHandle(process_info.hThread);
-			*pid = (spine_pid_t) process_info.dwProcessId;
-			CloseHandle(process_info.hProcess);
-			free(wide_path);
-			free(command_line_template);
-			return 0;
-		}
+				ResumeThread(process_info.hThread);
+				CloseHandle(process_info.hThread);
+				*pid = (spine_pid_t) process_info.dwProcessId;
+				CloseHandle(process_info.hProcess);
+				rc = 0;
+				goto cleanup;
+			}
 
-		last_error = GetLastError();
-		spawn_error = last_error != 0 ? spine_windows_map_error_to_errno(last_error) : EINVAL;
-		if ((spawn_error == EAGAIN || spawn_error == ENOMEM) && retry_count < retry_limit) {
-			retry_count++;
-			spine_platform_sleep_us(retry_sleep_us);
-			continue;
-		}
+			last_error = GetLastError();
+			spawn_error = last_error != 0 ? spine_win32_error_to_errno(last_error) : EINVAL;
+			if ((spawn_error == EAGAIN || spawn_error == ENOMEM) && retry_count < retry_limit) {
+				retry_count++;
+				spine_platform_sleep_us(retry_sleep_us);
+				continue;
+			}
 
-		free(wide_path);
-		free(command_line_template);
-		errno = spawn_error;
-		return spawn_error;
-	} while (1);
+			errno = spawn_error;
+			rc = spawn_error;
+			goto cleanup;
+		} while (1);
+
+cleanup:
+	free(wide_path);
+	free(command_line_template);
+	return rc;
 }
 
 #endif

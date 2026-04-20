@@ -5,13 +5,9 @@
 /*
  * Async process exec via libuv. Callback fires exactly once; handles
  * are torn down deterministically through a three-handle close count
- * with a terminal flag to prevent the earlier double-callback and
- * double-free race between on_timeout and on_process_exit.
+ * with a terminal flag to prevent double-callback/double-free races.
  *
- * Commands still run under /bin/sh -c to match nft_popen.c's existing
- * behaviour (Cacti poller items may contain shell metacharacters by
- * design). The shell boundary is the same as the legacy sync path; no
- * new injection primitive is introduced.
+ * Commands are spawned argv-only (no shell).
  */
 
 typedef struct {
@@ -28,7 +24,145 @@ typedef struct {
     bool         callback_fired;
     bool         process_started;
     int          pending_closes;
+    char       **argv;
 } async_exec_ctx_t;
+
+static void async_exec_free_argv(char **argv) {
+    size_t i;
+
+    if (argv == NULL) {
+        return;
+    }
+
+    for (i = 0; argv[i] != NULL; i++) {
+        free(argv[i]);
+    }
+
+    free(argv);
+}
+
+/* Parse a command string into argv with simple shell-like quoting.
+ * Supports: spaces, single/double quotes, backslash escapes.
+ * Does not perform expansion/substitution/globbing. */
+static int async_exec_parse_argv(const char *command, char ***out_argv) {
+    size_t len;
+    size_t i;
+    size_t argc = 0;
+    size_t argv_cap = 8;
+    char **argv = NULL;
+    char *token = NULL;
+    size_t tok_len = 0;
+    bool in_single = false;
+    bool in_double = false;
+    bool escaping = false;
+
+    if (command == NULL || out_argv == NULL) {
+        return -EINVAL;
+    }
+
+    *out_argv = NULL;
+    len = strlen(command);
+
+    argv = (char **)calloc(argv_cap, sizeof(*argv));
+    token = (char *)calloc(len + 1, sizeof(*token));
+    if (argv == NULL || token == NULL) {
+        free(token);
+        free(argv);
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < len; i++) {
+        char c = command[i];
+
+        if (escaping) {
+            token[tok_len++] = c;
+            escaping = false;
+            continue;
+        }
+
+        if (c == '\\' && !in_single) {
+            escaping = true;
+            continue;
+        }
+
+        if (c == '\'' && !in_double) {
+            in_single = !in_single;
+            continue;
+        }
+
+        if (c == '"' && !in_single) {
+            in_double = !in_double;
+            continue;
+        }
+
+        if (!in_single && !in_double && isspace((unsigned char)c)) {
+            if (tok_len > 0) {
+                if (argc + 2 > argv_cap) {
+                    char **grown;
+                    argv_cap *= 2;
+                    grown = (char **)realloc(argv, argv_cap * sizeof(*argv));
+                    if (grown == NULL) {
+                        async_exec_free_argv(argv);
+                        free(token);
+                        return -ENOMEM;
+                    }
+                    argv = grown;
+                }
+                token[tok_len] = '\0';
+                argv[argc] = strdup(token);
+                if (argv[argc] == NULL) {
+                    async_exec_free_argv(argv);
+                    free(token);
+                    return -ENOMEM;
+                }
+                argc++;
+                tok_len = 0;
+            }
+            continue;
+        }
+
+        token[tok_len++] = c;
+    }
+
+    if (escaping || in_single || in_double) {
+        async_exec_free_argv(argv);
+        free(token);
+        return -EINVAL;
+    }
+
+    if (tok_len > 0) {
+        if (argc + 2 > argv_cap) {
+            char **grown;
+            argv_cap += 2;
+            grown = (char **)realloc(argv, argv_cap * sizeof(*argv));
+            if (grown == NULL) {
+                async_exec_free_argv(argv);
+                free(token);
+                return -ENOMEM;
+            }
+            argv = grown;
+        }
+        token[tok_len] = '\0';
+        argv[argc] = strdup(token);
+        if (argv[argc] == NULL) {
+            async_exec_free_argv(argv);
+            free(token);
+            return -ENOMEM;
+        }
+        argc++;
+    }
+
+    free(token);
+
+    if (argc == 0) {
+        async_exec_free_argv(argv);
+        return -EINVAL;
+    }
+
+    argv[argc] = NULL;
+    *out_argv = argv;
+    return 0;
+}
 
 static void async_exec_fire_callback(async_exec_ctx_t *ctx) {
     if (ctx->callback_fired || !ctx->callback) return;
@@ -47,6 +181,7 @@ static void on_close(uv_handle_t *handle) {
 
     if (--ctx->pending_closes == 0) {
         async_exec_fire_callback(ctx);
+        async_exec_free_argv(ctx->argv);
         free(ctx->result_buffer);
         free(ctx);
     }
@@ -73,6 +208,7 @@ static void async_exec_close_all(async_exec_ctx_t *ctx) {
 
     if (ctx->pending_closes == 0) {
         async_exec_fire_callback(ctx);
+        async_exec_free_argv(ctx->argv);
         free(ctx->result_buffer);
         free(ctx);
     }
@@ -134,8 +270,10 @@ static void on_timeout(uv_timer_t *handle) {
     }
 }
 
-int spine_async_exec(const char *command, uint64_t timeout_ms, async_exec_cb cb, void *data) {
-    if (!command || !cb) return -EINVAL;
+int spine_async_exec(uv_loop_t *runtime_loop, const char *command, uint64_t timeout_ms, async_exec_cb cb, void *data) {
+    int rc;
+
+    if (!runtime_loop || !command || !cb) return -EINVAL;
 
     async_exec_ctx_t *ctx = calloc(1, sizeof(async_exec_ctx_t));
     if (!ctx) return -ENOMEM;
@@ -150,10 +288,17 @@ int spine_async_exec(const char *command, uint64_t timeout_ms, async_exec_cb cb,
     ctx->data            = data;
     ctx->pending_closes  = 3;
 
-    uv_pipe_init(loop, &ctx->stdout_pipe, 0);
+    rc = async_exec_parse_argv(command, &ctx->argv);
+    if (rc != 0) {
+        free(ctx->result_buffer);
+        free(ctx);
+        return rc;
+    }
+
+    uv_pipe_init(runtime_loop, &ctx->stdout_pipe, 0);
     ctx->stdout_pipe.data = ctx;
 
-    uv_timer_init(loop, &ctx->timer);
+    uv_timer_init(runtime_loop, &ctx->timer);
     ctx->timer.data = ctx;
     uv_timer_start(&ctx->timer, on_timeout, timeout_ms, 0);
 
@@ -163,21 +308,15 @@ int spine_async_exec(const char *command, uint64_t timeout_ms, async_exec_cb cb,
     stdio[1].data.stream = (uv_stream_t *)&ctx->stdout_pipe;
     stdio[2].flags       = UV_IGNORE;
 
-    char *args[4];
-    args[0] = "/bin/sh";
-    args[1] = "-c";
-    args[2] = (char *)command;
-    args[3] = NULL;
-
     uv_process_options_t options = {0};
     options.exit_cb     = on_process_exit;
-    options.file        = args[0];
-    options.args        = args;
+    options.file        = ctx->argv[0];
+    options.args        = ctx->argv;
     options.stdio_count = 3;
     options.stdio       = stdio;
 
     ctx->process.data = ctx;
-    int r = uv_spawn(loop, &ctx->process, &options);
+    int r = uv_spawn(runtime_loop, &ctx->process, &options);
     if (r) {
         /* Spawn failed: process handle was not installed. Release pipe
          * and timer, then the ctx. No callback — caller sees r. */

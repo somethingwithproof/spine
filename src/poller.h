@@ -39,7 +39,7 @@ extern void poll_host(int device_counter, int host_id, int spine_host_thread, in
 #ifdef HAVE_LIBUV
 /* Concurrency Governor: Limit in-flight async handles to avoid OS/Network saturation */
 #define MAX_ASYNC_CONCURRENCY 500
-extern void spine_queue_poll(poller_thread_t *det);
+extern int spine_queue_poll(poller_thread_t *det);
 #endif
 extern char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const char *type);
 extern void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system);

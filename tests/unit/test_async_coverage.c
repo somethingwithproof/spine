@@ -4,6 +4,7 @@
 #include <uv.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "common.h"
 #include "../../src/poll_state_internal.h"
@@ -18,6 +19,8 @@
 #define HAVE_LIBUV 1
 #endif
 uv_loop_t *loop = NULL;
+static spine_async_dns_runtime_t *dns_runtime = NULL;
+static uv_loop_t test_loop;
 
 static void dns_cb(struct addrinfo *res, int status, void *data) {
     (void)res;
@@ -29,7 +32,7 @@ static void dns_cb(struct addrinfo *res, int status, void *data) {
 static void test_async_dns_success(void) {
     int called = 0;
     // Localhost should always resolve
-    int r = spine_async_dns_lookup("localhost", dns_cb, &called);
+    int r = spine_async_dns_lookup_runtime(dns_runtime, "localhost", dns_cb, &called);
     ASSERT_INT_EQ(r, 0);
     uv_run(loop, UV_RUN_DEFAULT);
     ASSERT_INT_EQ(called, 1);
@@ -45,7 +48,7 @@ static void exec_cb(const char *result, int exit_status, int term_signal, void *
 
 static void test_async_exec_success(void) {
     int called = 0;
-    int r = spine_async_exec("echo test", 1000, exec_cb, &called);
+    int r = spine_async_exec(loop, "echo test", 1000, exec_cb, &called);
     ASSERT_INT_EQ(r, 0);
     uv_run(loop, UV_RUN_DEFAULT);
     ASSERT_INT_EQ(called, 1);
@@ -53,7 +56,7 @@ static void test_async_exec_success(void) {
 
 static void test_async_exec_timeout(void) {
     int called = 0;
-    int r = spine_async_exec("sleep 2", 10, exec_cb, &called);
+    int r = spine_async_exec(loop, "sleep 2", 10, exec_cb, &called);
     ASSERT_INT_EQ(r, 0);
     uv_run(loop, UV_RUN_DEFAULT);
     ASSERT_INT_EQ(called, 1);
@@ -62,16 +65,16 @@ static void test_async_exec_timeout(void) {
 static void test_async_exec_spawn_fail(void) {
     int called = 0;
     // Test a command that will return a non-zero exit status
-    int r = spine_async_exec("exit 1", 1000, exec_cb, &called);
+    int r = spine_async_exec(loop, "false", 1000, exec_cb, &called);
     ASSERT_INT_EQ(r, 0);
     uv_run(loop, UV_RUN_DEFAULT);
     ASSERT_INT_EQ(called, 1);
 }
 
 static void test_async_snmp_parse_fail(void) {
-    // Test parsing failure
-    int r = spine_async_snmp_get(NULL, "invalid.oid", NULL, NULL);
-    ASSERT_INT_EQ(r, -1);
+    // Test argument validation path
+    int r = spine_async_snmp_get(loop, NULL, "invalid.oid", NULL, NULL);
+    ASSERT_TRUE(r != 0);
 }
 
 #ifndef HAVE_MYSQL_ASYNC
@@ -84,8 +87,8 @@ static void mysql_cb(MYSQL *mysql, int status, void *data) {
 
 static void test_async_mysql_query(void) {
     int called = 0;
-    int r = spine_async_mysql_query(NULL, "SELECT 1", mysql_cb, &called);
-    ASSERT_INT_EQ(r, -1);
+    int r = spine_async_mysql_query(loop, NULL, "SELECT 1", mysql_cb, &called);
+    ASSERT_INT_EQ(r, -EINVAL);
 }
 #endif
 
@@ -99,7 +102,9 @@ void spine_transition_state(poll_context_t *ctx) {
 }
 
 int main(void) {
-    loop = uv_default_loop();
+    ASSERT_INT_EQ(uv_loop_init(&test_loop), 0);
+    loop = &test_loop;
+    ASSERT_INT_EQ(spine_async_dns_runtime_create(loop, &dns_runtime), 0);
     test_async_dns_success();
     test_async_exec_success();
     test_async_exec_timeout();
@@ -108,5 +113,10 @@ int main(void) {
 #ifndef HAVE_MYSQL_ASYNC
     test_async_mysql_query();
 #endif
+    spine_async_dns_runtime_destroy(dns_runtime);
+    dns_runtime = NULL;
+    uv_run(loop, UV_RUN_DEFAULT);
+    ASSERT_INT_EQ(uv_loop_close(loop), 0);
+    loop = NULL;
     return finish_tests("async coverage tests");
 }

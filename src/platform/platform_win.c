@@ -11,6 +11,43 @@
 #include <process.h>
 #include <io.h>
 
+typedef struct {
+	INIT_ONCE job_once;
+	HANDLE job_object;
+} spine_win_runtime_t;
+
+static spine_win_runtime_t g_win_runtime = {
+	INIT_ONCE_STATIC_INIT,
+	NULL
+};
+
+static BOOL CALLBACK spine_win_job_init_once(PINIT_ONCE init_once, PVOID param, PVOID *context) {
+	JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+	HANDLE job_object;
+
+	(void)init_once;
+	(void)param;
+	(void)context;
+
+	job_object = CreateJobObjectW(NULL, NULL);
+	if (job_object == NULL) {
+		return TRUE; /* best-effort; keep runtime functional without a job */
+	}
+
+	memset(&limits, 0, sizeof(limits));
+	limits.BasicLimitInformation.LimitFlags =
+		JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+		JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION |
+		JOB_OBJECT_LIMIT_BREAKAWAY_OK;
+	if (!SetInformationJobObject(job_object, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+		CloseHandle(job_object);
+		return TRUE;
+	}
+
+	g_win_runtime.job_object = job_object;
+	return TRUE;
+}
+
 int spine_platform_init_once(void) {
 	WSADATA wsa_data;
 
@@ -25,6 +62,10 @@ int spine_platform_init_once(void) {
 }
 
 void spine_platform_cleanup_once(void) {
+	if (g_win_runtime.job_object != NULL) {
+		CloseHandle(g_win_runtime.job_object);
+		g_win_runtime.job_object = NULL;
+	}
 	WSACleanup();
 }
 
@@ -151,39 +192,17 @@ void spine_platform_set_thread_name(const char *name) {
 	(void) resolved(GetCurrentThread(), wide_name);
 }
 
-static HANDLE g_spine_job_object = NULL;
-
 /* Job Object confinement for child processes spawned via CreateProcessW.
  * KILL_ON_JOB_CLOSE guarantees orphaned poll scripts die with spine;
  * DIE_ON_UNHANDLED_EXCEPTION suppresses the Windows Error Reporting modal
  * that would otherwise stall a headless poller. BREAKAWAY_OK leaves an
  * escape hatch for operator-launched helpers that must outlive spine. */
 void spine_win_init_job(void) {
-	JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
-
-	if (g_spine_job_object != NULL) {
-		return;
-	}
-
-	g_spine_job_object = CreateJobObjectW(NULL, NULL);
-	if (g_spine_job_object == NULL) {
-		return;
-	}
-
-	memset(&limits, 0, sizeof(limits));
-	limits.BasicLimitInformation.LimitFlags =
-		JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
-		JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION |
-		JOB_OBJECT_LIMIT_BREAKAWAY_OK;
-	if (!SetInformationJobObject(g_spine_job_object,
-			JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
-		CloseHandle(g_spine_job_object);
-		g_spine_job_object = NULL;
-	}
+	(void)InitOnceExecuteOnce(&g_win_runtime.job_once, spine_win_job_init_once, NULL, NULL);
 }
 
 void *spine_win_job_object(void) {
-	return (void *) g_spine_job_object;
+	return (void *) g_win_runtime.job_object;
 }
 
 #endif

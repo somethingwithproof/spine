@@ -52,6 +52,11 @@ void spine_sd_status(const char *fmt, ...)
  * Pair with spine_sd_ready() once the reload completes. */
 void spine_sd_reloading(void);
 
+/* Send one structured journald event with spine-specific fields.
+ * No-op when libsystemd is unavailable or the process is outside systemd. */
+void spine_sd_journal_log(const char *level, const char *message, int poller_id,
+	unsigned long pid, unsigned long tid);
+
 /* Return non-zero when spine is running under systemd (INVOCATION_ID set or
  * sd_booted()). Zero otherwise. When zero, log formatting stays unchanged. */
 int spine_sd_under_systemd(void);

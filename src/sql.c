@@ -35,6 +35,70 @@
 #include "spine.h"
 #include "db_session.h"
 
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#else
+#include <netdb.h>
+#endif
+
+static int spine_hostname_is_numeric(const char *hostname) {
+	struct addrinfo hints;
+	struct addrinfo *res = NULL;
+	int rc;
+
+	if (hostname == NULL || *hostname == '\0') {
+		return FALSE;
+	}
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_flags = AI_NUMERICHOST;
+
+	rc = getaddrinfo(hostname, NULL, &hints, &res);
+	if (rc == 0) {
+		freeaddrinfo(res);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+static int spine_resolve_connect_host(const char *hostname, char *resolved, size_t resolved_len) {
+	struct addrinfo hints;
+	struct addrinfo *res = NULL;
+	int rc;
+
+	if (hostname == NULL || resolved == NULL || resolved_len == 0) {
+		return -1;
+	}
+
+	if (*hostname == '\0' || strcmp(hostname, "localhost") == 0 || spine_hostname_is_numeric(hostname)) {
+		snprintf(resolved, resolved_len, "%s", hostname);
+		return 0;
+	}
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	rc = getaddrinfo(hostname, NULL, &hints, &res);
+	if (rc != 0 || res == NULL) {
+		if (res != NULL) {
+			freeaddrinfo(res);
+		}
+		return -1;
+	}
+
+	rc = getnameinfo(res->ai_addr, (socklen_t)res->ai_addrlen,
+		resolved, (socklen_t)resolved_len,
+		NULL, 0, NI_NUMERICHOST);
+	freeaddrinfo(res);
+	if (rc != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 /*! \fn int db_insert(MYSQL *mysql, int type, const char *query)
  *  \brief inserts a row or rows in a database table.
  *  \param mysql the database connection object
@@ -245,7 +309,9 @@ void db_connect(int type, MYSQL *mysql) {
 	int     success;
 	int     error = 0;
 	MYSQL   *connect_error;
+	const char *connect_host = NULL;
 	char    *hostname = NULL;
+	char    resolved_hostname[BUFSIZE];
 	char    *socket = NULL;
 	struct  stat socket_stat;
 	static int connections = 0;
@@ -295,6 +361,14 @@ void db_connect(int type, MYSQL *mysql) {
 	rtimeout  = 30;
 	wtimeout  = 30;
 	attempts  = 1;
+	connect_host = hostname;
+	resolved_hostname[0] = '\0';
+
+	if (hostname != NULL && socket == NULL) {
+		if (spine_resolve_connect_host(hostname, resolved_hostname, sizeof(resolved_hostname)) == 0) {
+			connect_host = resolved_hostname;
+		}
+	}
 
 	if (mysql_init(mysql) == NULL) {
 		printf("FATAL: Database unable to allocate memory and therefore can not connect\n");
@@ -376,12 +450,12 @@ void db_connect(int type, MYSQL *mysql) {
 
 		if (set.poller_id > 1) {
 			if (type == LOCAL) {
-				connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+				connect_error = mysql_real_connect(mysql, connect_host, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
 			} else {
-				connect_error = mysql_real_connect(mysql, hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, socket, 0);
+				connect_error = mysql_real_connect(mysql, connect_host, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, socket, 0);
 			}
 		} else {
-			connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+			connect_error = mysql_real_connect(mysql, connect_host, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
 		}
 
 		if (!connect_error) {

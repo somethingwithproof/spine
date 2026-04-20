@@ -60,13 +60,11 @@ quote are rejected and logged as unsafe.
 Spine also now strictly rejects embedded newlines or carriage returns in
 commands sent to the PHP script server to prevent protocol subversion.
 
-Build System Roadmap
---------------------
+Build System
+------------
 
-CMake is the canonical build system for this repository.
-
-Autotools files remain only for transition compatibility and are planned for
-removal after 2026-12-31.
+CMake is the only supported build system for this repository.
+Autotools (`configure`, `configure.ac`, `Makefile.am`) is not supported.
 
 -----------------------------------------------------------------------------
 

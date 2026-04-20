@@ -88,6 +88,7 @@ set(SPINE_PLATFORM_SOURCES
     src/platform/platform_socket_win.c
     src/platform/platform_error_posix.c
     src/platform/platform_error_win.c
+    src/platform/platform_win_error.c
     src/platform/platform_process_posix.c
     src/platform/platform_process_win.c
     src/platform/platform_fd_posix.c
@@ -246,6 +247,9 @@ find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
     set(HAVE_OPENSSL 1)
 endif()
+if(SPINE_HAVE_CARES)
+    set(HAVE_CARES 1)
+endif()
 
 if(ENABLE_LCAP AND NOT WIN32)
     find_library(CAP_LIBRARY NAMES cap)
@@ -355,6 +359,11 @@ else()
         target_compile_definitions(spine_platform PUBLIC HAVE_LIBAUDIT=1)
         target_include_directories(spine_platform PUBLIC ${AUDIT_INCLUDE_DIR})
         target_link_libraries(spine_platform PUBLIC ${AUDIT_LIB})
+    endif()
+    if(SPINE_HAVE_CARES)
+        target_compile_definitions(spine_platform PUBLIC HAVE_CARES=1)
+        target_include_directories(spine_platform PUBLIC ${CARES_INCLUDE_DIRS})
+        target_link_libraries(spine_platform PUBLIC ${CARES_LIBRARIES})
     endif()
     # libuv linkage
     target_compile_definitions(spine_platform PUBLIC HAVE_LIBUV=1)

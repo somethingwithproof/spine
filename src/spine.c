@@ -106,6 +106,7 @@
 
 #ifdef HAVE_LIBUV
 #include "async_batch.h"
+#include "async_dns.h"
 #endif
 
 #include <signal.h>
@@ -134,6 +135,7 @@ static mode_t spine_prev_umask = 0;
 
 #ifdef HAVE_LIBUV
 uv_loop_t *loop = NULL;
+static uv_loop_t spine_main_loop;
 
 static void spine_watchdog_cb(uv_timer_t *handle) {
     double *drain_deadline = (double *)handle->data;
@@ -318,6 +320,12 @@ int main(int argc, char *argv[]) {
 	int threads_missing = -1;
 	int threads_count;
 	struct snmp_session session;
+#ifdef HAVE_LIBUV
+	spine_async_dns_runtime_t *dns_runtime = NULL;
+#ifdef UV_METRICS_IDLE_TIME
+	uint64_t loop_idle_ns = 0;
+#endif
+#endif
 
 	start_time = get_time_as_double();
 	total_time = 0;
@@ -347,7 +355,14 @@ int main(int argc, char *argv[]) {
 	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
 
 #ifdef HAVE_LIBUV
-	loop = uv_default_loop();
+	loop = &spine_main_loop;
+	if (uv_loop_init(loop) != 0 ||
+	    spine_async_dns_runtime_create(loop, &dns_runtime) != 0) {
+		die("ERROR: Failed to initialize async DNS runtime");
+	}
+#ifdef UV_METRICS_IDLE_TIME
+	(void)uv_loop_configure(loop, UV_METRICS_IDLE_TIME);
+#endif
 #endif
 
 	/* install the spine signal handler */
@@ -1104,8 +1119,12 @@ int main(int argc, char *argv[]) {
 		snprintf(poller_details->spine_host_time, 40, "%s", spine_host_time);
 
 		poller_details->spine_host_time_double = spine_host_time_double;
-		poller_details->thread_init_sem  = &thread_init_sem;
-		poller_details->complete         = FALSE;
+			poller_details->thread_init_sem  = &thread_init_sem;
+#ifdef HAVE_LIBUV
+			poller_details->event_loop       = loop;
+			poller_details->dns_runtime      = dns_runtime;
+#endif
+			poller_details->complete         = FALSE;
 		poller_details->threads_complete = 0;
 
 		thread_mutex_lock(LOCK_THDET);
@@ -1207,8 +1226,8 @@ int main(int argc, char *argv[]) {
 			thread_mutex_lock(LOCK_HOST_TIME);
 
 #ifdef HAVE_LIBUV
-			spine_async_poll_start(poller_details);
-			thread_status = 0;
+			thread_status = spine_queue_poll(poller_details);
+			thread_mutex_unlock(LOCK_HOST_TIME);
 #else
 			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);
 #endif
@@ -1243,7 +1262,9 @@ int main(int argc, char *argv[]) {
 
 			/* Restore thread initialization semaphore if thread creation failed */
 			if (thread_status) {
+#ifndef HAVE_LIBUV
 				thread_mutex_unlock(LOCK_HOST_TIME);
+#endif
 				spine_sem_post(&thread_init_sem);
 			}
 		}
@@ -1270,7 +1291,7 @@ int main(int argc, char *argv[]) {
 #ifdef HAVE_LIBUV
 	// In libuv mode, we run the event loop instead of blocking in a sleep loop.
 	// The async_batch system keeps the loop alive, so we need a watchdog to stop it.
-	spine_async_batch_init(&mysql, 100, 500);
+	spine_async_batch_init(loop, &mysql, 100, 500);
 	
 	uv_timer_t watchdog;
 	uv_timer_init(loop, &watchdog);
@@ -1401,13 +1422,20 @@ int main(int argc, char *argv[]) {
 
 #ifdef HAVE_LIBUV
 	/* Drain the libuv event loop BEFORE tearing down DB and SNMP.
-	 * Callbacks dispatched from spine_async_poll_start() touch the
+	 * Callbacks dispatched from spine_queue_poll()/uv_queue_work touch the
 	 * shared MySQL handle and the Net-SNMP session; closing those
 	 * before uv_run completes produced a use-after-free on every
 	 * async build. */
 	SPINE_LOG_DEBUG(("DEBUG: Entering libuv event loop"));
 	uv_run(loop, UV_RUN_DEFAULT);
+	spine_async_dns_runtime_destroy(dns_runtime);
+	dns_runtime = NULL;
+	uv_run(loop, UV_RUN_DEFAULT);
+#ifdef UV_METRICS_IDLE_TIME
+	loop_idle_ns = uv_metrics_idle_time(loop);
+#endif
 	uv_loop_close(loop);
+	loop = NULL;
 	SPINE_LOG_DEBUG(("DEBUG: libuv event loop drained"));
 #endif
 
@@ -1428,6 +1456,24 @@ int main(int argc, char *argv[]) {
 
 	/* finally add some statistics to the log and exit */
 	end_time = get_time_as_double();
+
+#ifdef HAVE_LIBUV
+	{
+		spine_async_batch_stats_t batch_stats;
+		if (spine_async_batch_get_stats(&batch_stats) == 0) {
+			SPINE_LOG(("AsyncDB: submitted=%lu pending=%d active=%d max_pending=%d dropped=%lu enqueue_failures=%lu",
+				batch_stats.submitted_queries,
+				batch_stats.pending_count,
+				batch_stats.active_queries,
+				batch_stats.max_pending,
+				batch_stats.dropped_queries,
+				batch_stats.enqueue_failures));
+		}
+#ifdef UV_METRICS_IDLE_TIME
+		SPINE_LOG(("LoopMetrics: idle_ms=%.3f", (double)loop_idle_ns / 1000000.0));
+#endif
+	}
+#endif
 
 	if (set.log_level >= POLLER_VERBOSITY_MEDIUM) {
 		SPINE_LOG(("Time: %.4f s, Threads: %i, Devices: %i", (end_time - begin_time), set.threads, num_rows));

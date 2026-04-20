@@ -2,6 +2,8 @@
 
 Multi-threaded SNMP and script poller for Cacti.
 
+Build system policy: Spine is CMake-only. Autotools (`configure`, `configure.ac`, `Makefile.am`) is not supported.
+
 [![distro matrix](https://github.com/Cacti/spine/actions/workflows/distro-matrix.yml/badge.svg)](https://github.com/Cacti/spine/actions/workflows/distro-matrix.yml)
 [![ci](https://github.com/Cacti/spine/actions/workflows/ci.yml/badge.svg)](https://github.com/Cacti/spine/actions/workflows/ci.yml)
 [![license: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
@@ -138,7 +140,7 @@ spine --dry-run             # run a full poll cycle with no SQL writes
 
 ## Running under systemd
 
-The build installs `spine.service` and `spine.timer` into the distro's unit directory. The unit is `Type=notify`, uses `sd_notify(3)` for readiness and watchdog pings, and reloads `spine.conf` on `SIGHUP`.
+The build installs `spine.service` (notify mode), `spine-batch.service` (oneshot mode), `spine-dynamic.service` (optional DynamicUser profile), and `spine.timer`. The timer targets `spine-batch.service`.
 
 ```sh
 systemctl enable --now spine.timer
@@ -146,7 +148,7 @@ systemctl status spine.service
 journalctl -u spine.service -f
 ```
 
-Unit source: [etc/systemd/spine.service](etc/systemd/spine.service). Hardening flags, watchdog tuning, and override examples are documented in [docs/systemd.md](docs/systemd.md).
+Unit template sources live under `etc/systemd/*.in`. Installation and hardening details are documented in [docs/systemd.md](docs/systemd.md).
 
 ## Debugging and observability
 

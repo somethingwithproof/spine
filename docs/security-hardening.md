@@ -58,7 +58,8 @@ Android and on some Fuchsia configurations.
 
 ## AppArmor profile scope
 
-`etc/apparmor.d/usr.local.spine.bin.spine` restricts spine's temp write
+`etc/apparmor.d/spine.apparmor.in` (rendered at install time to the
+binary-attach-specific profile name) restricts spine's temp write
 scope to `/tmp/spine.*`. A prior `/tmp/** rw` catch-all was removed
 because it let spine read or replace any other service's temp files
 (e.g. PostgreSQL's socket lockfile, sshd's auth temp spools). If a

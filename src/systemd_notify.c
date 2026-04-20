@@ -24,10 +24,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
+#include <systemd/sd-journal.h>
 #endif
 
 void spine_sd_ready(void) {
@@ -108,6 +110,41 @@ void spine_sd_reloading(void) {
                 "sd_notify reload sent without timestamp\n",
                 strerror(saved_errno));
     }
+#endif
+}
+
+void spine_sd_journal_log(const char *level, const char *message, int poller_id,
+	unsigned long pid, unsigned long tid) {
+#ifdef HAVE_LIBSYSTEMD
+	int priority = LOG_INFO;
+
+	if (level == NULL || message == NULL || !spine_sd_under_systemd()) {
+		return;
+	}
+
+	if (strcmp(level, "FATAL") == 0 || strcmp(level, "ERROR") == 0) {
+		priority = LOG_ERR;
+	} else if (strcmp(level, "WARN") == 0 || strcmp(level, "WARNING") == 0) {
+		priority = LOG_WARNING;
+	} else if (strcmp(level, "DEBUG") == 0) {
+		priority = LOG_DEBUG;
+	}
+
+	(void) sd_journal_send(
+		"MESSAGE=%s", message,
+		"PRIORITY=%d", priority,
+		"SYSLOG_IDENTIFIER=spine",
+		"SPINE_LEVEL=%s", level,
+		"SPINE_POLLER_ID=%d", poller_id,
+		"SPINE_PID=%lu", pid,
+		"SPINE_TID=%lu", tid,
+		NULL);
+#else
+	(void)level;
+	(void)message;
+	(void)poller_id;
+	(void)pid;
+	(void)tid;
 #endif
 }
 

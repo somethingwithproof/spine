@@ -1,6 +1,34 @@
 include_guard(GLOBAL)
 
 function(spine_install_runtime_assets)
+  set(SPINE_BIN_PATH "${CMAKE_INSTALL_FULL_SBINDIR}/spine")
+  set(SPINE_CONF_PATH "${CMAKE_INSTALL_FULL_SYSCONFDIR}/spine.conf")
+  string(REPLACE "." "\\." SPINE_BIN_PATH_SELINUX "${SPINE_BIN_PATH}")
+  string(REPLACE "." "\\." SPINE_CONF_PATH_SELINUX "${SPINE_CONF_PATH}")
+  string(REGEX REPLACE "^/" "" SPINE_APPARMOR_PROFILE_BASENAME "${SPINE_BIN_PATH}")
+  string(REPLACE "/" "." SPINE_APPARMOR_PROFILE_BASENAME "${SPINE_APPARMOR_PROFILE_BASENAME}")
+
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/etc/systemd/spine.service.in
+    ${CMAKE_CURRENT_BINARY_DIR}/spine.service
+    @ONLY)
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/etc/systemd/spine-batch.service.in
+    ${CMAKE_CURRENT_BINARY_DIR}/spine-batch.service
+    @ONLY)
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/etc/systemd/spine-dynamic.service.in
+    ${CMAKE_CURRENT_BINARY_DIR}/spine-dynamic.service
+    @ONLY)
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/etc/selinux/spine.fc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/spine.fc
+    @ONLY)
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/etc/apparmor.d/spine.apparmor.in
+    ${CMAKE_CURRENT_BINARY_DIR}/${SPINE_APPARMOR_PROFILE_BASENAME}
+    @ONLY)
+
   # Install unit + timer into the distro-provided systemd unit directory.
   # Falls back to /lib/systemd/system when pkg-config cannot resolve the
   # variable (older systemd on some long-term-support distros).
@@ -9,7 +37,10 @@ function(spine_install_runtime_assets)
       set(SPINE_SYSTEMD_UNIT_DIR "/lib/systemd/system")
     endif()
     install(
-      FILES etc/systemd/spine.service etc/systemd/spine.timer
+      FILES ${CMAKE_CURRENT_BINARY_DIR}/spine.service
+            ${CMAKE_CURRENT_BINARY_DIR}/spine-batch.service
+            ${CMAKE_CURRENT_BINARY_DIR}/spine-dynamic.service
+            ${CMAKE_SOURCE_DIR}/etc/systemd/spine.timer
       DESTINATION ${SPINE_SYSTEMD_UNIT_DIR}
       COMPONENT systemd)
   endif()
@@ -20,12 +51,14 @@ function(spine_install_runtime_assets)
   # them directly into /etc would collide with dpkg/rpm file ownership.
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     install(
-      FILES etc/apparmor.d/usr.local.spine.bin.spine
+      FILES ${CMAKE_CURRENT_BINARY_DIR}/${SPINE_APPARMOR_PROFILE_BASENAME}
       DESTINATION ${CMAKE_INSTALL_DATADIR}/spine/apparmor
       COMPONENT apparmor
       OPTIONAL)
     install(
-      FILES etc/selinux/spine.te etc/selinux/spine.fc etc/selinux/spine.if
+      FILES ${CMAKE_SOURCE_DIR}/etc/selinux/spine.te
+            ${CMAKE_CURRENT_BINARY_DIR}/spine.fc
+            ${CMAKE_SOURCE_DIR}/etc/selinux/spine.if
       DESTINATION ${CMAKE_INSTALL_DATADIR}/spine/selinux
       COMPONENT selinux
       OPTIONAL)

@@ -5,6 +5,7 @@ Documentation=https://github.com/Cacti/spine
 After=network-online.target mariadb.service mysql.service
 Wants=network-online.target
 Requires=network-online.target
+ConditionPathExists=@SPINE_CONF_PATH@
 
 [Service]
 # spine exits once a poll cycle completes, but Type=notify still works:
@@ -14,7 +15,9 @@ Requires=network-online.target
 # abnormal exits.
 Type=notify
 NotifyAccess=main
-ExecStart=/usr/local/spine/bin/spine
+SyslogIdentifier=spine
+ExecStartPre=@SPINE_BIN_PATH@ --check
+ExecStart=@SPINE_BIN_PATH@
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
@@ -29,6 +32,7 @@ WatchdogSec=120
 # with the Cacti web UI; adjust to match local site policy.
 User=spine
 Group=spine
+# Optional alternative profile: use spine-dynamic.service for DynamicUser=yes.
 
 # Raw ICMP without setuid root. Requires kernel >= 3.10 on Linux.
 AmbientCapabilities=CAP_NET_RAW
@@ -52,14 +56,15 @@ RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
+UMask=0027
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 
-# Writable paths for log and pid files. Adjust to match spine.conf:
-#   Logfile  = /var/log/cacti/cacti.log
-#   PID file = /var/run/spine/spine.pid
-ReadWritePaths=/var/log/cacti /var/run/spine
+# Let systemd own lifecycle of writable runtime/state/log directories.
+RuntimeDirectory=spine
+StateDirectory=spine
+LogsDirectory=cacti
 
 # File and process limits sized for large pollers. LimitCORE=0 suppresses
 # core dumps that would otherwise leak in-memory database credentials;

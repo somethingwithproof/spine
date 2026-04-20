@@ -65,6 +65,7 @@
 
 #ifdef HAVE_LIBUV
 #include <uv.h>
+#include "async_dns.h"
 #endif
 
 #include "platform/platform_process.h"
@@ -530,6 +531,10 @@ typedef struct poller_thread {
 	char spine_host_time[40];
 	double spine_host_time_double;
 	spine_sem_t *thread_init_sem;
+#ifdef HAVE_LIBUV
+	uv_loop_t *event_loop;
+	spine_async_dns_runtime_t *dns_runtime;
+#endif
 } poller_thread_t;
 
 /*! PHP Script Server Structure
@@ -657,9 +662,6 @@ typedef struct db_connection {
 
 /* Globals */
 extern config_t set;
-#ifdef HAVE_LIBUV
-extern uv_loop_t *loop;
-#endif
 extern php_t  *php_processes;
 extern char   start_datetime[20];
 extern char   config_paths[CONFIG_PATHS][BUFSIZE];

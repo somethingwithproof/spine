@@ -34,7 +34,8 @@ function(spine_add_tests)
       src/config_builder.c
       src/config_apply.c
       src/log_formatter.c
-      src/log_sink.c)
+      src/log_sink.c
+      src/systemd_notify.c)
 
   foreach(test_name IN LISTS SPINE_TEST_NAMES)
     spine_add_platform_test(${test_name})
@@ -165,7 +166,7 @@ function(spine_add_tests)
   if(LIBUV_FOUND)
     target_link_libraries(test_async_coverage PRIVATE ${LIBUV_LIBRARIES})
   endif()
-  if(CARES_FOUND)
+  if(SPINE_HAVE_CARES)
     target_link_libraries(test_async_coverage PRIVATE ${CARES_LIBRARIES})
   endif()
   if(OpenSSL_FOUND)
