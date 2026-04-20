@@ -40,57 +40,51 @@
 #include "spine.h"
 
 /*! \fn static void spine_signal_handler(int spine_signal)
- *  \brief interrupts the os default signal handler as appropriate.
+ *  \brief Async-signal-safe fatal handler.
  *
+ * Must not call malloc / stdio / strftime / exit; the handler may be
+ * entered with libc locks held (SIGSEGV inside the heap) or the stdio
+ * lock (SIGINT mid-fprintf). Writes a precomputed one-line message to
+ * stderr via write(2), then _exit(128 + sig) so atexit and the stdio
+ * buffers are not flushed from a potentially corrupt state.
+ *
+ * Signal numbers are not portable compile-time constants so the table
+ * is initialised once at install time rather than as a designated
+ * initialiser.
  */
 static void spine_signal_handler(int spine_signal) {
 	signal(spine_signal, SIG_DFL);
 
 	set.exit_code = spine_signal;
 
-	/* variables for time display */
-	time_t nowbin;
-	struct tm now_time;
-	struct tm *now_ptr;
+	static const char msg_abrt[] = "FATAL: Spine Interrupted by Abort Signal\n";
+	static const char msg_int[]  = "FATAL: Spine Interrupted by Console Operator\n";
+	static const char msg_segv[] = "FATAL: Spine Encountered a Segmentation Fault\n";
+	static const char msg_bus[]  = "FATAL: Spine Encountered a Bus Error\n";
+	static const char msg_fpe[]  = "FATAL: Spine Encountered a Floating Point Exception\n";
+	static const char msg_quit[] = "FATAL: Spine Encountered a Keyboard Quit Command\n";
+	static const char msg_pipe[] = "FATAL: Spine Encountered a Broken Pipe\n";
+	static const char msg_sys[]  = "FATAL: Spine Encountered a Bad System Call\n";
+	static const char msg_dflt[] = "FATAL: Spine Encountered An Unhandled Exception Signal\n";
 
-	/* get time for poller_output table */
-	nowbin = time(&nowbin);
-
-	spine_platform_localtime(&nowbin, &now_time);
-	now_ptr = &now_time;
-
-	char *log_fmt = get_date_format();
-	char logtime[50];
-
-	strftime(logtime, 50, log_fmt, now_ptr);
+	const char *msg = msg_dflt;
+	size_t      len = sizeof(msg_dflt) - 1;
 
 	switch (spine_signal) {
-		case SIGABRT:
-			fprintf(stderr, "%s FATAL: Spine Interrupted by Abort Signal\n", logtime);
-			break;
-		case SIGINT:
-			fprintf(stderr, "%s FATAL: Spine Interrupted by Console Operator\n", logtime);
-			break;
-		case SIGSEGV:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Segmentation Fault\n", logtime);
-			exit(1);
-			break;
-		case SIGBUS:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Bus Error\n", logtime);
-			break;
-		case SIGFPE:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Floating Point Exception\n", logtime);
-			break;
-		case SIGQUIT:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Keyboard Quit Command\n", logtime);
-			break;
-		case SIGPIPE:
-			fprintf(stderr, "%s FATAL: Spine Encountered a Broken Pipe\n", logtime);
-			break;
-		default:
-			fprintf(stderr, "%s FATAL: Spine Encountered An Unhandled Exception Signal Number: '%d'\n", logtime, spine_signal);
-			break;
+		case SIGABRT: msg = msg_abrt; len = sizeof(msg_abrt) - 1; break;
+		case SIGINT:  msg = msg_int;  len = sizeof(msg_int)  - 1; break;
+		case SIGSEGV: msg = msg_segv; len = sizeof(msg_segv) - 1; break;
+		case SIGBUS:  msg = msg_bus;  len = sizeof(msg_bus)  - 1; break;
+		case SIGFPE:  msg = msg_fpe;  len = sizeof(msg_fpe)  - 1; break;
+		case SIGQUIT: msg = msg_quit; len = sizeof(msg_quit) - 1; break;
+		case SIGPIPE: msg = msg_pipe; len = sizeof(msg_pipe) - 1; break;
+		case SIGSYS:  msg = msg_sys;  len = sizeof(msg_sys)  - 1; break;
 	}
+
+	(void)!write(STDERR_FILENO, msg, len);
+
+	/* 128 + signo is the conventional shell exit code for a signal death. */
+	_exit(128 + spine_signal);
 }
 
 static int spine_fatal_signals[] = {
