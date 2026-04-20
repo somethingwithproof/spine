@@ -26,4 +26,11 @@ void spine_audit_set_clock(spine_audit_clock_fn fn);
  * from zero. */
 void spine_audit_reset_for_test(void);
 
+/* Test seam: read the rate-bucket counters for a given op (one of
+ * "cb-trip", "reload", "sigterm", "other"). Tests use this to assert
+ * that the limit trips after SPINE_AUDIT_RATE_MAX events, instead of
+ * the older ASSERT_TRUE(1) placeholder that passed unconditionally.
+ * Returns 0 on success, -1 when op does not map to a known bucket. */
+int spine_audit_bucket_stats(const char *op, int *count_out, int *notified_out);
+
 #endif

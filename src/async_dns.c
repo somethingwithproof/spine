@@ -420,12 +420,18 @@ int spine_async_dns_lookup_runtime(spine_async_dns_runtime_t *runtime, const cha
 struct spine_async_dns_runtime {
 	uv_loop_t *loop;
 	bool initialized;
+	/* uv_getaddrinfo submits a request, not a handle; uv_walk will not
+	 * see it, so uv_loop_close returns EBUSY if a lookup is in flight
+	 * on shutdown. Track the count here so the shutdown path can spin
+	 * a bounded wait-for-drain before closing the loop. */
+	int inflight;
 };
 
 typedef struct {
 	uv_getaddrinfo_t req;
 	async_dns_cb callback;
 	void *data;
+	spine_async_dns_runtime_t *runtime;
 } async_dns_ctx_t;
 
 static void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res) {
@@ -438,7 +444,14 @@ static void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
 		ctx->callback(NULL, status, ctx->data);
 	}
 
+	if (ctx->runtime != NULL && ctx->runtime->inflight > 0) {
+		ctx->runtime->inflight--;
+	}
 	free(ctx);
+}
+
+int spine_async_dns_inflight(spine_async_dns_runtime_t *runtime) {
+	return runtime != NULL ? runtime->inflight : 0;
 }
 
 int spine_async_dns_runtime_create(uv_loop_t *dns_loop, spine_async_dns_runtime_t **out_runtime) {
@@ -463,6 +476,17 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 	if (runtime == NULL) {
 		return;
 	}
+
+	/* Bounded wait for outstanding uv_getaddrinfo requests before free.
+	 * uv_loop_close returns EBUSY if a request is still in flight and
+	 * hangs the shutdown path. Give each inflight request up to ~3s to
+	 * complete; that matches typical getaddrinfo(3) timeouts. */
+	int deadline_ticks = 300; /* 300 x 10ms == 3s */
+	while (runtime->inflight > 0 && deadline_ticks > 0 && runtime->loop != NULL) {
+		uv_run(runtime->loop, UV_RUN_NOWAIT);
+		deadline_ticks--;
+	}
+
 	free(runtime);
 }
 
@@ -483,6 +507,7 @@ int spine_async_dns_lookup_runtime(spine_async_dns_runtime_t *runtime, const cha
 	ctx->callback = cb;
 	ctx->data = data;
 	ctx->req.data = ctx;
+	ctx->runtime = runtime;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = PF_UNSPEC;
@@ -491,6 +516,8 @@ int spine_async_dns_lookup_runtime(spine_async_dns_runtime_t *runtime, const cha
 	rc = uv_getaddrinfo(runtime->loop, &ctx->req, on_resolved, hostname, NULL, &hints);
 	if (rc != 0) {
 		free(ctx);
+	} else {
+		runtime->inflight++;
 	}
 	return rc;
 }

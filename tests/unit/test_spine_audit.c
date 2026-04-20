@@ -29,6 +29,8 @@ static time_t mock_clock(void) { return g_mock_now; }
  * (60); if either is returned, update the expectations below. */
 
 static void test_rate_limit_per_bucket(void) {
+	int cnt, notified;
+
 	spine_audit_set_clock(mock_clock);
 	spine_audit_reset_for_test();
 	g_mock_now = 1000;
@@ -37,55 +39,72 @@ static void test_rate_limit_per_bucket(void) {
 	for (int i = 0; i < 10; i++) {
 		spine_audit_event("cb-trip", "detail", 1);
 	}
-	/* No direct return channel, but the rate-limit NOTE goes to stderr;
-	 * the contract is that further events in the window are silently
-	 * dropped, and the bucket does not overflow its counters. */
+	ASSERT_INT_EQ(spine_audit_bucket_stats("cb-trip", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 10);
+	ASSERT_INT_EQ(notified, 0);
+
+	/* Additional events must not bump the counter past the cap and must
+	 * latch notified=1 after the first over-limit attempt. */
 	for (int i = 0; i < 5; i++) {
 		spine_audit_event("cb-trip", "detail", 1);
 	}
+	ASSERT_INT_EQ(spine_audit_bucket_stats("cb-trip", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 10);
+	ASSERT_INT_EQ(notified, 1);
 
-	/* A different bucket must have its own budget. */
+	/* A different bucket must have its own budget - the cb-trip ceiling
+	 * must not be shared with reload. */
 	for (int i = 0; i < 10; i++) {
 		spine_audit_event("reload", "/etc/spine.conf", 1);
 	}
+	ASSERT_INT_EQ(spine_audit_bucket_stats("reload", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 10);
+	ASSERT_INT_EQ(notified, 0);
 
 	/* Rolling the window must restore the budget. */
 	g_mock_now = 1000 + 60;
 	for (int i = 0; i < 10; i++) {
 		spine_audit_event("cb-trip", "detail", 1);
 	}
-
-	/* The production API returns void, so success is the absence of a
-	 * crash or infinite loop. The counter invariants live inside the
-	 * struct; if they ever drift negative the next rate_allow() would
-	 * short-circuit into the notified branch, which this test path
-	 * exercises repeatedly. */
-	ASSERT_TRUE(1);
+	ASSERT_INT_EQ(spine_audit_bucket_stats("cb-trip", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 10);
+	ASSERT_INT_EQ(notified, 0);
 }
 
 static void test_unknown_op_classifies_other(void) {
+	int cnt, notified;
+
 	spine_audit_set_clock(mock_clock);
 	spine_audit_reset_for_test();
 	g_mock_now = 2000;
 
-	/* "other" bucket also caps at 10. Fire 12 and confirm no runaway. */
+	/* "other" bucket also caps at 10. Fire 12 and confirm counter
+	 * stops at 10 with notified latched. */
 	for (int i = 0; i < 12; i++) {
 		spine_audit_event("weird-custom-op", "x", 0);
 	}
-	ASSERT_TRUE(1);
+	ASSERT_INT_EQ(spine_audit_bucket_stats("other", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 10);
+	ASSERT_INT_EQ(notified, 1);
 
-	/* Null op must not crash. Classified as OTHER. */
+	/* Null op classifies to OTHER. An unknown op string that is not
+	 * "other" returns -1 from spine_audit_bucket_stats so test callers
+	 * cannot accidentally read the wrong bucket. */
+	ASSERT_INT_EQ(spine_audit_bucket_stats("not-in-the-enum", &cnt, &notified), -1);
 	spine_audit_event(NULL, NULL, 1);
-	ASSERT_TRUE(1);
 }
 
 static void test_clock_reset_restores_default(void) {
+	int cnt, notified;
+
 	spine_audit_set_clock(NULL);
 	spine_audit_reset_for_test();
 	/* With the default clock, a single event still goes through; real
 	 * time is monotonic so the rate limiter cannot trip on one call. */
 	spine_audit_event("sigterm", "graceful stop", 1);
-	ASSERT_TRUE(1);
+	ASSERT_INT_EQ(spine_audit_bucket_stats("sigterm", &cnt, &notified), 0);
+	ASSERT_INT_EQ(cnt, 1);
+	ASSERT_INT_EQ(notified, 0);
 }
 
 int main(void) {

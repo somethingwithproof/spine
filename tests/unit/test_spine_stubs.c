@@ -83,3 +83,7 @@ __attribute__((weak)) int spine_log(const char *format, ...) {
     va_end(args);
     return 0;
 }
+
+char **spine_build_child_env(void) {
+    return NULL;
+}

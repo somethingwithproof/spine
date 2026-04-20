@@ -425,10 +425,14 @@ static int apply_seccomp(void) {
 		"prlimit64", "getrlimit", "setrlimit",
 		"getpriority", "setpriority",
 
-		/* Misc control. prctl is NOT in this blanket allowlist; we scope
-		 * the specific ops spine actually calls below so a compromised
-		 * worker cannot PR_SET_DUMPABLE=1 to re-enable core dumps. */
-		"arch_prctl",
+		/* Misc control. prctl is allowed broadly; a targeted deny rule
+		 * below blocks only PR_SET_DUMPABLE with arg1 != 0 (the
+		 * specific op a compromised worker would use to re-enable
+		 * core dumps). Allowing prctl generally means third-party
+		 * libraries - glibc NSS, malloc implementations, net-snmp,
+		 * mariadb-connector - keep initialising cleanly instead of
+		 * hitting EPERM on common lifecycle calls. */
+		"prctl", "arch_prctl",
 		"ioctl",
 		"restart_syscall",
 	};
@@ -479,34 +483,18 @@ static int apply_seccomp(void) {
 		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), clone3_nr, 0);
 	}
 
-	/* Scoped prctl allowlist. The blanket "prctl" entry used to let a
-	 * compromised spine worker call prctl(PR_SET_DUMPABLE, 1) to re-enable
-	 * core dumps and harvest credentials via SIGSEGV. Restrict to the ops
-	 * spine itself actually calls. Anything else gets EPERM. */
+	/* Block the one prctl op we care about: PR_SET_DUMPABLE with a
+	 * non-zero arg1 would re-enable core dumps for a compromised
+	 * worker and let an attacker harvest credentials via SIGSEGV.
+	 * Setting dumpable to 0 (the initial seal) and every other prctl
+	 * op pass through via the blanket allowlist above, so third-party
+	 * libraries' benign prctl calls (PR_SET_PTRACER, PR_SET_VMA,
+	 * PR_GET_SECCOMP, PR_SET_PDEATHSIG, etc.) keep working. */
 	const int prctl_nr = seccomp_resolve_nr("prctl");
 	if (prctl_nr != __NR_SCMP_ERROR) {
-		static const int allowed_prctl_ops[] = {
-			PR_SET_NO_NEW_PRIVS,
-			PR_SET_NAME,
-			PR_GET_NAME,
-			PR_GET_DUMPABLE,
-			PR_SET_PDEATHSIG,
-			PR_GET_PDEATHSIG,
-			PR_SET_KEEPCAPS,
-			PR_GET_KEEPCAPS,
-		};
-		for (size_t i = 0; i < sizeof(allowed_prctl_ops) / sizeof(allowed_prctl_ops[0]); i++) {
-			(void)seccomp_rule_add(ctx, SCMP_ACT_ALLOW, prctl_nr, 1,
-			                       SCMP_A0(SCMP_CMP_EQ,
-			                               (scmp_datum_t)allowed_prctl_ops[i]));
-		}
-		/* PR_SET_DUMPABLE is only allowed with arg1 == 0 so the core
-		 * dump seal cannot be lifted by a worker. */
-		(void)seccomp_rule_add(ctx, SCMP_ACT_ALLOW, prctl_nr, 2,
+		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), prctl_nr, 2,
 		                       SCMP_A0(SCMP_CMP_EQ, (scmp_datum_t)PR_SET_DUMPABLE),
-		                       SCMP_A1(SCMP_CMP_EQ, (scmp_datum_t)0));
-		/* Default: deny every other prctl op. */
-		(void)seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), prctl_nr, 0);
+		                       SCMP_A1(SCMP_CMP_NE, (scmp_datum_t)0));
 	}
 
 	int rc = seccomp_load(ctx);

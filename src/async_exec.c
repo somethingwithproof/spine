@@ -41,129 +41,6 @@ static void async_exec_free_argv(char **argv) {
     free(argv);
 }
 
-/* Parse a command string into argv with simple shell-like quoting.
- * Supports: spaces, single/double quotes, backslash escapes.
- * Does not perform expansion/substitution/globbing. */
-static int async_exec_parse_argv(const char *command, char ***out_argv) {
-    size_t len;
-    size_t i;
-    size_t argc = 0;
-    size_t argv_cap = 8;
-    char **argv = NULL;
-    char *token = NULL;
-    size_t tok_len = 0;
-    bool in_single = false;
-    bool in_double = false;
-    bool escaping = false;
-
-    if (command == NULL || out_argv == NULL) {
-        return -EINVAL;
-    }
-
-    *out_argv = NULL;
-    len = strlen(command);
-
-    argv = (char **)calloc(argv_cap, sizeof(*argv));
-    token = (char *)calloc(len + 1, sizeof(*token));
-    if (argv == NULL || token == NULL) {
-        free(token);
-        free(argv);
-        return -ENOMEM;
-    }
-
-    for (i = 0; i < len; i++) {
-        char c = command[i];
-
-        if (escaping) {
-            token[tok_len++] = c;
-            escaping = false;
-            continue;
-        }
-
-        if (c == '\\' && !in_single) {
-            escaping = true;
-            continue;
-        }
-
-        if (c == '\'' && !in_double) {
-            in_single = !in_single;
-            continue;
-        }
-
-        if (c == '"' && !in_single) {
-            in_double = !in_double;
-            continue;
-        }
-
-        if (!in_single && !in_double && isspace((unsigned char)c)) {
-            if (tok_len > 0) {
-                if (argc + 2 > argv_cap) {
-                    char **grown;
-                    argv_cap *= 2;
-                    grown = (char **)realloc(argv, argv_cap * sizeof(*argv));
-                    if (grown == NULL) {
-                        async_exec_free_argv(argv);
-                        free(token);
-                        return -ENOMEM;
-                    }
-                    argv = grown;
-                }
-                token[tok_len] = '\0';
-                argv[argc] = strdup(token);
-                if (argv[argc] == NULL) {
-                    async_exec_free_argv(argv);
-                    free(token);
-                    return -ENOMEM;
-                }
-                argc++;
-                tok_len = 0;
-            }
-            continue;
-        }
-
-        token[tok_len++] = c;
-    }
-
-    if (escaping || in_single || in_double) {
-        async_exec_free_argv(argv);
-        free(token);
-        return -EINVAL;
-    }
-
-    if (tok_len > 0) {
-        if (argc + 2 > argv_cap) {
-            char **grown;
-            argv_cap += 2;
-            grown = (char **)realloc(argv, argv_cap * sizeof(*argv));
-            if (grown == NULL) {
-                async_exec_free_argv(argv);
-                free(token);
-                return -ENOMEM;
-            }
-            argv = grown;
-        }
-        token[tok_len] = '\0';
-        argv[argc] = strdup(token);
-        if (argv[argc] == NULL) {
-            async_exec_free_argv(argv);
-            free(token);
-            return -ENOMEM;
-        }
-        argc++;
-    }
-
-    free(token);
-
-    if (argc == 0) {
-        async_exec_free_argv(argv);
-        return -EINVAL;
-    }
-
-    argv[argc] = NULL;
-    *out_argv = argv;
-    return 0;
-}
-
 static void async_exec_fire_callback(async_exec_ctx_t *ctx) {
     if (ctx->callback_fired || !ctx->callback) return;
     ctx->callback_fired = true;
@@ -188,29 +65,25 @@ static void on_close(uv_handle_t *handle) {
 }
 
 static void async_exec_close_all(async_exec_ctx_t *ctx) {
-    /* Idempotent teardown: uv_close on an already-closing handle is
-     * a libuv abort, so only close handles we know are live. */
+    /* Close each still-live handle exactly once. If uv_is_closing is
+     * true, the handle has an on_close already queued by a prior path
+     * (typical: on_timeout already asked for close). That on_close
+     * will still fire and decrement pending_closes. Double-closing OR
+     * decrementing here in the else branch both overcounts and drives
+     * pending_closes negative, producing a use-after-free when a later
+     * on_close runs past zero.
+     *
+     * The counter is authoritative: it is set once in spine_async_exec
+     * to the exact number of handles we initialized, and on_close is
+     * the only site that decrements it. */
     if (ctx->process_started && !uv_is_closing((uv_handle_t *)&ctx->process)) {
         uv_close((uv_handle_t *)&ctx->process, on_close);
-    } else {
-        ctx->pending_closes--;
     }
     if (!uv_is_closing((uv_handle_t *)&ctx->stdout_pipe)) {
         uv_close((uv_handle_t *)&ctx->stdout_pipe, on_close);
-    } else {
-        ctx->pending_closes--;
     }
     if (!uv_is_closing((uv_handle_t *)&ctx->timer)) {
         uv_close((uv_handle_t *)&ctx->timer, on_close);
-    } else {
-        ctx->pending_closes--;
-    }
-
-    if (ctx->pending_closes == 0) {
-        async_exec_fire_callback(ctx);
-        async_exec_free_argv(ctx->argv);
-        free(ctx->result_buffer);
-        free(ctx);
     }
 }
 
@@ -271,8 +144,6 @@ static void on_timeout(uv_timer_t *handle) {
 }
 
 int spine_async_exec(uv_loop_t *runtime_loop, const char *command, uint64_t timeout_ms, async_exec_cb cb, void *data) {
-    int rc;
-
     if (!runtime_loop || !command || !cb) return -EINVAL;
 
     async_exec_ctx_t *ctx = calloc(1, sizeof(async_exec_ctx_t));
@@ -288,11 +159,29 @@ int spine_async_exec(uv_loop_t *runtime_loop, const char *command, uint64_t time
     ctx->data            = data;
     ctx->pending_closes  = 3;
 
-    rc = async_exec_parse_argv(command, &ctx->argv);
-    if (rc != 0) {
+    /* Always spawn via /bin/sh -c. The sync poller path (nft_popen.c)
+     * runs every command through sh -c; poller items in the Cacti DB
+     * may legitimately contain |, >, redirects, $VAR expansion, and
+     * other shell constructs. A naive argv tokenizer would break
+     * those, and a metachar-detecting hybrid creates a behaviour
+     * split (same command runs differently depending on quoting that
+     * the admin does not control). Keep the shell boundary identical
+     * to the sync path. */
+    ctx->argv = (char **)calloc(4, sizeof(char *));
+    if (ctx->argv == NULL) {
         free(ctx->result_buffer);
         free(ctx);
-        return rc;
+        return -ENOMEM;
+    }
+    ctx->argv[0] = strdup("/bin/sh");
+    ctx->argv[1] = strdup("-c");
+    ctx->argv[2] = strdup(command);
+    ctx->argv[3] = NULL;
+    if (!ctx->argv[0] || !ctx->argv[1] || !ctx->argv[2]) {
+        async_exec_free_argv(ctx->argv);
+        free(ctx->result_buffer);
+        free(ctx);
+        return -ENOMEM;
     }
 
     uv_pipe_init(runtime_loop, &ctx->stdout_pipe, 0);

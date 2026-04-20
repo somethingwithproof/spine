@@ -153,21 +153,31 @@ function(spine_add_tests)
   endif()
 
   add_executable(test_async_coverage tests/unit/test_async_coverage.c tests/unit/test_spine_stubs.c)
-  target_include_directories(test_async_coverage PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/config ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+  target_include_directories(test_async_coverage PRIVATE 
+    ${CMAKE_BINARY_DIR} 
+    ${CMAKE_BINARY_DIR}/config 
+    ${CMAKE_SOURCE_DIR} 
+    ${CMAKE_SOURCE_DIR}/src 
+    ${CMAKE_SOURCE_DIR}/tests/unit 
+    ${CMAKE_SOURCE_DIR}/third_party
+    ${LIBUV_INCLUDE_DIRS}
+    ${CARES_INCLUDE_DIRS}
+  )
   if(TARGET spine_build_options)
     target_link_libraries(test_async_coverage PRIVATE spine_build_options)
   endif()
   target_link_libraries(test_async_coverage PRIVATE spine_platform spine_hardening spine_netsnmp spine_mysql)
   target_sources(test_async_coverage PRIVATE
-    src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c
+    src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/async_php.c src/telemetry.c
   )
 
   add_executable(test_spine_audit tests/unit/test_spine_audit.c src/spine_audit.c)
   if(LIBUV_FOUND)
     target_link_libraries(test_async_coverage PRIVATE ${LIBUV_LIBRARIES})
   endif()
-  if(SPINE_HAVE_CARES)
+  if(CARES_FOUND)
     target_link_libraries(test_async_coverage PRIVATE ${CARES_LIBRARIES})
+    target_include_directories(test_async_coverage PRIVATE ${CARES_INCLUDE_DIRS})
   endif()
   if(OpenSSL_FOUND)
     target_link_libraries(test_async_coverage PRIVATE OpenSSL::SSL OpenSSL::Crypto)
@@ -308,4 +318,15 @@ function(spine_add_tests)
     target_link_libraries(test_arc4random PRIVATE spine_hardening)
     add_test(NAME arc4random COMMAND test_arc4random)
   endif()
+
+  add_executable(test_scheduler tests/unit/test_scheduler.c src/task_scheduler.c src/task_governor.c src/task_executor.c)
+  if(TARGET spine_build_options)
+    target_link_libraries(test_scheduler PRIVATE spine_build_options)
+  endif()
+  target_link_libraries(test_scheduler PRIVATE spine_platform)
+  if(LIBUV_FOUND)
+    target_link_libraries(test_scheduler PRIVATE ${LIBUV_LIBRARIES})
+  endif()
+  add_test(NAME scheduler COMMAND test_scheduler)
+
 endfunction()

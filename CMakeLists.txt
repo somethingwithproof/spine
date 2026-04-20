@@ -116,15 +116,11 @@ set(SPINE_CORE_SOURCES
     src/util.c
     src/snmp.c
     src/runtime_context.c
-    src/composition_root.c
     src/availability_policy.c
     src/config_repository.c
     src/config_builder.c
     src/config_apply.c
-    src/db_connection.c
     src/db_session.c
-    src/db_query.c
-    src/db_retry.c
     src/snmp_session_factory.c
     src/snmp_client.c
     src/snmp_result_parser.c
@@ -142,7 +138,9 @@ set(SPINE_CORE_SOURCES
     src/async_snmp.c
     src/async_mysql.c
     src/async_batch.c
+    src/async_php.c
     src/async_dns.c
+    src/telemetry.c
     src/php.c
     src/ping.c
     src/ping_validate.c
@@ -200,7 +198,25 @@ if(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
         target_link_options(spine_hardening INTERFACE -pie)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_link_options(spine_hardening INTERFACE -Wl,-z,relro -Wl,-z,now)
+        target_link_options(spine_hardening INTERFACE
+            -Wl,-z,relro
+            -Wl,-z,now
+            -Wl,-z,noexecstack
+            -Wl,-z,separate-code
+        )
+    endif()
+
+    # Zero-init every automatic variable at function entry. Available in
+    # gcc 12+ and clang 16+. Closes the class of uninitialised-read bugs
+    # that commit 7116f3d fixed one site at a time (flogmessage before
+    # strftime). Probe with -Werror so an older toolchain produces a
+    # hard failure rather than a silent -Wunused-command-line-argument.
+    set(_spine_prev_required_flags "${CMAKE_REQUIRED_FLAGS}")
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -Werror=unused-command-line-argument")
+    check_c_compiler_flag(-ftrivial-auto-var-init=zero SPINE_HAS_AUTO_INIT)
+    set(CMAKE_REQUIRED_FLAGS "${_spine_prev_required_flags}")
+    if(SPINE_HAS_AUTO_INIT)
+        target_compile_options(spine_hardening INTERFACE -ftrivial-auto-var-init=zero)
     endif()
 endif()
 
@@ -359,13 +375,20 @@ else()
         target_compile_definitions(spine_platform PUBLIC HAVE_LIBAUDIT=1)
         target_include_directories(spine_platform PUBLIC ${AUDIT_INCLUDE_DIR})
         target_link_libraries(spine_platform PUBLIC ${AUDIT_LIB})
-    endif()
+    # c-ares linkage
     if(SPINE_HAVE_CARES)
         target_compile_definitions(spine_platform PUBLIC HAVE_CARES=1)
         target_include_directories(spine_platform PUBLIC ${CARES_INCLUDE_DIRS})
         target_link_libraries(spine_platform PUBLIC ${CARES_LIBRARIES})
     endif()
-    # libuv linkage
+
+    # PCRE2 linkage
+    if(HAVE_PCRE2)
+        target_compile_definitions(spine_platform PUBLIC HAVE_PCRE2=1)
+        target_include_directories(spine_platform PUBLIC ${PCRE2_INCLUDE_DIRS})
+        target_link_libraries(spine_platform PUBLIC ${PCRE2_LIBRARIES})
+    endif()
+    endif()
     target_compile_definitions(spine_platform PUBLIC HAVE_LIBUV=1)
     if(LIBUV_FOUND)
         target_include_directories(spine_platform PUBLIC ${LIBUV_INCLUDE_DIRS})
@@ -394,6 +417,8 @@ if(SPINE_BUILD_MAIN)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/platform
         ${CMAKE_SOURCE_DIR}/third_party
+        ${LIBUV_INCLUDE_DIRS}
+        ${CARES_INCLUDE_DIRS}
     )
     target_link_libraries(spine PRIVATE
         spine_platform
@@ -402,6 +427,18 @@ if(SPINE_BUILD_MAIN)
         spine_hardening
         Threads::Threads
     )
+
+    if(LIBUV_FOUND)
+        target_link_libraries(spine PRIVATE ${LIBUV_LIBRARIES})
+    endif()
+
+    if(SPINE_HAVE_CARES)
+        target_link_libraries(spine PRIVATE ${CARES_LIBRARIES})
+    endif()
+
+    if(HAVE_PCRE2)
+        target_link_libraries(spine PRIVATE ${PCRE2_LIBRARIES})
+    endif()
 
     # Performance: Link high-performance allocator if available
     if(MIMALLOC_FOUND)

@@ -52,20 +52,39 @@
  * is initialised once at install time rather than as a designated
  * initialiser.
  */
+/* AS-safe integer -> decimal string. Returns number of bytes written
+ * into buf (without NUL). buf must hold at least 21 bytes. */
+static size_t spine_as_safe_u64_to_dec(unsigned long long v, char *buf) {
+	char tmp[21];
+	size_t n = 0;
+	if (v == 0) {
+		buf[0] = '0';
+		return 1;
+	}
+	while (v > 0 && n < sizeof(tmp)) {
+		tmp[n++] = (char)('0' + (v % 10));
+		v /= 10;
+	}
+	for (size_t i = 0; i < n; i++) {
+		buf[i] = tmp[n - 1 - i];
+	}
+	return n;
+}
+
 static void spine_signal_handler(int spine_signal) {
 	signal(spine_signal, SIG_DFL);
 
 	set.exit_code = spine_signal;
 
-	static const char msg_abrt[] = "FATAL: Spine Interrupted by Abort Signal\n";
-	static const char msg_int[]  = "FATAL: Spine Interrupted by Console Operator\n";
-	static const char msg_segv[] = "FATAL: Spine Encountered a Segmentation Fault\n";
-	static const char msg_bus[]  = "FATAL: Spine Encountered a Bus Error\n";
-	static const char msg_fpe[]  = "FATAL: Spine Encountered a Floating Point Exception\n";
-	static const char msg_quit[] = "FATAL: Spine Encountered a Keyboard Quit Command\n";
-	static const char msg_pipe[] = "FATAL: Spine Encountered a Broken Pipe\n";
-	static const char msg_sys[]  = "FATAL: Spine Encountered a Bad System Call\n";
-	static const char msg_dflt[] = "FATAL: Spine Encountered An Unhandled Exception Signal\n";
+	static const char msg_abrt[] = " FATAL: Spine Interrupted by Abort Signal\n";
+	static const char msg_int[]  = " FATAL: Spine Interrupted by Console Operator\n";
+	static const char msg_segv[] = " FATAL: Spine Encountered a Segmentation Fault\n";
+	static const char msg_bus[]  = " FATAL: Spine Encountered a Bus Error\n";
+	static const char msg_fpe[]  = " FATAL: Spine Encountered a Floating Point Exception\n";
+	static const char msg_quit[] = " FATAL: Spine Encountered a Keyboard Quit Command\n";
+	static const char msg_pipe[] = " FATAL: Spine Encountered a Broken Pipe\n";
+	static const char msg_sys[]  = " FATAL: Spine Encountered a Bad System Call\n";
+	static const char msg_dflt[] = " FATAL: Spine Encountered An Unhandled Exception Signal\n";
 
 	const char *msg = msg_dflt;
 	size_t      len = sizeof(msg_dflt) - 1;
@@ -81,6 +100,15 @@ static void spine_signal_handler(int spine_signal) {
 		case SIGSYS:  msg = msg_sys;  len = sizeof(msg_sys)  - 1; break;
 	}
 
+	/* Emit wall-clock seconds-since-epoch (time(2) is AS-safe) so the
+	 * operator can correlate the crash with journalctl / syslog. The
+	 * full strftime path would require non-AS-safe localtime + strftime;
+	 * a raw epoch avoids that and is trivial to feed to `date -d @SECS`. */
+	char tsbuf[32];
+	time_t now = time(NULL);
+	size_t tslen = spine_as_safe_u64_to_dec((unsigned long long)now, tsbuf);
+
+	(void)!write(STDERR_FILENO, tsbuf, tslen);
 	(void)!write(STDERR_FILENO, msg, len);
 
 	/* 128 + signo is the conventional shell exit code for a signal death. */

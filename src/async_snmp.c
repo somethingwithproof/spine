@@ -124,11 +124,22 @@ int spine_async_snmp_get(uv_loop_t *runtime_loop, void *sessp, const char *oid_s
         if (FD_ISSET(i, &fdset)) {
             ctx->fd = i;
             if (uv_poll_init(runtime_loop, &ctx->poll, i) != 0) {
-                free(ctx);
+                /* ctx is still registered as the magic pointer in the
+                 * net-snmp async request started by snmp_sess_async_send
+                 * above; freeing it now causes async_response_handler to
+                 * dereference freed memory on response or timeout. Cancel
+                 * the outstanding request (best effort; not all net-snmp
+                 * versions expose snmp_sess_timeout with a synchronous
+                 * abort) and let the handler's own completion path drive
+                 * the free via async_snmp_finish. */
+                snmp_sess_timeout(sessp);
                 return -1;
             }
             ctx->poll.data = ctx;
             if (uv_poll_start(&ctx->poll, UV_READABLE, on_snmp_readable) != 0) {
+                /* Already initialized - ctx is freed when on_poll_close
+                 * fires, which also lets async_response_handler unwind
+                 * safely if it races. */
                 uv_close((uv_handle_t *)&ctx->poll, on_poll_close);
                 return -1;
             }
@@ -138,7 +149,10 @@ int spine_async_snmp_get(uv_loop_t *runtime_loop, void *sessp, const char *oid_s
     }
 
     if (!fd_found) {
-        free(ctx);
+        /* Same rationale as the uv_poll_init error path: let net-snmp's
+         * timeout machinery drive async_response_handler so ctx is freed
+         * from async_snmp_finish with no in-flight UAF. */
+        snmp_sess_timeout(sessp);
         return -1;
     }
 

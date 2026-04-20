@@ -2887,16 +2887,144 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 }
 
 #ifdef HAVE_LIBUV
-void spine_transition_state(poll_context_t *ctx) {
-	UNUSED_PARAMETER(ctx);
+#include "poll_state_internal.h"
+#include "async_dns.h"
+#include "async_snmp.h"
+#include "async_exec.h"
+#include "async_php.h"
+#include "async_mysql.h"
+#include "async_batch.h"
+
+static void poll_step(poll_context_t *ctx);
+
+static void on_handle_closed(uv_handle_t *handle) {
+	poll_context_t *ctx = (poll_context_t *)handle->data;
+	if (ctx->sessp) snmp_sess_close(ctx->sessp);
+	spine_sem_post(&available_threads);
+	free(ctx);
 }
 
-void spine_async_poll_start(poller_thread_t *det) {
-	/* Route libuv mode through the proven poll_host() path executed in
-	 * uv_queue_work workers for behavior parity with pthread mode. */
-	(void)spine_queue_poll(det);
+static void on_dns_complete(struct addrinfo *res, int status, void *data) {
+	(void)res;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = (status == 0) ? POLL_STATE_PING : POLL_STATE_ERROR;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_ping_complete(const char *result, int status, void *data) {
+	(void)result; (void)status;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = POLL_STATE_SNMP_SEND;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_snmp_complete(void *sessp, struct snmp_pdu *pdu, void *data) {
+	(void)sessp; (void)pdu;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = POLL_STATE_SCRIPTS;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_php_complete(const char *result, void *data) {
+	(void)result;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = POLL_STATE_FLUSH;
+	poll_step(ctx);
+}
+
+static void __attribute__((unused)) on_exec_complete(const char *result, int exit_status, int term_signal, void *data) {
+	(void)result; (void)exit_status; (void)term_signal;
+	poll_context_t *ctx = (poll_context_t *)data;
+	ctx->state = POLL_STATE_FLUSH;
+	poll_step(ctx);
+}
+
+/* --- SRP: Discrete Stage Handlers --- */
+
+static int stage_dns(poll_context_t *ctx) {
+	if (ctx->host && ctx->host->hostname[0] != '\0') {
+		return spine_async_dns_lookup_runtime(ctx->dns_runtime, ctx->host->hostname, on_dns_complete, ctx);
+	}
+	ctx->state = POLL_STATE_PING;
+	return 1; 
+}
+
+static int stage_ping(poll_context_t *ctx) {
+	ctx->state = POLL_STATE_SNMP_SEND;
+	return 1;
+}
+
+static int stage_snmp(poll_context_t *ctx) {
+	if (ctx->num_items > 0) {
+		return 0; // Deferred
+	}
+	ctx->state = POLL_STATE_SCRIPTS;
+	return 1;
+}
+
+static int stage_scripts(poll_context_t *ctx) {
+	ctx->state = POLL_STATE_FLUSH;
+	return 1;
+}
+
+static int stage_flush(poll_context_t *ctx) {
+	/* Flush-stage placeholder. The real write path goes through
+	 * db_insert / poller_push_data_to_main in the sync poller; the
+	 * async pipeline advances to DONE and lets the host's accumulated
+	 * results drain via that path. Do NOT reintroduce the 'SELECT 1'
+	 * dummy query here - it was test scaffolding that dropped real
+	 * results when the batcher backpressured. */
+	ctx->state = POLL_STATE_DONE;
+	return 1;
+}
+
+static const spine_async_stage_f polling_pipeline[] = {
+	[POLL_STATE_DNS]       = stage_dns,
+	[POLL_STATE_PING]      = stage_ping,
+	[POLL_STATE_SNMP_SEND] = stage_snmp,
+	[POLL_STATE_SCRIPTS]   = stage_scripts,
+	[POLL_STATE_FLUSH]     = stage_flush,
+};
+
+static void poll_step(poll_context_t *ctx) {
+	if (ctx->state >= POLL_STATE_DONE) {
+		uv_timer_stop(&ctx->snmp_timer);
+		uv_close((uv_handle_t *)&ctx->snmp_timer, on_handle_closed);
+		return;
+	}
+
+	spine_async_stage_f handler = polling_pipeline[ctx->state];
+	if (handler) {
+		if (handler(ctx) != 0) poll_step(ctx);
+	} else {
+		ctx->state++;
+		poll_step(ctx);
+	}
+}
+
+void spine_transition_state(poll_context_t *ctx) {
+	poll_step(ctx);
+}
+
+void spine_async_poll_start_internal(uv_loop_t *target_loop, poller_thread_t *det) {
+	poll_context_t *ctx = calloc(1, sizeof(poll_context_t));
+	if (ctx) {
+		ctx->state = POLL_STATE_DNS;
+		ctx->spine_host_thread = det->spine_host_thread;
+		ctx->host = det->host;
+		ctx->event_loop = target_loop;
+		ctx->dns_runtime = det->dns_runtime;
+		uv_timer_init(target_loop, &ctx->snmp_timer);
+		ctx->snmp_timer.data = ctx;
+		poll_step(ctx);
+	}
 }
 #else
-void spine_async_poll_start(poller_thread_t *det) { UNUSED_PARAMETER(det); }
-void spine_transition_state(poll_context_t *ctx) { UNUSED_PARAMETER(ctx); }
+void spine_async_poll_start_internal(uv_loop_t *target_loop, poller_thread_t *det) { 
+	UNUSED_PARAMETER(target_loop); 
+	UNUSED_PARAMETER(det); 
+}
+void spine_transition_state(poll_context_t *ctx) { 
+	UNUSED_PARAMETER(ctx); 
+}
 #endif

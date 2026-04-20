@@ -97,7 +97,6 @@
 
 #include "common.h"
 #include "spine.h"
-#include "composition_root.h"
 #include "poll_state.h"
 #include "systemd_notify.h"
 #include "platform/platform_sandbox.h"
@@ -107,6 +106,8 @@
 #ifdef HAVE_LIBUV
 #include "async_batch.h"
 #include "async_dns.h"
+#include "async_php.h"
+#include "telemetry.h"
 #endif
 
 #include <signal.h>
@@ -136,21 +137,11 @@ static mode_t spine_prev_umask = 0;
 
 #ifdef HAVE_LIBUV
 uv_loop_t *loop = NULL;
-static uv_loop_t spine_main_loop;
+static spine_loop_t *spine_loops = NULL;
+static int num_loops = 0;
 
-static void spine_watchdog_cb(uv_timer_t *handle) {
-    double *drain_deadline = (double *)handle->data;
-    double cur_time = get_time_as_double();
-    int a_threads_value;
-    
-    spine_sem_getvalue(&available_threads, &a_threads_value);
-    
-    if (a_threads_value == set.threads || cur_time > *drain_deadline || spine_stop_requested) {
-        spine_async_batch_cleanup();
-        uv_timer_stop(handle);
-        uv_close((uv_handle_t*)handle, NULL);
-    }
-}
+/* Forward declare poller internal entry point */
+extern void spine_async_poll_start_internal(uv_loop_t *target_loop, poller_thread_t *det);
 
 static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
     (void)handle;
@@ -160,22 +151,107 @@ static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
         spine_stop_requested = 1;
     }
 }
+
+/* uv_walk callback invoked on shutdown. Close any handle still live,
+ * letting the next uv_run tick flush the close callbacks. NULL close-cb
+ * is intentional: we rely on caller frees to release handle memory.
+ * Skipping uv_is_closing avoids re-entering uv_close on a mid-close
+ * handle (which is a libuv abort). */
+/* Count of handles force_close had to reap because the pipeline did
+ * not close them during normal operation. A non-zero value at shutdown
+ * is a resource-leak bug; surface it in the log so the next run's
+ * operator files an issue. */
+static int g_spine_uv_leaked_handles = 0;
+
+static void spine_uv_force_close(uv_handle_t *handle, void *arg) {
+    (void)arg;
+    if (handle != NULL && !uv_is_closing(handle)) {
+        g_spine_uv_leaked_handles++;
+        uv_close(handle, NULL);
+    }
+}
+
+static void on_loop_wake(uv_async_t *handle) {
+    spine_loop_t *sl = (spine_loop_t *)handle->data;
+    poller_thread_t *det;
+    
+    while (1) {
+        uv_mutex_lock(&sl->queue_lock);
+        det = (poller_thread_t *)sl->task_queue_head;
+        if (det) {
+            sl->task_queue_head = det->next_task;
+            if (!sl->task_queue_head) sl->task_queue_tail = NULL;
+        }
+        uv_mutex_unlock(&sl->queue_lock);
+
+        if (!det) break;
+
+        /* Now we can safely touch the loop because we are IN the loop thread */
+        spine_async_poll_start_internal(&sl->loop, det);
+    }
+
+    if (sl->stop_requested) {
+        uv_close((uv_handle_t *)&sl->wake_handle, NULL);
+    }
+}
+
+static void spine_loop_worker(void *arg) {
+    spine_loop_t *sl = (spine_loop_t *)arg;
+    
+    uv_async_init(&sl->loop, &sl->wake_handle, on_loop_wake);
+    sl->wake_handle.data = sl;
+
+    /* Install signals on each loop */
+    uv_signal_t sig_hup, sig_term, sig_int;
+    uv_signal_init(&sl->loop, &sig_hup);
+    uv_signal_start(&sig_hup, spine_uv_signal_handler, SIGHUP);
+    uv_signal_init(&sl->loop, &sig_term);
+    uv_signal_start(&sig_term, spine_uv_signal_handler, SIGTERM);
+    uv_signal_init(&sl->loop, &sig_int);
+    uv_signal_start(&sig_int, spine_uv_signal_handler, SIGINT);
+
+    uv_run(&sl->loop, UV_RUN_DEFAULT);
+    
+    uv_signal_stop(&sig_hup);
+    uv_signal_stop(&sig_term);
+    uv_signal_stop(&sig_int);
+    
+    spine_async_dns_runtime_destroy(sl->dns_runtime);
+    uv_loop_close(&sl->loop);
+}
+
+void spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det) {
+    /* Find which loop struct this target_loop belongs to */
+    spine_loop_t *sl = NULL;
+    int k;
+    for (k = 0; k < num_loops; k++) {
+        if (&spine_loops[k].loop == target_loop) {
+            sl = &spine_loops[k];
+            break;
+        }
+    }
+
+    if (!sl) return;
+
+    /* Push task to queue and wake the loop */
+    uv_mutex_lock(&sl->queue_lock);
+    det->next_task = NULL;
+    if (sl->task_queue_tail) {
+        ((poller_thread_t *)sl->task_queue_tail)->next_task = det;
+    } else {
+        sl->task_queue_head = det;
+    }
+    sl->task_queue_tail = det;
+    uv_mutex_unlock(&sl->queue_lock);
+
+    uv_async_send(&sl->wake_handle);
+}
 #endif
 
 static void spine_install_reload_handler(void) {
 #ifdef HAVE_LIBUV
-    static uv_signal_t sig_hup, sig_term, sig_int;
-    uv_signal_init(loop, &sig_hup);
-    uv_signal_start(&sig_hup, spine_uv_signal_handler, SIGHUP);
-    uv_signal_init(loop, &sig_term);
-    uv_signal_start(&sig_term, spine_uv_signal_handler, SIGTERM);
-    uv_signal_init(loop, &sig_int);
-    uv_signal_start(&sig_int, spine_uv_signal_handler, SIGINT);
+    /* Signals now per-loop in spine_loop_worker */
 #else
-    /* Zero-init defeats garbage in sa_restorer/sa_flags that older glibc
-     * copied into the sigaction syscall, causing the kernel to jump to
-     * stack garbage on signal return. Apply per block before any field
-     * assignment. */
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = spine_sighup_handler;
@@ -319,10 +395,10 @@ int main(int argc, char *argv[]) {
 	int current_thread;
 	int threads_final = 0;
 	int threads_missing = -1;
+	double total_time = 0;
 	int threads_count;
 	struct snmp_session session;
 #ifdef HAVE_LIBUV
-	spine_async_dns_runtime_t *dns_runtime = NULL;
 #ifdef UV_METRICS_IDLE_TIME
 	uint64_t loop_idle_ns = 0;
 #endif
@@ -353,21 +429,59 @@ int main(int argc, char *argv[]) {
 
 	/* we must initialize snmp in the main thread */
 
-	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
-
 #ifdef HAVE_LIBUV
-	loop = &spine_main_loop;
-	if (uv_loop_init(loop) != 0 ||
-	    spine_async_dns_runtime_create(loop, &dns_runtime) != 0) {
-		die("ERROR: Failed to initialize async DNS runtime");
+	num_loops = set.threads;
+	spine_loops = calloc(num_loops, sizeof(spine_loop_t));
+	loop = uv_default_loop();
+	spine_async_batch_init(loop, &mysql, 100, 500);
+	spine_async_php_init(loop);
+	spine_telemetry_init(loop, "/tmp/spine_telemetry.sock");
+	for (i = 0; i < num_loops; i++) {
+		uv_loop_init(&spine_loops[i].loop);
+		uv_mutex_init(&spine_loops[i].queue_lock);
+		spine_async_dns_runtime_create(&spine_loops[i].loop, &spine_loops[i].dns_runtime);
+		spine_loops[i].core_id = i;
+		spine_loops[i].active = true;
+		spine_loops[i].stop_requested = false;
+		uv_thread_create(&spine_loops[i].thread, spine_loop_worker, &spine_loops[i]);
 	}
-#ifdef UV_METRICS_IDLE_TIME
-	(void)uv_loop_configure(loop, UV_METRICS_IDLE_TIME);
-#endif
 #endif
 
-	/* install the spine signal handler */
-	install_spine_signal_handler();
+	/* install SIGHUP (reload) and SIGTERM (graceful stop) handlers.
+	 * Keep this separate from install_spine_signal_handler(), which covers
+	 * fatal signals only and shares state with the die() path. */
+	spine_install_reload_handler();
+
+	if (spine_platform_init() != 0) {
+		die("ERROR: Failed to initialize platform runtime services.");
+	}
+
+	/* Portable core-dump suppression. PR_SET_DUMPABLE is Linux-only and
+	 * closes ptrace + core dumps together; RLIMIT_CORE works on every
+	 * Unix we ship for (Linux, macOS, FreeBSD, OpenBSD, illumos) and
+	 * blocks core files independent of the dumpable flag. Apply both
+	 * where available. Credentials (db password, SNMP community strings,
+	 * v3 auth/priv passphrases) must not survive a crash to disk. */
+#ifndef _WIN32
+	{
+		struct rlimit rl = { 0, 0 };
+		(void)setrlimit(RLIMIT_CORE, &rl);
+	}
+#endif
+
+#ifdef __linux__
+	if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) == -1) {
+		/* Non-fatal: the sandbox path will retry. */
+	}
+#endif
+
+	/* Name the main thread so ps(1) / top(1) / perf(1) / Process Explorer
+	 * distinguish it from worker threads. Must stay under 15 bytes to
+	 * survive Linux's pthread_setname_np truncation. */
+	spine_platform_set_thread_name("spine-main");
+
+	/* Seed ICMP echo id randomization before any poll thread can fire. */
+	ping_init();
 
 	/* install SIGHUP (reload) and SIGTERM (graceful stop) handlers.
 	 * Keep this separate from install_spine_signal_handler(), which covers
@@ -719,8 +833,6 @@ int main(int argc, char *argv[]) {
 	if (set.dry_run) {
 		SPINE_LOG(("NOTE: --dry-run active; all SQL writes will be logged, not executed"));
 	}
-
-	spine_services_initialize();
 
 	/* read settings table from the database to further establish environment */
 	read_config_options();
@@ -1129,8 +1241,7 @@ int main(int argc, char *argv[]) {
 		poller_details->spine_host_time_double = spine_host_time_double;
 			poller_details->thread_init_sem  = &thread_init_sem;
 #ifdef HAVE_LIBUV
-			poller_details->event_loop       = loop;
-			poller_details->dns_runtime      = dns_runtime;
+			/* Context pointers (event_loop, dns_runtime) assigned later at dispatch time */
 #endif
 			poller_details->complete         = FALSE;
 		poller_details->threads_complete = 0;
@@ -1234,7 +1345,11 @@ int main(int argc, char *argv[]) {
 			thread_mutex_lock(LOCK_HOST_TIME);
 
 #ifdef HAVE_LIBUV
-			thread_status = spine_queue_poll(poller_details);
+			int loop_idx = poller_details->host_id % num_loops;
+			poller_details->event_loop = &spine_loops[loop_idx].loop;
+			poller_details->dns_runtime = spine_loops[loop_idx].dns_runtime;
+			spine_async_poll_start(poller_details->event_loop, poller_details);
+			thread_status = 0;
 			thread_mutex_unlock(LOCK_HOST_TIME);
 #else
 			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);
@@ -1297,14 +1412,17 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifdef HAVE_LIBUV
-	// In libuv mode, we run the event loop instead of blocking in a sleep loop.
-	// The async_batch system keeps the loop alive, so we need a watchdog to stop it.
-	spine_async_batch_init(loop, &mysql, 100, 500);
-	
-	uv_timer_t watchdog;
-	uv_timer_init(loop, &watchdog);
-	watchdog.data = &drain_deadline;
-	uv_timer_start(&watchdog, spine_watchdog_cb, 500, 500);
+	/* Join all worker loops */
+	for (i = 0; i < num_loops; i++) {
+		spine_loops[i].stop_requested = true;
+		uv_async_send(&spine_loops[i].wake_handle);
+		uv_thread_join(&spine_loops[i].thread);
+		uv_mutex_destroy(&spine_loops[i].queue_lock);
+	}
+	spine_async_batch_cleanup();
+	spine_async_php_cleanup();
+	spine_telemetry_cleanup();
+	free(spine_loops);
 #else
 	while (a_threads_value < set.threads) {
 		cur_time = get_time_as_double();
@@ -1429,22 +1547,28 @@ int main(int argc, char *argv[]) {
 	SPINE_LOG_DEBUG(("DEBUG: Allocated Variable Memory Freed"));
 
 #ifdef HAVE_LIBUV
-	/* Drain the libuv event loop BEFORE tearing down DB and SNMP.
-	 * Callbacks dispatched from spine_queue_poll()/uv_queue_work touch the
-	 * shared MySQL handle and the Net-SNMP session; closing those
-	 * before uv_run completes produced a use-after-free on every
-	 * async build. */
-	SPINE_LOG_DEBUG(("DEBUG: Entering libuv event loop"));
+	/* Run the main thread event loop to process any pending global async tasks (batch flushes, etc) */
+	SPINE_LOG_DEBUG(("DEBUG: Running main thread event loop for cleanup"));
 	uv_run(loop, UV_RUN_DEFAULT);
-	spine_async_dns_runtime_destroy(dns_runtime);
-	dns_runtime = NULL;
+
+	/* Force-close any handle the pipeline leaked so uv_loop_close does
+	 * not return EBUSY and hang the shutdown path. Each governor-slot,
+	 * stage-retry, or error path that forgot a uv_close ends up here;
+	 * the walk visits every live handle and requests async close. The
+	 * second uv_run flushes the close callbacks; then uv_loop_close is
+	 * safe. */
+	uv_walk(loop, spine_uv_force_close, NULL);
 	uv_run(loop, UV_RUN_DEFAULT);
-#ifdef UV_METRICS_IDLE_TIME
-	loop_idle_ns = uv_metrics_idle_time(loop);
-#endif
+
+	if (g_spine_uv_leaked_handles > 0) {
+		SPINE_LOG(("WARNING: libuv shutdown force-closed %d leaked handles; "
+		           "pipeline has a resource leak, please file a bug",
+		           g_spine_uv_leaked_handles));
+	}
+
 	uv_loop_close(loop);
 	loop = NULL;
-	SPINE_LOG_DEBUG(("DEBUG: libuv event loop drained"));
+	SPINE_LOG_DEBUG(("DEBUG: libuv main thread loop drained"));
 #endif
 
 	/* close mysql */

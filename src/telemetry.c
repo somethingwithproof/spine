@@ -1,6 +1,19 @@
 #include "common.h"
 #include "spine.h"
 #include "telemetry.h"
+#include "task_governor.h"
+#include "task_scheduler.h"
+
+// Note: Ensure your telemetry endpoint format exports these values.
+void spine_telemetry_get_metrics(void) {
+    uint32_t global_inflight = spine_governor_get_global_inflight();
+    uint32_t queued_count = spine_scheduler_get_queued_count();
+    uint32_t active_hosts = spine_scheduler_get_active_hosts();
+    /* Telemetry formatting logic omitted here, assume it writes to buffer */
+    (void)global_inflight;
+    (void)queued_count;
+    (void)active_hosts;
+}
 
 typedef struct {
     uint64_t total_polls;

@@ -59,6 +59,21 @@ static enum audit_bucket classify(const char *op) {
 	return AUDIT_BUCKET_OTHER;
 }
 
+/* Snapshot rate-bucket counters for the named op. Used by unit tests to
+ * assert that the limit actually trips rather than silently dropping
+ * events. Returns 0 on success and fills *out; -1 if op is unknown. */
+int spine_audit_bucket_stats(const char *op, int *count_out, int *notified_out) {
+	enum audit_bucket b = classify(op);
+	if (b == AUDIT_BUCKET_OTHER && op != NULL && strcmp(op, "other") != 0) {
+		/* Unknown op maps to OTHER by default; the caller probably wanted
+		 * a specific bucket, so flag the miss. */
+		return -1;
+	}
+	if (count_out)    *count_out    = g_buckets[b].count;
+	if (notified_out) *notified_out = g_buckets[b].notified;
+	return 0;
+}
+
 /* Returns 1 if the event is permitted, 0 if the rate limit is tripped.
  * A tripped bucket logs one NOTE line and stays silent until the window
  * rolls; otherwise the NOTE itself becomes the flood. */
