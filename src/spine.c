@@ -112,6 +112,7 @@
 #include <signal.h>
 #ifndef _WIN32
 #include <sys/mman.h>
+#include <sys/resource.h>
 #endif
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -377,13 +378,20 @@ int main(int argc, char *argv[]) {
 		die("ERROR: Failed to initialize platform runtime services.");
 	}
 
+	/* Portable core-dump suppression. PR_SET_DUMPABLE is Linux-only and
+	 * closes ptrace + core dumps together; RLIMIT_CORE works on every
+	 * Unix we ship for (Linux, macOS, FreeBSD, OpenBSD, illumos) and
+	 * blocks core files independent of the dumpable flag. Apply both
+	 * where available. Credentials (db password, SNMP community strings,
+	 * v3 auth/priv passphrases) must not survive a crash to disk. */
+#ifndef _WIN32
+	{
+		struct rlimit rl = { 0, 0 };
+		(void)setrlimit(RLIMIT_CORE, &rl);
+	}
+#endif
+
 #ifdef __linux__
-	/* PR_SET_DUMPABLE=0 immediately after platform init and before any
-	 * secret material (db password, SNMP community strings) lands in the
-	 * heap. It denies ptrace(PTRACE_ATTACH) from non-CAP_SYS_PTRACE callers
-	 * and suppresses core dumps, closing the most common credential-theft
-	 * path on a compromised host. sandbox_restrict() also applies this,
-	 * but repeating it here shrinks the window before sandbox activation. */
 	if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) == -1) {
 		/* Non-fatal: the sandbox path will retry. */
 	}
