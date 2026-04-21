@@ -8,6 +8,7 @@ typedef struct {
     int pending_count;
     int active_queries;
     int max_pending;
+    int max_inflight;
     unsigned long dropped_queries;
     unsigned long enqueue_failures;
     unsigned long submitted_queries;

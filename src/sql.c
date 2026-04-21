@@ -116,8 +116,9 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	int    error_count = 0;
 	char   query_frag[LRG_BUFSIZE];
 
-	/* save a fragment just in case */
-	memset(query_frag, 0, LRG_BUFSIZE);
+	/* snprintf NUL-terminates; no pre-zero needed. The prior memset
+	 * wrote 16 KiB per INSERT on a hot path that runs tens of
+	 * thousands of times per poll cycle. */
 	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
 
 	/* show the sql query */

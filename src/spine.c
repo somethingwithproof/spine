@@ -1690,10 +1690,11 @@ int main(int argc, char *argv[]) {
 	{
 		spine_async_batch_stats_t batch_stats;
 		if (spine_async_batch_get_stats(&batch_stats) == 0) {
-			SPINE_LOG(("AsyncDB: submitted=%lu pending=%d active=%d max_pending=%d dropped=%lu enqueue_failures=%lu",
+			SPINE_LOG(("AsyncDB: submitted=%lu pending=%d active=%d/%d max_pending=%d dropped=%lu enqueue_failures=%lu",
 				batch_stats.submitted_queries,
 				batch_stats.pending_count,
 				batch_stats.active_queries,
+				batch_stats.max_inflight,
 				batch_stats.max_pending,
 				batch_stats.dropped_queries,
 				batch_stats.enqueue_failures));

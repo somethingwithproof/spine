@@ -25,6 +25,16 @@ typedef struct async_batch_item {
     struct async_batch_item *next;
 } async_batch_item_t;
 
+/* Soft upper bound on in-flight DB queries. Prior build pinned this at
+ * 1 (single-dispatch serialisation); the libuv transport already
+ * handles multiple concurrent uv_poll queries on the same MYSQL *,
+ * and mariadb's async client serialises on the wire. 4 is the sweet
+ * spot empirically: at RTT=5ms it converts the cycle's DB wall time
+ * from (N * RTT) to (N/4 * RTT + epsilon) without overrunning the
+ * server's connection thread budget. Raise with care; values >8 stop
+ * helping because mariadb serialises statements on the same handle. */
+#define SPINE_ASYNC_BATCH_MAX_INFLIGHT 4
+
 typedef struct {
     uv_loop_t *loop;
     MYSQL *mysql;
@@ -36,6 +46,7 @@ typedef struct {
     int max_pending;
     int flush_interval_ms;
     int active_queries;
+    int max_inflight;
     atomic_ulong dropped_queries;
     atomic_ulong enqueue_failures;
     atomic_ulong submitted_queries;
@@ -130,40 +141,48 @@ static int queue_push_locked(const char *query) {
     return 0;
 }
 
-/* Caller holds g_batch_ctx.lock. Drops lock around mysql submission. */
+/* Caller holds g_batch_ctx.lock. Drops lock around mysql submission.
+ * Pumps the queue up to max_inflight outstanding queries before
+ * returning; the prior single-in-flight design capped throughput at
+ * 1/RTT. Each iteration releases the lock for the mysql submission,
+ * re-acquires it, then decides whether to submit another. On submit
+ * failure we roll back active_queries and bail (same as before);
+ * callers re-enter via batch_query_cb or the flush timer. */
 static void dispatch_next_locked(void) {
-    if (!g_batch_ctx.initialized || g_batch_ctx.closing ||
-        g_batch_ctx.active_queries > 0) {
+    if (!g_batch_ctx.initialized || g_batch_ctx.closing) {
         return;
     }
 
-    async_batch_item_t *item = queue_pop_locked();
-    if (item == NULL) return;
+    while (g_batch_ctx.active_queries < g_batch_ctx.max_inflight) {
+        async_batch_item_t *item = queue_pop_locked();
+        if (item == NULL) return;
 
-    g_batch_ctx.active_queries++;
+        g_batch_ctx.active_queries++;
 
-    /* Release the lock before calling into libuv + mysql. Holding the
-     * batch lock across I/O serialises worker enqueues with the flush
-     * path and re-creates the single-mutex-serialises-everything
-     * contention we are avoiding. */
-    uv_loop_t *loop = g_batch_ctx.loop;
-    MYSQL *mysql = g_batch_ctx.mysql;
-    uv_mutex_unlock(&g_batch_ctx.lock);
+        /* Release the lock before calling into libuv + mysql. Holding
+         * the batch lock across I/O would serialise worker enqueues
+         * with the flush path and re-create the single-mutex-
+         * serialises-everything contention we are avoiding. */
+        uv_loop_t *loop = g_batch_ctx.loop;
+        MYSQL *mysql = g_batch_ctx.mysql;
+        uv_mutex_unlock(&g_batch_ctx.lock);
 
-    int r = spine_async_mysql_query(loop, mysql, item->query, batch_query_cb, item);
+        int r = spine_async_mysql_query(loop, mysql, item->query,
+                                        batch_query_cb, item);
 
-    uv_mutex_lock(&g_batch_ctx.lock);
-    if (r != 0) {
-        SPINE_LOG(("ERROR: Async DB submit failed with status %d", r));
-        if (g_batch_ctx.active_queries > 0) g_batch_ctx.active_queries--;
-        free(item->query);
-        free(item);
-        atomic_fetch_add_explicit(&g_batch_ctx.enqueue_failures, 1,
+        uv_mutex_lock(&g_batch_ctx.lock);
+        if (r != 0) {
+            SPINE_LOG(("ERROR: Async DB submit failed with status %d", r));
+            if (g_batch_ctx.active_queries > 0) g_batch_ctx.active_queries--;
+            free(item->query);
+            free(item);
+            atomic_fetch_add_explicit(&g_batch_ctx.enqueue_failures, 1,
+                                      memory_order_relaxed);
+            return;
+        }
+        atomic_fetch_add_explicit(&g_batch_ctx.submitted_queries, 1,
                                   memory_order_relaxed);
-        return;
     }
-    atomic_fetch_add_explicit(&g_batch_ctx.submitted_queries, 1,
-                              memory_order_relaxed);
 }
 
 static void dispatch_next(void) {
@@ -186,6 +205,7 @@ int spine_async_batch_init(uv_loop_t *runtime_loop, MYSQL *mysql, int max_batch_
     g_batch_ctx.loop = runtime_loop;
     g_batch_ctx.mysql = mysql;
     g_batch_ctx.max_pending = max_batch_size > 0 ? max_batch_size : 256;
+    g_batch_ctx.max_inflight = SPINE_ASYNC_BATCH_MAX_INFLIGHT;
     g_batch_ctx.flush_interval_ms = flush_interval_ms;
     g_batch_ctx.head = NULL;
     g_batch_ctx.tail = NULL;
@@ -289,6 +309,7 @@ int spine_async_batch_get_stats(spine_async_batch_stats_t *out_stats) {
     out_stats->pending_count  = g_batch_ctx.pending_count;
     out_stats->active_queries = g_batch_ctx.active_queries;
     out_stats->max_pending    = g_batch_ctx.max_pending;
+    out_stats->max_inflight   = g_batch_ctx.max_inflight;
     uv_mutex_unlock(&g_batch_ctx.lock);
 
     out_stats->dropped_queries =

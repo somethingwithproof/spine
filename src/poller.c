@@ -1539,8 +1539,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 										db_insert(&mysql, LOCAL, query3);
 									}
 
-									/* set zeros */
-									memset(query3, 0, LRG_BUFSIZE);
 								}
 
 								assert_fail = TRUE;
@@ -1565,8 +1563,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 										db_insert(&mysql, LOCAL, query3);
 									}
 
-									/* set zeros */
-									memset(query3, 0, LRG_BUFSIZE);
 								}
 
 								assert_fail = TRUE;
@@ -1592,9 +1588,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 										} else {
 											db_insert(&mysql, LOCAL, query3);
 										}
-
-										/* set zeros */
-										memset(query3, 0, LRG_BUFSIZE);
 									}
 
 									assert_fail = TRUE;
@@ -1615,8 +1608,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 									db_insert(&mysql, LOCAL, query3);
 
-									/* set zeros */
-									memset(query3, 0, LRG_BUFSIZE);
 								}
 
 								if ((assert_fail) &&
