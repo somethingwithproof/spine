@@ -98,13 +98,23 @@ int spine_async_snmp_get(uv_loop_t *runtime_loop, void *sessp, const char *oid_s
         return -1;
     }
 
-    pdu = snmp_pdu_create(SNMP_MSG_GET);
-    snmp_add_null_var(pdu, anOID, anOID_len);
-
     async_snmp_ctx_t *ctx = calloc(1, sizeof(async_snmp_ctx_t));
+    if (ctx == NULL) {
+        return -ENOMEM;
+    }
     ctx->sessp = sessp;
     ctx->callback = cb;
     ctx->data = data;
+
+    /* Allocate the PDU AFTER ctx so a calloc failure does not leak a
+     * net-snmp PDU (snmp_free_pdu takes ownership only once the PDU
+     * has been handed to snmp_sess_async_send). */
+    pdu = snmp_pdu_create(SNMP_MSG_GET);
+    if (pdu == NULL) {
+        free(ctx);
+        return -ENOMEM;
+    }
+    snmp_add_null_var(pdu, anOID, anOID_len);
 
     /* Send the async request. */
     if (snmp_sess_async_send(sessp, pdu, async_response_handler, ctx) == 0) {
