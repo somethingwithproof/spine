@@ -36,12 +36,17 @@ function(spine_install_runtime_assets)
     if(NOT SPINE_SYSTEMD_UNIT_DIR)
       set(SPINE_SYSTEMD_UNIT_DIR "/lib/systemd/system")
     endif()
+    # 0644 is the systemd-documented mode for unit files; pin it
+    # explicitly so CMAKE_INSTALL_DEFAULT_UMASK changes on a packager's
+    # build host cannot leak looser perms (e.g. a world-writable unit
+    # would let any local user seed a persistent backdoor).
     install(
       FILES ${CMAKE_CURRENT_BINARY_DIR}/spine.service
             ${CMAKE_CURRENT_BINARY_DIR}/spine-batch.service
             ${CMAKE_CURRENT_BINARY_DIR}/spine-dynamic.service
             ${CMAKE_SOURCE_DIR}/etc/systemd/spine.timer
       DESTINATION ${SPINE_SYSTEMD_UNIT_DIR}
+      PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
       COMPONENT systemd)
   endif()
 
@@ -53,6 +58,7 @@ function(spine_install_runtime_assets)
     install(
       FILES ${CMAKE_CURRENT_BINARY_DIR}/${SPINE_APPARMOR_PROFILE_BASENAME}
       DESTINATION ${CMAKE_INSTALL_DATADIR}/spine/apparmor
+      PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
       COMPONENT apparmor
       OPTIONAL)
     install(
@@ -60,6 +66,7 @@ function(spine_install_runtime_assets)
             ${CMAKE_CURRENT_BINARY_DIR}/spine.fc
             ${CMAKE_SOURCE_DIR}/etc/selinux/spine.if
       DESTINATION ${CMAKE_INSTALL_DATADIR}/spine/selinux
+      PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
       COMPONENT selinux
       OPTIONAL)
   endif()

@@ -480,7 +480,15 @@ if(SPINE_BUILD_MAIN)
     endif()
 
     install(TARGETS spine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(FILES etc/spine.conf.dist DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
+    # spine.conf holds DB/RDB passwords. Default 0644 install permissions
+    # leak credentials to any local user running `getent passwd` and
+    # reading the file. 0640 (root + spine group readable) is the tightest
+    # setting that still lets the spine service account load its own
+    # config. Packagers owning chown to spine:spine post-install should
+    # keep this mode; DEB/RPM scriptlets preserve it via --preserve-mode.
+    install(FILES etc/spine.conf.dist
+            DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}
+            PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ)
     spine_install_runtime_assets()
 endif()
 
