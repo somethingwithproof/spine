@@ -42,12 +42,48 @@ void spine_sd_ready(void) {
 #endif
 }
 
+/* Copy src into dst, replacing bytes that terminate an sd_notify field
+ * (\n, \r) or that confuse journal consumers (control chars <0x20 except
+ * \t, \x7f DEL, and raw \0 mid-string) with '?'. Cap at dstsz-1 bytes so
+ * the output is always NUL-terminated. Shared by spine_sd_stopping and
+ * spine_sd_status; NOT used for log MESSAGE sanitisation (that path has
+ * a separate sanitiser in util.c so it can preserve structured keys). */
+static void sd_field_sanitize(const char *src, char *dst, size_t dstsz) {
+    if (dst == NULL || dstsz == 0) return;
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+    size_t n = 0;
+    for (size_t i = 0; src[i] != '\0' && n + 1 < dstsz; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == '\n' || c == '\r' || c == '\0') {
+            dst[n++] = '?';
+        } else if (c < 0x20 && c != '\t') {
+            dst[n++] = '?';
+        } else if (c == 0x7f) {
+            dst[n++] = '?';
+        } else {
+            dst[n++] = (char)c;
+        }
+    }
+    dst[n] = '\0';
+}
+
 void spine_sd_stopping(const char *reason) {
 #ifdef HAVE_LIBSYSTEMD
+    /* \n in `reason` would inject a new sd_notify field (e.g. a forged
+     * READY=1 or WATCHDOG=1) and desynchronise systemd's view of the
+     * unit state. Callers have passed in user-derived strings (shutdown
+     * reason codes mapped from signals, error conditions) so strip any
+     * CR/LF before handing to sd_notifyf. */
+    char sanitized[256];
+    sd_field_sanitize(reason ? reason : "Shutting down",
+                      sanitized, sizeof(sanitized));
     sd_notifyf(0,
                "STOPPING=1\n"
                "STATUS=%s\n",
-               reason ? reason : "Shutting down");
+               sanitized);
 #else
     (void)reason;
 #endif
@@ -72,11 +108,16 @@ void spine_sd_status(const char *fmt, ...) {
         return;  /* NULL status is a no-op; vsnprintf(NULL) is UB. */
     }
     char buf[512];
+    char sanitized[512];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    sd_notifyf(0, "STATUS=%s", buf);
+    /* Formatter may have interpolated a worker-supplied substring
+     * (%s of a device hostname, SQL snippet, etc.) that contains \n.
+     * Strip before sending so the field break does not leak. */
+    sd_field_sanitize(buf, sanitized, sizeof(sanitized));
+    sd_notifyf(0, "STATUS=%s", sanitized);
 #else
     (void)fmt;
 #endif
@@ -130,8 +171,18 @@ void spine_sd_journal_log(const char *level, const char *message, int poller_id,
 		priority = LOG_DEBUG;
 	}
 
+	/* An SNMP device name, community string, or SQL fragment that made
+	 * it into the log format can carry \n or ANSI control bytes. journald
+	 * treats a raw \n inside MESSAGE as a field terminator on the wire
+	 * protocol, which allows a crafted device name to forge synthetic
+	 * journal fields (PRIORITY, SYSLOG_IDENTIFIER) downstream. 8 KiB is
+	 * the sd_journal_send() hard cap; anything longer would be dropped
+	 * anyway. Truncation is preferable to stack growth on the log path. */
+	char safe_msg[8192];
+	sd_field_sanitize(message, safe_msg, sizeof(safe_msg));
+
 	(void) sd_journal_send(
-		"MESSAGE=%s", message,
+		"MESSAGE=%s", safe_msg,
 		"PRIORITY=%d", priority,
 		"SYSLOG_IDENTIFIER=spine",
 		"SPINE_LEVEL=%s", level,
@@ -149,14 +200,21 @@ void spine_sd_journal_log(const char *level, const char *message, int poller_id,
 }
 
 int spine_sd_under_systemd(void) {
+    /* Require NOTIFY_SOCKET before claiming "under systemd". INVOCATION_ID
+     * alone is set by `systemd-run --user` and inherited by manual shells
+     * launched from a systemd session, which would cause spine to try to
+     * sd_notify() into a non-existent socket and spam warnings. A live
+     * service always has NOTIFY_SOCKET set by PID 1, so the conjunction
+     * is the reliable probe. */
+    if (getenv("NOTIFY_SOCKET") == NULL) {
+        return 0;
+    }
 #ifdef HAVE_LIBSYSTEMD
     if (getenv("INVOCATION_ID") != NULL) {
         return 1;
     }
     return sd_booted() > 0;
 #else
-    /* INVOCATION_ID is set by systemd regardless of libsystemd linkage, so we
-     * can still recognise the environment for log-prefix decisions. */
     return getenv("INVOCATION_ID") != NULL;
 #endif
 }
