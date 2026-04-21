@@ -1007,13 +1007,26 @@ void snmp_get_multi(spine_spine_host_t *current_host, target_t *poller_items, sn
 		oid             name[MAX_OID_LEN];
 		size_t          name_len;
 	} *name, *namep;
+	/* Fast path: avoid heap round-trip on the common case. Cacti's
+	 * default max_oids is 10, so 16 covers the vast majority of
+	 * PDUs without touching the allocator. At sizeof(nameStruct)
+	 * ~520 bytes this is ~8 KiB of worker stack (default 8 MiB).
+	 * Heap fallback remains for deployments that tune max_oids up. */
+	struct nameStruct stack_name[16];
+	bool name_on_heap = false;
 
-	/* load up oids */
-	namep = name = (struct nameStruct *) calloc(num_oids, sizeof(*name));
-	if (name == NULL) {
-		SPINE_LOG(("ERROR: Failed to allocate memory for SNMP OID name array"));
-		return;
+	if (num_oids <= (int)(sizeof(stack_name) / sizeof(stack_name[0]))) {
+		name = stack_name;
+		memset(stack_name, 0, sizeof(stack_name[0]) * (size_t)num_oids);
+	} else {
+		name = (struct nameStruct *) calloc(num_oids, sizeof(*name));
+		if (name == NULL) {
+			SPINE_LOG(("ERROR: Failed to allocate memory for SNMP OID name array"));
+			return;
+		}
+		name_on_heap = true;
 	}
+	namep = name;
 	pdu = snmp_pdu_create(SNMP_MSG_GET);
 	for (i = 0; i < num_oids; i++) {
 		namep->name_len = MAX_OID_LEN;
@@ -1118,5 +1131,7 @@ void snmp_get_multi(spine_spine_host_t *current_host, target_t *poller_items, sn
 		snmp_free_pdu(response);
 	}
 
-	free(name);
+	if (name_on_heap) {
+		free(name);
+	}
 }

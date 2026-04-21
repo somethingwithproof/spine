@@ -99,6 +99,24 @@ static int spine_resolve_connect_host(const char *hostname, char *resolved, size
 	return 0;
 }
 
+/* Exponential backoff with jitter for deadlock/EINTR retry. The prior
+ * fixed 50 ms sleep made every worker thread retry in lockstep against
+ * the same deadlocking row, amplifying contention. Exponential ramp
+ * 10 ms -> 40 ms -> 160 ms -> 640 ms -> 1280 ms (clamped) with ±50%
+ * jitter breaks the thundering herd. rand() is fine here: we need a
+ * shuffle, not crypto randomness. */
+static void db_retry_backoff(int attempt) {
+	int base_us = 10000; /* 10 ms */
+	int shift = attempt < 7 ? attempt : 7;
+	int delay_us = base_us << shift;       /* 10 ms .. 1.28 s */
+	int jitter = rand() % (delay_us / 2 + 1);
+	if (rand() & 1) {
+		spine_platform_sleep_us((unsigned int)(delay_us + jitter));
+	} else {
+		spine_platform_sleep_us((unsigned int)(delay_us - jitter));
+	}
+}
+
 /*! \fn int db_insert(MYSQL *mysql, int type, const char *query)
  *  \brief inserts a row or rows in a database table.
  *  \param mysql the database connection object
@@ -145,22 +163,23 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 
 						error_count++;
 
-						if (error_count > 30) {
+						if (error_count > 10) {
 							die("FATAL: Too many Reconnect Attempts!");
 						}
 
 						continue;
 					} else {
-						spine_platform_sleep_us(50000);
+						db_retry_backoff(error_count);
+						error_count++;
 						continue;
 					}
 				}
 
 				if ((error == 1213) || (error == 1205)) {
-					spine_platform_sleep_us(50000);
+					db_retry_backoff(error_count);
 					error_count++;
 
-					if (error_count > 30) {
+					if (error_count > 10) {
 						SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 						return FALSE;
 					}
@@ -252,22 +271,23 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 
 					error_count++;
 
-					if (error_count > 30) {
+					if (error_count > 10) {
 						die("FATAL: Too many Reconnect Attempts!");
 					}
 
 					continue;
 				} else {
-					spine_platform_sleep_us(50000);
+					db_retry_backoff(error_count);
+					error_count++;
 					continue;
 				}
 			}
 
 			if (error == 1213 || error == 1205) {
-				spine_platform_sleep_us(50000);
+				db_retry_backoff(error_count);
 				error_count++;
 
-				if (error_count > 30) {
+				if (error_count > 10) {
 					SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 					SPINE_LOG(("INFO: Daemon exit triggered by non-retryable SQL error; consider filing issue"));
 					exit(1);
