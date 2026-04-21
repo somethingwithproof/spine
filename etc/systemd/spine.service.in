@@ -60,11 +60,22 @@ UMask=0027
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+# /proc hardening. ProtectProc=invisible hides other users' PIDs;
+# ProcSubset=pid drops /proc/cpuinfo, /proc/meminfo, etc. Spine reads
+# neither, so the narrower view stops a compromised poller from
+# fingerprinting the host kernel/hardware.
+ProtectProc=invisible
+ProcSubset=pid
 
 # Let systemd own lifecycle of writable runtime/state/log directories.
+# 0700 on /run/spine keeps the telemetry socket (H4 fix) unreachable
+# to every account except root and the service user.
 RuntimeDirectory=spine
+RuntimeDirectoryMode=0700
 StateDirectory=spine
+StateDirectoryMode=0750
 LogsDirectory=cacti
+LogsDirectoryMode=0750
 
 # File and process limits sized for large pollers. LimitCORE=0 suppresses
 # core dumps that would otherwise leak in-memory database credentials;

@@ -45,10 +45,15 @@ UMask=0027
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
+ProtectProc=invisible
+ProcSubset=pid
 
 RuntimeDirectory=spine
+RuntimeDirectoryMode=0700
 StateDirectory=spine
+StateDirectoryMode=0750
 LogsDirectory=cacti
+LogsDirectoryMode=0750
 
 LimitCORE=0
 LimitNOFILE=65536

@@ -12,6 +12,10 @@ Type=oneshot
 SyslogIdentifier=spine
 ExecStartPre=@SPINE_BIN_PATH@ --check
 ExecStart=@SPINE_BIN_PATH@
+# Oneshot guard: a runaway cycle must not hold the timer slot forever.
+# 270s sits below the spine.timer cadence assumptions in docs/systemd.md;
+# raise only if operators report large polls legitimately exceeding it.
+TimeoutStartSec=270
 
 User=spine
 Group=spine
@@ -29,6 +33,8 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
@@ -40,9 +46,20 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 
+# 0700 keeps /run/spine root:spine-readable only so other local users
+# cannot enumerate the telemetry socket or scratch files.
 RuntimeDirectory=spine
+RuntimeDirectoryMode=0700
 StateDirectory=spine
+StateDirectoryMode=0750
 LogsDirectory=cacti
+LogsDirectoryMode=0750
+
+# Route stdout/err to the journal so operators see the batch's log
+# stream uniformly with spine.service; without this, oneshot output
+# ends up in /dev/null on some distros.
+StandardOutput=journal
+StandardError=journal
 
 LimitCORE=0
 LimitNOFILE=65536

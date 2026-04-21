@@ -462,7 +462,35 @@ int main(int argc, char *argv[]) {
 
 	spine_async_batch_init(loop, &mysql, 100, 500);
 	spine_async_php_init(loop);
-	spine_telemetry_init(loop, "/tmp/spine_telemetry.sock");
+	{
+		/* Telemetry socket placement:
+		 *   1) If systemd supplied RUNTIME_DIRECTORY, drop the socket
+		 *      inside it (/run/spine/telemetry.sock by unit default).
+		 *      The unit pins RuntimeDirectoryMode=0700 so only the
+		 *      service account can connect; /tmp is world-writable and
+		 *      lets any local user enumerate or hijack the path.
+		 *   2) Otherwise keep the legacy /tmp path for developer runs;
+		 *      the legacy path is emitted with a warning so operators
+		 *      who miss the sandboxing notice the downgrade. */
+		const char *rundir = getenv("RUNTIME_DIRECTORY");
+		char socket_path[512];
+		const char *chosen;
+		if (rundir != NULL && rundir[0] == '/' &&
+		    strchr(rundir, ':') == NULL &&
+		    strstr(rundir, "..") == NULL &&
+		    strlen(rundir) < sizeof(socket_path) - sizeof("/telemetry.sock")) {
+			snprintf(socket_path, sizeof(socket_path),
+			    "%s/telemetry.sock", rundir);
+			chosen = socket_path;
+		} else {
+			SPINE_LOG(("WARNING: RUNTIME_DIRECTORY not set; "
+			    "telemetry socket falling back to /tmp. "
+			    "Run under systemd with RuntimeDirectory=spine "
+			    "or set RUNTIME_DIRECTORY to a 0700 path."));
+			chosen = "/tmp/spine_telemetry.sock";
+		}
+		spine_telemetry_init(loop, chosen);
+	}
 	for (i = 0; i < num_loops; i++) {
 		uv_loop_init(&spine_loops[i].loop);
 		uv_mutex_init(&spine_loops[i].queue_lock);
