@@ -802,7 +802,7 @@ int ping_host(spine_spine_host_t *host, ping_t *ping) {
  */
 int ping_snmp(spine_spine_host_t *host, ping_t *ping) {
 	char *poll_result = NULL;
-	char *oid;
+	const char *oid;
 	double begin_time, end_time, total_time;
 	double one_thousand = 1000.00;
 
@@ -814,16 +814,16 @@ int ping_snmp(spine_spine_host_t *host, ping_t *ping) {
 
 	if (host->snmp_session) {
 		if (strlen(host->snmp_community) != 0 || host->snmp_version == 3) {
-			/* by default, we look at sysUptime */
+			/* String literals in .rodata; snmp_get takes const char *.
+			 * The prior strdup/SPINE_FREE pair did a malloc+free per
+			 * device per cycle with a die() on OOM for no reason. */
 			if (host->availability_method == AVAIL_SNMP_GET_NEXT) {
-				oid = strdup(".1.3");
+				oid = ".1.3";
 			} else if (host->availability_method == AVAIL_SNMP_GET_SYSDESC) {
-				oid = strdup(".1.3.6.1.2.1.1.1.0");
+				oid = ".1.3.6.1.2.1.1.1.0";
 			} else {
-				oid = strdup(".1.3.6.1.2.1.1.3.0");
+				oid = ".1.3.6.1.2.1.1.3.0";
 			}
-
-			if (oid == NULL) die("ERROR: malloc(): strdup() oid ping.c failed");
 
 			/* record start time */
 			begin_time = get_time_as_double();
@@ -836,8 +836,6 @@ int ping_snmp(spine_spine_host_t *host, ping_t *ping) {
 
 			/* record end time */
 			end_time = get_time_as_double();
-
-			SPINE_FREE(oid);
 
 			total_time = (end_time - begin_time) * one_thousand;
 
