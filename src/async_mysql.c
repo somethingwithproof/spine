@@ -26,16 +26,41 @@ static async_mysql_active_t *g_active_mysql = NULL;
  * must run on the libuv event-loop thread. If a future refactor calls
  * spine_async_mysql_query from a worker thread, the list mutations
  * would race the close-callback chain and silently corrupt the list.
- * Capture the first caller's thread id and assert every subsequent
- * mutation matches. The cost is one relaxed load + compare per call. */
+ *
+ * The owner thread is seeded once at init time by
+ * spine_async_mysql_bind_main_thread() BEFORE any worker threads
+ * exist, so the assertion never races the first write. If
+ * bind_main_thread is not called (unit-test path), the first caller
+ * seeds itself under a one-way atomic latch; subsequent first-call
+ * races from multiple threads can fire a spurious die() in that case,
+ * which is still preferable to silent list corruption. */
 static uv_thread_t g_async_mysql_owner_thread;
 static atomic_int g_async_mysql_owner_set = 0;
+
+void spine_async_mysql_bind_main_thread(void) {
+    /* Idempotent: rebinding to the same thread is a no-op; rebinding
+     * from a different thread die()s because that is the same kind of
+     * invariant violation the assertion exists to catch. */
+    uv_thread_t self = uv_thread_self();
+    int was_set = atomic_exchange_explicit(&g_async_mysql_owner_set, 1,
+                                           memory_order_acq_rel);
+    if (!was_set) {
+        g_async_mysql_owner_thread = self;
+        return;
+    }
+    if (!uv_thread_equal(&g_async_mysql_owner_thread, &self)) {
+        die("FATAL: spine_async_mysql_bind_main_thread called twice "
+            "from different threads");
+    }
+}
 
 static void async_mysql_assert_owner_thread(void) {
     uv_thread_t self = uv_thread_self();
     int was_set = atomic_exchange_explicit(&g_async_mysql_owner_set, 1,
                                            memory_order_acq_rel);
     if (!was_set) {
+        /* Late-bind fallback for tests that do not call the public
+         * binder. See header comment above. */
         g_async_mysql_owner_thread = self;
         return;
     }
@@ -240,6 +265,10 @@ int spine_async_mysql_query(uv_loop_t *runtime_loop, MYSQL *mysql, const char *q
 /* Shutdown fence is a no-op when the async path is compiled out; the
  * symbol exists so spine.c can call it unconditionally. */
 void spine_async_mysql_shutdown_begin(void) {
+}
+
+void spine_async_mysql_bind_main_thread(void) {
+    /* No-op: the fallback path has no g_active_mysql list to guard. */
 }
 
 unsigned long spine_async_mysql_shutdown_refused_count(void) {

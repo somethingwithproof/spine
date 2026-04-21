@@ -460,37 +460,23 @@ int main(int argc, char *argv[]) {
 	loop = uv_default_loop();
 	spine_scheduler_init(5000);
 
+	/* Seed the async_mysql owner thread on main BEFORE any worker
+	 * thread exists. If we let the first query seed it implicitly,
+	 * a worker that somehow reaches spine_async_mysql_query first
+	 * on a misconfigured poll cycle would capture itself as owner
+	 * and the subsequent main-thread close-callback would die(). */
+	spine_async_mysql_bind_main_thread();
+
 	spine_async_batch_init(loop, &mysql, 100, 500);
 	spine_async_php_init(loop);
-	{
-		/* Telemetry socket placement:
-		 *   1) If systemd supplied RUNTIME_DIRECTORY, drop the socket
-		 *      inside it (/run/spine/telemetry.sock by unit default).
-		 *      The unit pins RuntimeDirectoryMode=0700 so only the
-		 *      service account can connect; /tmp is world-writable and
-		 *      lets any local user enumerate or hijack the path.
-		 *   2) Otherwise keep the legacy /tmp path for developer runs;
-		 *      the legacy path is emitted with a warning so operators
-		 *      who miss the sandboxing notice the downgrade. */
-		const char *rundir = getenv("RUNTIME_DIRECTORY");
-		char socket_path[512];
-		const char *chosen;
-		if (rundir != NULL && rundir[0] == '/' &&
-		    strchr(rundir, ':') == NULL &&
-		    strstr(rundir, "..") == NULL &&
-		    strlen(rundir) < sizeof(socket_path) - sizeof("/telemetry.sock")) {
-			snprintf(socket_path, sizeof(socket_path),
-			    "%s/telemetry.sock", rundir);
-			chosen = socket_path;
-		} else {
-			SPINE_LOG(("WARNING: RUNTIME_DIRECTORY not set; "
-			    "telemetry socket falling back to /tmp. "
-			    "Run under systemd with RuntimeDirectory=spine "
-			    "or set RUNTIME_DIRECTORY to a 0700 path."));
-			chosen = "/tmp/spine_telemetry.sock";
-		}
-		spine_telemetry_init(loop, chosen);
-	}
+	/* Telemetry listener is a stub (src/telemetry.c): no uv_pipe_bind,
+	 * no peer-cred check, no write side. Passing any real path here
+	 * would ship an attack surface the moment someone wires the
+	 * listener without also wiring auth. Pass NULL; when the real
+	 * listener lands, it must resolve its own socket path inside
+	 * RUNTIME_DIRECTORY (0700 already pinned by the service units)
+	 * and reject clients that fail SO_PEERCRED. */
+	spine_telemetry_init(loop, NULL);
 	for (i = 0; i < num_loops; i++) {
 		uv_loop_init(&spine_loops[i].loop);
 		uv_mutex_init(&spine_loops[i].queue_lock);

@@ -373,6 +373,8 @@ int spine_async_dns_runtime_create(uv_loop_t *dns_loop, spine_async_dns_runtime_
 
 void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 	async_dns_watcher_t *watcher;
+	async_dns_watcher_t *next;
+	int outstanding = 0;
 	int pending;
 
 	if (runtime == NULL || !runtime->initialized) {
@@ -391,29 +393,44 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 		runtime->channel = NULL;
 	}
 
+	/* Count the handles we are about to close BEFORE issuing any
+	 * uv_close. A libuv build that dispatches a close callback
+	 * synchronously (vanilla libuv defers, but a mock / future
+	 * version may not) could otherwise observe close_refs hitting
+	 * zero mid-iteration and free runtime while this function
+	 * still holds `watcher` and `runtime->watchers`. Staging the
+	 * count up front makes the refcount monotonically decrease
+	 * from N to zero, never skipping past zero intermittently. */
+	if (!uv_is_closing((uv_handle_t *)&runtime->timer)) {
+		outstanding++;
+	}
+	for (watcher = runtime->watchers; watcher != NULL; watcher = watcher->next) {
+		outstanding++;
+	}
+
 	/* Flip `initialized` to false BEFORE issuing any uv_close so the
 	 * close callbacks, which may fire on the same tick, observe the
 	 * terminal state and know that freeing the runtime is their
-	 * responsibility. If we set these AFTER uv_close, a callback that
-	 * runs synchronously (timer already stopped, handle closed via
-	 * fast path on some libuv versions) would see initialized=true and
-	 * skip the free, leaking the runtime. release pairs with acq_rel
-	 * in the close callbacks. */
+	 * responsibility. release pairs with acq_rel in the close
+	 * callbacks; this store happens-before the callbacks' reads of
+	 * `initialized`. */
 	runtime->timer_initialized = false;
 	runtime->initialized = false;
 	runtime->loop = NULL;
+	atomic_store_explicit(&runtime->close_refs, outstanding,
+	                      memory_order_release);
 
-	if (!uv_is_closing((uv_handle_t *)&runtime->timer)) {
-		atomic_fetch_add_explicit(&runtime->close_refs, 1, memory_order_release);
+	if (outstanding > 0 && !uv_is_closing((uv_handle_t *)&runtime->timer)) {
 		uv_close((uv_handle_t *)&runtime->timer, spine_async_dns_on_timer_closed);
 	}
 
-	while (runtime->watchers != NULL) {
-		watcher = runtime->watchers;
-		runtime->watchers = watcher->next;
+	watcher = runtime->watchers;
+	runtime->watchers = NULL;
+	while (watcher != NULL) {
+		next = watcher->next;
 		watcher->next = NULL;
-		atomic_fetch_add_explicit(&runtime->close_refs, 1, memory_order_release);
 		spine_async_dns_close_watcher(watcher);
+		watcher = next;
 	}
 
 	ares_library_cleanup();

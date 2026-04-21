@@ -97,18 +97,19 @@ void spine_sd_watchdog(void) {
 #endif
 }
 
-/* Buffer the STATUS= string into a 512-byte stack array. systemd caps
- * each notification field well above that, but 512 bytes is more than
- * enough for spine's summaries (poller phase, error count, timing) and
- * keeps the TU from touching the heap on a hot path. Longer formats
- * silently truncate at 511 chars per vsnprintf's contract. */
+/* Buffer the STATUS= string into a 2 KiB stack array. 512 bytes
+ * truncates mid-UTF-8 when a long device hostname is interpolated;
+ * 2 KiB covers every realistic status line while staying off the heap
+ * on the hot path. Longer formats still truncate at 2047 chars per
+ * vsnprintf's contract, but the truncation point is now far outside
+ * plausible hostnames. */
 void spine_sd_status(const char *fmt, ...) {
 #ifdef HAVE_LIBSYSTEMD
     if (fmt == NULL) {
         return;  /* NULL status is a no-op; vsnprintf(NULL) is UB. */
     }
-    char buf[512];
-    char sanitized[512];
+    char buf[2048];
+    char sanitized[2048];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
