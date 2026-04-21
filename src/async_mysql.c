@@ -21,6 +21,30 @@ typedef struct async_mysql_active {
 
 static async_mysql_active_t *g_active_mysql = NULL;
 
+/* Main-loop-thread assertion. g_active_mysql is an intrusive linked
+ * list mutated by mark/unmark on submit and close-callback paths; both
+ * must run on the libuv event-loop thread. If a future refactor calls
+ * spine_async_mysql_query from a worker thread, the list mutations
+ * would race the close-callback chain and silently corrupt the list.
+ * Capture the first caller's thread id and assert every subsequent
+ * mutation matches. The cost is one relaxed load + compare per call. */
+static uv_thread_t g_async_mysql_owner_thread;
+static atomic_int g_async_mysql_owner_set = 0;
+
+static void async_mysql_assert_owner_thread(void) {
+    uv_thread_t self = uv_thread_self();
+    int was_set = atomic_exchange_explicit(&g_async_mysql_owner_set, 1,
+                                           memory_order_acq_rel);
+    if (!was_set) {
+        g_async_mysql_owner_thread = self;
+        return;
+    }
+    if (!uv_thread_equal(&g_async_mysql_owner_thread, &self)) {
+        die("FATAL: async_mysql invoked from non-owner thread; "
+            "g_active_mysql is main-loop-only");
+    }
+}
+
 /* Shutdown fence. Once set, new async queries are refused so the MYSQL
  * handles can be safely torn down without a late callback dereferencing
  * freed state. In-flight queries continue through their existing
@@ -48,20 +72,27 @@ unsigned long spine_async_mysql_shutdown_refused_count(void) {
                                 memory_order_relaxed);
 }
 
+#ifdef SPINE_ENABLE_TEST_HOOKS
 /* Test-only: clear the shutdown fence and the refused counter so unit
  * tests can drive the fence more than once. Production code must not
- * call this - the production fence is a one-way latch. */
+ * call this - the production fence is a one-way latch. Gated behind
+ * SPINE_ENABLE_TEST_HOOKS so a production build cannot accidentally
+ * link a symbol that resets shutdown state. */
 void spine_async_mysql_shutdown_reset_for_test(void) {
     atomic_store_explicit(&g_async_mysql_shutting_down, 0,
                           memory_order_release);
     atomic_store_explicit(&g_async_mysql_refused_after_shutdown, 0,
                           memory_order_relaxed);
 }
+#endif
 
 static int async_mysql_mark_active(MYSQL *mysql) {
     async_mysql_active_t *node;
-    async_mysql_active_t *cursor = g_active_mysql;
+    async_mysql_active_t *cursor;
 
+    async_mysql_assert_owner_thread();
+
+    cursor = g_active_mysql;
     while (cursor != NULL) {
         if (cursor->mysql == mysql) {
             return -EALREADY;
@@ -80,7 +111,11 @@ static int async_mysql_mark_active(MYSQL *mysql) {
 }
 
 static void async_mysql_unmark_active(MYSQL *mysql) {
-    async_mysql_active_t **cursor = &g_active_mysql;
+    async_mysql_active_t **cursor;
+
+    async_mysql_assert_owner_thread();
+
+    cursor = &g_active_mysql;
     while (*cursor != NULL) {
         async_mysql_active_t *node = *cursor;
         if (node->mysql == mysql) {
@@ -211,8 +246,10 @@ unsigned long spine_async_mysql_shutdown_refused_count(void) {
     return 0;
 }
 
+#ifdef SPINE_ENABLE_TEST_HOOKS
 void spine_async_mysql_shutdown_reset_for_test(void) {
     /* No-op: the fallback path has no real fence state. */
 }
+#endif
 
 #endif

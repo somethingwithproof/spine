@@ -353,7 +353,12 @@ function(spine_add_tests)
                  src/circuit_breaker.c src/spine_audit.c
                  tests/unit/test_spine_stubs.c)
   target_include_directories(test_spine_cb_reap PRIVATE
-      ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit)
+      ${CMAKE_BINARY_DIR}
+      ${CMAKE_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/src
+      ${CMAKE_SOURCE_DIR}/src/platform
+      ${CMAKE_SOURCE_DIR}/third_party
+      ${CMAKE_SOURCE_DIR}/tests/unit)
   if(TARGET spine_build_options)
     target_link_libraries(test_spine_cb_reap PRIVATE spine_build_options)
   endif()
@@ -370,7 +375,26 @@ function(spine_add_tests)
   add_executable(test_async_mysql_shutdown tests/unit/test_async_mysql_shutdown.c
                  src/async_mysql.c tests/unit/test_spine_stubs.c)
   target_include_directories(test_async_mysql_shutdown PRIVATE
-      ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit)
+      ${CMAKE_BINARY_DIR}
+      ${CMAKE_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/src
+      ${CMAKE_SOURCE_DIR}/src/platform
+      ${CMAKE_SOURCE_DIR}/third_party
+      ${CMAKE_SOURCE_DIR}/tests/unit)
+  if(LIBUV_FOUND)
+    target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
+        ${LIBUV_INCLUDE_DIRS})
+  endif()
+  if(MYSQL_INCLUDE_DIR)
+    target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
+        ${MYSQL_INCLUDE_DIR})
+  endif()
+  # Test-only hook: release builds do not declare or link
+  # spine_async_mysql_shutdown_reset_for_test. The test needs it to
+  # drive the fence more than once, so gate it on a compile flag
+  # scoped to this target alone.
+  target_compile_definitions(test_async_mysql_shutdown PRIVATE
+      SPINE_ENABLE_TEST_HOOKS=1)
   if(TARGET spine_build_options)
     target_link_libraries(test_async_mysql_shutdown PRIVATE spine_build_options)
   endif()
