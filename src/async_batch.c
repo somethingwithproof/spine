@@ -182,6 +182,12 @@ static void dispatch_next_locked(void) {
         }
         atomic_fetch_add_explicit(&g_batch_ctx.submitted_queries, 1,
                                   memory_order_relaxed);
+        /* Defensive re-check: spine_async_batch_cleanup may have flipped
+         * `closing` between our unlock/lock pair. The in-flight item is
+         * already owned by batch_query_cb and will flush normally, but
+         * we must not enqueue additional submits into a context that is
+         * committed to draining. */
+        if (g_batch_ctx.closing) return;
     }
 }
 
