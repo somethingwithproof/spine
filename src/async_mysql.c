@@ -168,7 +168,10 @@ static void mysql_poll_cb(uv_poll_t* handle, int status, int events) {
 
     if (status < 0) {
         uv_poll_stop(handle);
-        ctx->callback(ctx->mysql, -EIO, ctx->data);
+        MYSQL *mysql = ctx->mysql;
+        async_mysql_unmark_active(mysql);
+        ctx->mysql = NULL;
+        ctx->callback(mysql, -EIO, ctx->data);
         uv_close((uv_handle_t*)handle, on_mysql_close);
         return;
     }
@@ -181,7 +184,10 @@ static void mysql_poll_cb(uv_poll_t* handle, int status, int events) {
 
     if (next_mask == 0) {
         uv_poll_stop(handle);
-        ctx->callback(ctx->mysql, ctx->ret, ctx->data);
+        MYSQL *mysql = ctx->mysql;
+        async_mysql_unmark_active(mysql);
+        ctx->mysql = NULL;
+        ctx->callback(mysql, ctx->ret, ctx->data);
         uv_close((uv_handle_t*)handle, on_mysql_close);
     } else {
         int new_uv_events = 0;
@@ -228,14 +234,15 @@ int spine_async_mysql_query(uv_loop_t *runtime_loop, MYSQL *mysql, const char *q
     int status = mysql_real_query_start(&ctx->ret, mysql, query, strlen(query));
 
     if (status == 0) {
-        cb(mysql, ctx->ret, data);
         async_mysql_unmark_active(mysql);
+        cb(mysql, ctx->ret, data);
         free(ctx);
     } else {
         int rc = uv_poll_init(runtime_loop, &ctx->poll, ctx->fd);
         if (rc != 0) {
             async_mysql_unmark_active(mysql);
             free(ctx);
+            mysql_close(mysql);
             return rc;
         }
         ctx->poll.data = ctx;
@@ -244,6 +251,9 @@ int spine_async_mysql_query(uv_loop_t *runtime_loop, MYSQL *mysql, const char *q
         if (status & MYSQL_WAIT_WRITE) new_uv_events |= UV_WRITABLE;
         rc = uv_poll_start(&ctx->poll, new_uv_events, mysql_poll_cb);
         if (rc != 0) {
+            ctx->mysql = NULL;
+            async_mysql_unmark_active(mysql);
+            mysql_close(mysql);
             uv_close((uv_handle_t *)&ctx->poll, on_mysql_close);
             return rc;
         }

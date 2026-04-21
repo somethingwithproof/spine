@@ -110,8 +110,11 @@ static int queue_push_locked(const char *query) {
         >= g_batch_ctx.max_pending) {
         atomic_fetch_add_explicit(&g_batch_ctx.enqueue_failures, 1,
                                   memory_order_relaxed);
-        atomic_fetch_add_explicit(&g_batch_ctx.dropped_queries, 1,
+        unsigned long dropped = atomic_fetch_add_explicit(&g_batch_ctx.dropped_queries, 1,
                                   memory_order_relaxed);
+        if ((dropped % 100) == 0) {
+            SPINE_LOG(("WARNING: Async batch queue full (max_pending=%d). Dropped %lu queries so far.", g_batch_ctx.max_pending, dropped + 1));
+        }
         return -EAGAIN;
     }
 
@@ -274,11 +277,18 @@ static void on_batch_close(uv_handle_t *handle) {
     g_batch_ctx.head = NULL;
     g_batch_ctx.tail = NULL;
     g_batch_ctx.pending_count = 0;
+    int active = g_batch_ctx.active_queries;
     g_batch_ctx.active_queries = 0;
     g_batch_ctx.initialized = false;
     g_batch_ctx.closing = false;
     uv_mutex_unlock(&g_batch_ctx.lock);
-    uv_mutex_destroy(&g_batch_ctx.lock);
+
+    /* Only destroy if no queries are active. If there are active queries, 
+     * they will try to use the mutex when they complete. Since this is 
+     * a global, leaking it on shutdown is acceptable if active_queries > 0. */
+    if (active == 0) {
+        uv_mutex_destroy(&g_batch_ctx.lock);
+    }
 }
 
 void spine_async_batch_cleanup(void) {

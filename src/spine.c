@@ -97,6 +97,15 @@
 
 #include "common.h"
 #include "spine.h"
+
+#if defined(__linux__)
+#include <sys/prctl.h>
+#ifndef PR_CAP_AMBIENT
+#define PR_CAP_AMBIENT 47
+#define PR_CAP_AMBIENT_CLEAR_ALL 4
+#endif
+#endif
+
 #include "poll_state.h"
 #include "systemd_notify.h"
 #include "platform/platform_sandbox.h"
@@ -179,6 +188,10 @@ static void spine_uv_force_close(uv_handle_t *handle, void *arg) {
 
 #include "spine_shutdown.h"
 
+static void on_drain_timeout(uv_timer_t *handle) {
+    uv_stop(handle->loop);
+}
+
 /* Run the event loop for at most SPINE_SHUTDOWN_DRAIN_SECS wall-clock
  * seconds. Used at shutdown so a stuck callback (wedged c-ares query,
  * cyclical timer, misbehaving close handler) cannot hang spine
@@ -190,11 +203,16 @@ static void spine_uv_force_close(uv_handle_t *handle, void *arg) {
  * jitter time(2) produces. UV_RUN_NOWAIT returns 0 when the loop has
  * no pending work; that is our early-exit signal. */
 static void spine_uv_run_bounded(uv_loop_t *l) {
-    uint64_t deadline = uv_hrtime() +
-        (uint64_t)SPINE_SHUTDOWN_DRAIN_SECS * SPINE_NS_PER_SEC;
-    while (uv_hrtime() < deadline) {
-        if (uv_run(l, UV_RUN_NOWAIT) == 0) break;
-    }
+    uv_timer_t timer;
+    uv_timer_init(l, &timer);
+    uv_timer_start(&timer, on_drain_timeout, SPINE_SHUTDOWN_DRAIN_SECS * 1000, 0);
+    uv_unref((uv_handle_t *)&timer);
+
+    uv_run(l, UV_RUN_DEFAULT);
+    
+    uv_close((uv_handle_t *)&timer, NULL);
+    /* One more non-blocking tick to flush the timer close callback */
+    uv_run(l, UV_RUN_NOWAIT);
 }
 
 static void on_loop_wake(uv_async_t *handle) {
@@ -387,6 +405,11 @@ void drop_root(uid_t server_uid, gid_t server_gid) {
  *
  */
 int main(int argc, char *argv[]) {
+#if defined(__linux__)
+	/* Drop AmbientCapabilities so external scripts do not inherit CAP_NET_RAW
+	 * while spine itself retains the capability in its Permitted/Effective sets. */
+	prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+#endif
 	char *conf_file = NULL;
 	double begin_time, end_time;
 	int num_rows = 0;
@@ -1177,25 +1200,14 @@ int main(int argc, char *argv[]) {
 			break;
 		}
 
-		/* Config reload requested (SIGHUP). We re-read spine.conf between
-		 * devices so log path and SNMP client address changes take effect
-		 * without restarting the daemon. Database credentials are replayed
-		 * into set.db_* but the existing MYSQL handles stay attached until
-		 * the next cycle; reconnecting a busy pool mid-loop would tear down
-		 * worker threads. Operators needing a DB host swap should restart. */
-		if (spine_reload_requested) {
-			spine_reload_requested = 0;
+		/* Config reload requested (SIGHUP). We defer config parsing until
+		 * all worker threads have joined to prevent data races on global
+		 * credentials. However, we acknowledge the signal immediately to
+		 * systemd so the reload command does not hang. */
+		if (spine_reload_requested == 1) {
 			spine_sd_reloading();
-
-			if (conf_file && read_spine_config(conf_file) >= 0) {
-				SPINE_LOG(("NOTE: SIGHUP received; reloaded spine.conf [%s]", conf_file));
-				spine_audit_event("reload", conf_file, 1);
-			} else {
-				SPINE_LOG(("WARNING: SIGHUP received; failed to reload spine.conf"));
-				spine_audit_event("reload", conf_file ? conf_file : "(null)", 0);
-			}
-
 			spine_sd_ready();
+			spine_reload_requested = 2; /* acked, but not yet parsed */
 		}
 
 		int loop_count = 0;
@@ -1504,6 +1516,17 @@ int main(int argc, char *argv[]) {
 
 	SPINE_LOG_HIGH(("The final count of Threads is %i", threads_final));
 
+	if (spine_reload_requested == 2) {
+		spine_reload_requested = 0;
+		if (conf_file && read_spine_config(conf_file) >= 0) {
+			SPINE_LOG(("NOTE: SIGHUP received; reloaded spine.conf [%s] post-dispatch", conf_file));
+			spine_audit_event("reload", conf_file, 1);
+		} else {
+			SPINE_LOG(("WARNING: SIGHUP received; failed to reload spine.conf"));
+			spine_audit_event("reload", conf_file ? conf_file : "(null)", 0);
+		}
+	}
+
 	if (!set.ping_only) {
 		thread_mutex_lock(LOCK_THDET);
 
@@ -1617,7 +1640,19 @@ int main(int argc, char *argv[]) {
 	 * late worker-thread caller cannot sneak a query in between here and
 	 * db_disconnect(). */
 	spine_async_batch_flush();
-	spine_uv_run_bounded(loop);
+	
+	/* Loop until the batch queue is fully drained before raising the MySQL
+	 * shutdown fence. If the fence is raised while queries are still pending,
+	 * they are rejected with -ESHUTDOWN and dropped. */
+	while (1) {
+		spine_async_batch_stats_t stats;
+		if (spine_async_batch_get_stats(&stats) != 0) break;
+		if (stats.pending_count == 0 && stats.active_queries == 0) break;
+		
+		/* Flush the next batch and process events */
+		spine_async_batch_flush();
+		uv_run(loop, UV_RUN_ONCE);
+	}
 
 	spine_async_mysql_shutdown_begin();
 	spine_uv_run_bounded(loop);
