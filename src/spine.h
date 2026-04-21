@@ -136,6 +136,25 @@
 #define SPINE_LOG_DEBUG(format_and_args)  (void)(set.log_level >= POLLER_VERBOSITY_DEBUG && spine_log format_and_args)
 #define SPINE_LOG_DEVDBG(format_and_args) (void)(set.log_level >= POLLER_VERBOSITY_DEVDBG && spine_log format_and_args)
 
+#ifdef HAVE_LIBUV
+#include <uv.h>
+#include "async_dns.h"
+
+typedef struct {
+    uv_loop_t loop;
+    uv_thread_t thread;
+    uv_async_t wake_handle;
+    uv_mutex_t queue_lock;
+    void *task_queue_head;
+    void *task_queue_tail;
+    spine_async_dns_runtime_t *dns_runtime;
+    int core_id;
+    int host_count;
+    bool active;
+    bool stop_requested;
+} spine_loop_t;
+#endif
+
 /* general constants */
 #define MAX_THREADS 100
 #define MAX_DEBUG_DEVICES 100
@@ -531,6 +550,7 @@ typedef struct poller_thread {
 	char spine_host_time[40];
 	double spine_host_time_double;
 	spine_sem_t *thread_init_sem;
+	void *next_task; /* Queue pointer for async loop distribution */
 #ifdef HAVE_LIBUV
 	uv_loop_t *event_loop;
 	spine_async_dns_runtime_t *dns_runtime;
@@ -548,6 +568,14 @@ typedef struct php_processes {
 	spine_pid_t  php_pid;
 	int    php_write_fd;
 	int    php_read_fd;
+#ifdef HAVE_LIBUV
+	uv_pipe_t php_pipe;
+	void *pending_request; /* Current active async_php_request_t */
+	char *response_buffer;
+	size_t response_len;
+	void *request_queue_head;
+	void *request_queue_tail;
+#endif
 } php_t;
 
 /*! Host Structure

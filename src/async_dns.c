@@ -3,6 +3,8 @@
 #include "async_dns.h"
 #include "spine_shutdown.h"
 
+#include <stdatomic.h>
+
 #ifdef HAVE_CARES
 #include <ares.h>
 
@@ -16,7 +18,12 @@ struct spine_async_dns_runtime {
 	bool timer_started;
 	bool initialized;
 	bool shutting_down;
-	int close_refs;
+	/* Close-callback reference count. Incremented once per outstanding
+	 * uv_close and decremented exactly once per close callback. When it
+	 * reaches zero AND initialized is already false, the runtime struct
+	 * is safe to free. atomic_int prevents a torn decrement when poll-
+	 * and timer-close callbacks race on the same event-loop tick. */
+	atomic_int close_refs;
 	async_dns_watcher_t *watchers;
 };
 
@@ -108,11 +115,17 @@ static void spine_async_dns_on_poll_closed(uv_handle_t *handle) {
 	async_dns_watcher_t *watcher = (async_dns_watcher_t *)handle->data;
 	spine_async_dns_runtime_t *runtime = watcher != NULL ? watcher->runtime : NULL;
 
-	if (runtime != NULL && runtime->close_refs > 0) {
-		runtime->close_refs--;
-	}
-	if (runtime != NULL && runtime->close_refs == 0 && !runtime->initialized) {
-		free(runtime);
+	if (runtime != NULL) {
+		/* acq_rel: pair with the atomic increments in the destroy path
+		 * so the callback that decrements last (refs==0) observes the
+		 * destroy's `initialized=false` write. Without release ordering
+		 * the last callback can race the destroy's stores and free a
+		 * still-live runtime. */
+		int prev = atomic_fetch_sub_explicit(&runtime->close_refs, 1,
+		                                     memory_order_acq_rel);
+		if (prev == 1 && !runtime->initialized) {
+			free(runtime);
+		}
 	}
 
 	free(watcher);
@@ -124,10 +137,9 @@ static void spine_async_dns_on_timer_closed(uv_handle_t *handle) {
 		return;
 	}
 
-	if (runtime->close_refs > 0) {
-		runtime->close_refs--;
-	}
-	if (runtime->close_refs == 0 && !runtime->initialized) {
+	int prev = atomic_fetch_sub_explicit(&runtime->close_refs, 1,
+	                                     memory_order_acq_rel);
+	if (prev == 1 && !runtime->initialized) {
 		free(runtime);
 	}
 }
@@ -354,13 +366,14 @@ int spine_async_dns_runtime_create(uv_loop_t *dns_loop, spine_async_dns_runtime_
 	runtime->timer_initialized = true;
 	runtime->timer_started = false;
 	runtime->initialized = true;
-	runtime->close_refs = 0;
+	atomic_store_explicit(&runtime->close_refs, 0, memory_order_release);
 	*out_runtime = runtime;
 	return 0;
 }
 
 void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 	async_dns_watcher_t *watcher;
+	int pending;
 
 	if (runtime == NULL || !runtime->initialized) {
 		return;
@@ -372,29 +385,41 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 		uv_timer_stop(&runtime->timer);
 		runtime->timer_started = false;
 	}
-	if (runtime->timer_initialized && !uv_is_closing((uv_handle_t *)&runtime->timer)) {
-		runtime->close_refs++;
-		uv_close((uv_handle_t *)&runtime->timer, spine_async_dns_on_timer_closed);
-	}
 
 	if (runtime->channel != NULL) {
 		ares_destroy(runtime->channel);
 		runtime->channel = NULL;
 	}
 
+	/* Flip `initialized` to false BEFORE issuing any uv_close so the
+	 * close callbacks, which may fire on the same tick, observe the
+	 * terminal state and know that freeing the runtime is their
+	 * responsibility. If we set these AFTER uv_close, a callback that
+	 * runs synchronously (timer already stopped, handle closed via
+	 * fast path on some libuv versions) would see initialized=true and
+	 * skip the free, leaking the runtime. release pairs with acq_rel
+	 * in the close callbacks. */
+	runtime->timer_initialized = false;
+	runtime->initialized = false;
+	runtime->loop = NULL;
+
+	if (!uv_is_closing((uv_handle_t *)&runtime->timer)) {
+		atomic_fetch_add_explicit(&runtime->close_refs, 1, memory_order_release);
+		uv_close((uv_handle_t *)&runtime->timer, spine_async_dns_on_timer_closed);
+	}
+
 	while (runtime->watchers != NULL) {
 		watcher = runtime->watchers;
 		runtime->watchers = watcher->next;
 		watcher->next = NULL;
-		runtime->close_refs++;
+		atomic_fetch_add_explicit(&runtime->close_refs, 1, memory_order_release);
 		spine_async_dns_close_watcher(watcher);
 	}
 
-	runtime->timer_initialized = false;
-	runtime->initialized = false;
-	runtime->loop = NULL;
 	ares_library_cleanup();
-	if (runtime->close_refs == 0) {
+
+	pending = atomic_load_explicit(&runtime->close_refs, memory_order_acquire);
+	if (pending == 0) {
 		free(runtime);
 	}
 }
@@ -434,8 +459,12 @@ struct spine_async_dns_runtime {
 	/* uv_getaddrinfo submits a request, not a handle; uv_walk will not
 	 * see it, so uv_loop_close returns EBUSY if a lookup is in flight
 	 * on shutdown. Track the count here so the shutdown path can spin
-	 * a bounded wait-for-drain before closing the loop. */
-	int inflight;
+	 * a bounded wait-for-drain before closing the loop. Atomic so the
+	 * submit path (caller thread) and the on_resolved callback (loop
+	 * thread) never race; uv_getaddrinfo callbacks fire on the loop
+	 * thread but spine_async_dns_lookup_runtime may be called from a
+	 * worker thread during transition-to-full-libuv. */
+	atomic_int inflight;
 };
 
 typedef struct {
@@ -455,14 +484,16 @@ static void on_resolved(uv_getaddrinfo_t *req, int status, struct addrinfo *res)
 		ctx->callback(NULL, status, ctx->data);
 	}
 
-	if (ctx->runtime != NULL && ctx->runtime->inflight > 0) {
-		ctx->runtime->inflight--;
+	if (ctx->runtime != NULL) {
+		atomic_fetch_sub_explicit(&ctx->runtime->inflight, 1,
+		                          memory_order_acq_rel);
 	}
 	free(ctx);
 }
 
 int spine_async_dns_inflight(spine_async_dns_runtime_t *runtime) {
-	return runtime != NULL ? runtime->inflight : 0;
+	if (runtime == NULL) return 0;
+	return atomic_load_explicit(&runtime->inflight, memory_order_acquire);
 }
 
 int spine_async_dns_runtime_create(uv_loop_t *dns_loop, spine_async_dns_runtime_t **out_runtime) {
@@ -479,6 +510,7 @@ int spine_async_dns_runtime_create(uv_loop_t *dns_loop, spine_async_dns_runtime_
 
 	runtime->loop = dns_loop;
 	runtime->initialized = true;
+	atomic_store_explicit(&runtime->inflight, 0, memory_order_release);
 	*out_runtime = runtime;
 	return 0;
 }
@@ -493,7 +525,8 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 	 * budget in one place updates every subsystem. UV_RUN_ONCE blocks
 	 * until one event fires or the loop has no work. */
 	time_t deadline = time(NULL) + SPINE_SHUTDOWN_DRAIN_SECS;
-	while (runtime->inflight > 0 && time(NULL) < deadline) {
+	while (atomic_load_explicit(&runtime->inflight, memory_order_acquire) > 0
+	    && time(NULL) < deadline) {
 		if (uv_run(runtime->loop, UV_RUN_ONCE) == 0) {
 			/* No more events to process - either the requests are
 			 * genuinely wedged in a way uv_run cannot advance, or
@@ -503,7 +536,8 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 		}
 	}
 
-	if (runtime->inflight > 0) {
+	int remaining = atomic_load_explicit(&runtime->inflight, memory_order_acquire);
+	if (remaining > 0) {
 		/* Deadline exceeded with requests still outstanding. Freeing
 		 * runtime here would UAF when on_resolved later dereferences
 		 * ctx->runtime to decrement inflight. Leak the runtime struct
@@ -515,7 +549,7 @@ void spine_async_dns_runtime_destroy(spine_async_dns_runtime_t *runtime) {
 		    "WARNING: spine_async_dns_runtime_destroy: %d request(s) "
 		    "still in flight after drain deadline; leaking runtime "
 		    "to avoid UAF on late callback\n",
-		    runtime->inflight);
+		    remaining);
 		return;
 	}
 
@@ -545,11 +579,15 @@ int spine_async_dns_lookup_runtime(spine_async_dns_runtime_t *runtime, const cha
 	hints.ai_family = PF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
+	/* Pre-increment so the callback can never see inflight==0 while
+	 * it's busy decrementing; if uv_getaddrinfo fails synchronously
+	 * we roll back. Release so the callback (acquire on read) sees
+	 * the increment happen-before any observer of the side effects. */
+	atomic_fetch_add_explicit(&runtime->inflight, 1, memory_order_release);
 	rc = uv_getaddrinfo(runtime->loop, &ctx->req, on_resolved, hostname, NULL, &hints);
 	if (rc != 0) {
+		atomic_fetch_sub_explicit(&runtime->inflight, 1, memory_order_release);
 		free(ctx);
-	} else {
-		runtime->inflight++;
 	}
 	return rc;
 }
