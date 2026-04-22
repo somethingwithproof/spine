@@ -166,9 +166,10 @@ function(spine_add_tests)
   if(TARGET spine_build_options)
     target_link_libraries(test_async_coverage PRIVATE spine_build_options)
   endif()
-  target_link_libraries(test_async_coverage PRIVATE spine_platform spine_hardening spine_netsnmp spine_mysql)
+  target_link_libraries(test_async_coverage PRIVATE spine_platform_test_support spine_hardening spine_netsnmp spine_mysql)
   target_sources(test_async_coverage PRIVATE
     src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/async_php.c src/telemetry.c
+    src/task_governor.c src/task_scheduler.c src/task_executor.c
   )
 
   add_executable(test_spine_audit tests/unit/test_spine_audit.c src/spine_audit.c)
@@ -336,14 +337,15 @@ function(spine_add_tests)
   spine_require_mysql()
   spine_require_netsnmp()
   add_executable(test_spine_redact_args tests/unit/test_spine_redact_args.c
-                 src/util.c tests/unit/test_spine_stubs.c)
+                 src/util.c tests/unit/test_spine_stubs.c
+                 ${SPINE_UTIL_SUPPORT_SOURCES})
   target_include_directories(test_spine_redact_args PRIVATE
-      ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit)
+      ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
   if(TARGET spine_build_options)
     target_link_libraries(test_spine_redact_args PRIVATE spine_build_options)
   endif()
   target_link_libraries(test_spine_redact_args PRIVATE
-      spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+      spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
   add_test(NAME spine_redact_args COMMAND test_spine_redact_args)
 
   # CB age-reap: mock-clock driven. test_spine_stubs provides config_t set
@@ -363,7 +365,7 @@ function(spine_add_tests)
     target_link_libraries(test_spine_cb_reap PRIVATE spine_build_options)
   endif()
   target_link_libraries(test_spine_cb_reap PRIVATE
-      spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+      spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
   if(SPINE_HAVE_LIBAUDIT)
     target_compile_definitions(test_spine_cb_reap PRIVATE HAVE_LIBAUDIT=1)
     target_include_directories(test_spine_cb_reap SYSTEM PRIVATE ${AUDIT_INCLUDE_DIR})
@@ -399,7 +401,7 @@ function(spine_add_tests)
     target_link_libraries(test_async_mysql_shutdown PRIVATE spine_build_options)
   endif()
   target_link_libraries(test_async_mysql_shutdown PRIVATE
-      spine_hardening spine_mysql Threads::Threads)
+      spine_platform_test_support spine_hardening spine_mysql Threads::Threads)
   if(LIBUV_FOUND)
     target_link_libraries(test_async_mysql_shutdown PRIVATE ${LIBUV_LIBRARIES})
   endif()

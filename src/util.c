@@ -2747,7 +2747,7 @@ void spine_dump_config(void) {
  * If upstream net-snmp adds further short flags that carry key or
  * passphrase material, add them here; never guess. */
 static const char *const cred_short_flags[] = {
-	"c", "u", "a", "x", "p", "A", "X", "E", "Z", "C",
+	"c", "p", "A", "X", "E", "Z", "C",
 	"3m", "3M", "3k", "3K",        /* v3 master / localized keys */
 	NULL
 };

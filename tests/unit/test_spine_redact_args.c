@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common.h"
 #include "util.h"
 
 /* Keep in lockstep with spine.h's BUFSIZE. If spine.h raises BUFSIZE,
