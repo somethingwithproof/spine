@@ -682,8 +682,23 @@ char *snmp_get(host_t *current_host, const char *snmp_oid) {
 	return snmp_get_base(current_host, snmp_oid, true);
 }
 
+/*! \fn char *snmp_get_allow_fail(host_t *current_host, const char *snmp_oid)
+ *  \brief performs an optional SNMP get without marking the host down
+ *
+ *  \return an allocated result that may be empty or "U" on failure. Callers
+ *  must validate it with snmp_result_is_valid() and always free it.
+ */
 char *snmp_get_allow_fail(host_t *current_host, const char *snmp_oid) {
-	return snmp_get_base(current_host, snmp_oid, true);
+	return snmp_get_base(current_host, snmp_oid, false);
+}
+
+bool snmp_result_is_valid(const char *result) {
+	return result != NULL &&
+		result[0] != '\0' &&
+		!IS_UNDEFINED(result) &&
+		strncmp(result, "No Such Object", 14) != 0 &&
+		strncmp(result, "No Such Instance", 16) != 0 &&
+		strncmp(result, "End of MIB", 10) != 0;
 }
 
 /*! \fn char *snmp_getnext(host_t *current_host, const char *snmp_oid)

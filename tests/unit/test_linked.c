@@ -23,6 +23,20 @@
 /* provided by tests/fuzz/stubs.c, as spine.c would */
 extern int *debug_devices;
 
+/* --- optional SNMP results: sentinels never become stored metadata -------- */
+
+static void test_snmp_result_validity(void **state) {
+	(void) state;
+
+	assert_false(snmp_result_is_valid(NULL));
+	assert_false(snmp_result_is_valid(""));
+	assert_false(snmp_result_is_valid("U"));
+	assert_false(snmp_result_is_valid("No Such Object available on this agent at this OID"));
+	assert_false(snmp_result_is_valid("No Such Instance currently exists at this OID"));
+	assert_false(snmp_result_is_valid("End of MIB"));
+	assert_true(snmp_result_is_valid("router.example"));
+}
+
 /* --- strncopy(): issue#447, the off-by-one when src fills the destination -- */
 
 static void test_strncopy_truncates_within_the_buffer(void **state) {
@@ -459,6 +473,7 @@ static void test_is_debug_device_matches_only_listed_ids(void **state) {
 
 int main(void) {
 	const struct CMUnitTest tests[] = {
+		cmocka_unit_test(test_snmp_result_validity),
 		cmocka_unit_test(test_strncopy_truncates_within_the_buffer),
 		cmocka_unit_test(test_strncopy_copies_a_short_source_whole),
 		cmocka_unit_test(test_strncopy_handles_a_zero_size),
