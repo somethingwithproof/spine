@@ -30,3 +30,12 @@ libtool
 /spine
 *.o
 *.m4
+
+# CMake and per-distro build trees. These were previously hidden by a build/
+# rule in the global excludes file; that rule was removed because a global
+# file must not carry project artifacts, so the project declares them here.
+build/
+build-*/
+
+# Vagrant local machine state
+.vagrant/
