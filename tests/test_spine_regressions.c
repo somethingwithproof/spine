@@ -676,6 +676,69 @@ static void test_child_process(void) {
 	int status = nft_pclose(fd);
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	assert(nft_popen("printf ignored", "invalid") == -1);
+	assert(nft_popen("printf ignored", "invalid+") == -1 && errno == EINVAL);
+	assert(nft_popen(NULL, "r") == -1 && errno == EINVAL);
+	assert(nft_popen("printf ignored", NULL) == -1 && errno == EINVAL);
+}
+
+static void test_duplex_process(void) {
+	int fd = nft_popen("IFS= read -r value; printf '%s' \"$value\"", "r+");
+	assert(fd >= 0);
+	assert(write(fd, "duplex\n", 7) == 7);
+	char output[7] = {0};
+	size_t used = 0;
+	while (used < 6) {
+		ssize_t received = read(fd, output + used, 6 - used);
+		if (received < 0 && errno == EINTR) continue;
+		assert(received > 0);
+		used += (size_t)received;
+	}
+	assert(strcmp(output, "duplex") == 0);
+	int status = nft_pclose(fd);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+static void test_write_process(void) {
+	char path[] = "spine-write-process-XXXXXX";
+	int temporary = mkstemp(path);
+	assert(temporary >= 0 && close(temporary) == 0);
+	char command[BUFSIZE];
+	spine_snprintf(command, sizeof(command), "cat > %s", path);
+	int fd = nft_popen(command, "w");
+	assert(fd >= 0 && write(fd, "written", 7) == 7);
+	int status = nft_pclose(fd);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	FILE *file = fopen(path, "r");
+	assert(file != NULL);
+	char output[8] = {0};
+	assert(fread(output, 1, 7, file) == 7 && strcmp(output, "written") == 0);
+	assert(fgetc(file) == EOF && !ferror(file));
+	assert(fclose(file) == 0 && unlink(path) == 0);
+}
+
+static void test_process_descriptor_aliases(void) {
+	for (int mask = 1; mask <= 3; mask++) {
+		pid_t child = fork();
+		assert(child >= 0);
+		if (child == 0) {
+			alarm(5);
+			if (mask & 1) assert(close(STDIN_FILENO) == 0);
+			if (mask & 2) assert(close(STDOUT_FILENO) == 0);
+			/* Keep an earlier parent pipe in the list, possibly at 0 or 1. */
+			int retained = nft_popen("printf retained", "r");
+			assert(retained >= 0);
+			test_duplex_process();
+			char output[16] = {0};
+			assert(read(retained, output, sizeof(output) - 1) == 8);
+			assert(strcmp(output, "retained") == 0);
+			int status = nft_pclose(retained);
+			assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+			_exit(0);
+		}
+		int status;
+		assert(waitpid(child, &status, 0) == child);
+		assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	}
 }
 
 static void test_php_response(size_t length, bool newline) {
@@ -1656,6 +1719,11 @@ int main(int argc, char **argv) {
 	test_icmp_reply_bounds();
 	test_snmp_initialization_failure();
 	test_child_process();
+	alarm(10);
+	test_duplex_process();
+	test_write_process();
+	test_process_descriptor_aliases();
+	alarm(0);
 	test_php_response(4, true);
 	test_php_response(RESULTS_BUFFER - 1, true);
 	test_php_response(RESULTS_BUFFER, false);

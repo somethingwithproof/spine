@@ -55,13 +55,13 @@
  *  used with select() or poll(), or the caller can use fdopen() if a stdio
  *  FILE* is preferable.
  *
- *  The mode argument is defined as in standard popen().
+ *  The mode is "r" or "w", as in standard popen(), or "r+" for duplex I/O.
  *
  *  On success, returns a file descriptor, or -1 on error.
  *  On failure, returns -1, with errno set to one of:
  *	EINVAL  The mode argument is incorrect.
- *	EMFILE	pipe() failed.
- *	ENFILE  pipe() failed.
+ *	EMFILE	pipe() or socketpair() failed.
+ *	ENFILE  pipe() or socketpair() failed.
  *	ENOMEM  malloc() failed.
  *	EAGAIN  fork() failed.
  */

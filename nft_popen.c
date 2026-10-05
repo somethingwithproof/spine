@@ -111,13 +111,13 @@ static void	close_cleanup(void *);
  *  file descriptor in order to return a stdio FILE *. This is useful if you
  *  wish to use select()- or poll()-driven IO.
  *
- *  The mode argument is defined as in standard popen().
+ *  The mode is "r" or "w", as in standard popen(), or "r+" for duplex I/O.
  *
  *  On success, returns a file descriptor, or -1 on error.
  *  On failure, returns -1, with errno set to one of:
  *	EINVAL  The mode argument is incorrect.
- *	EMFILE	pipe() failed.
- *	ENFILE  pipe() failed.
+ *	EMFILE	pipe() or socketpair() failed.
+ *	ENFILE  pipe() or socketpair() failed.
  *	ENOMEM  malloc() failed.
  *	EAGAIN  fork() failed.
  *
@@ -140,6 +140,26 @@ static pid_t fork_script(void) {
 	}
 }
 
+static void execute_script_child(const int pipes[2], bool reading, bool twoway, char *const argv[]) {
+	extern char **environ;
+	int child_fd = reading ? pipes[1] : pipes[0];
+	int parent_fd = reading ? pipes[0] : pipes[1];
+	close(parent_fd);
+	/* Close inherited registered pipes before redirecting standard descriptors:
+	 * an earlier parent pipe can itself occupy descriptor 0 or 1. */
+	for (struct pid *entry = PidList; entry != NULL; entry = entry->next) close(entry->fd);
+	int target = reading ? STDOUT_FILENO : STDIN_FILENO;
+	if (dup2(child_fd, target) < 0) _exit(127);
+	if (twoway && dup2(child_fd, STDIN_FILENO) < 0) _exit(127);
+	if (child_fd != target && !(twoway && child_fd == STDIN_FILENO)) close(child_fd);
+	#if defined(__CYGWIN__)
+	execve(set.cygwinshloc == 0 ? "sh.exe" : "/bin/sh", argv, environ);
+	#else
+	execve("/bin/sh", argv, environ);
+	#endif
+	_exit(127);
+}
+
 int nft_popen(const char * command, const char * type) {
 	struct pid *cur;
 	int    pdes[2];
@@ -148,12 +168,10 @@ int nft_popen(const char * command, const char * type) {
 	int twoway;
 	char   *argv[4];
 	int    cancel_state;
-	extern char **environ;
-
-	/* On platforms where pipe() is bidirectional,
-	 * "r+" gives two-way communication.
-	 */
-	if (strchr(type, '+')) {
+	if (command == NULL || type == NULL) { errno = EINVAL; return -1; }
+	/* A socket pair provides the documented duplex mode on platforms whose
+	 * ordinary pipes support only one direction. */
+	if (strcmp(type, "r+") == 0) {
 		twoway = 1;
 		type = "r+";
 	}else {
@@ -164,7 +182,7 @@ int nft_popen(const char * command, const char * type) {
 		}
 	}
 
-	if (pipe(pdes) < 0)
+	if ((twoway ? socketpair(AF_UNIX, SOCK_STREAM, 0, pdes) : pipe(pdes)) < 0)
 		return -1;
 
 	/* Disable thread cancellation from this point forward. */
@@ -210,46 +228,7 @@ int nft_popen(const char * command, const char * type) {
 		return -1;
 		/* NOTREACHED */
 	case 0:			/* Child. */
-		if (*type == 'r') {
-			/* The dup2() to STDIN_FILENO is repeated to avoid
-			 * writing to pdes[1], which might corrupt the
-			 * parent's copy.  This isn't good enough in
-			 * general, since the _exit() is no return, so
-			 * the compiler is free to corrupt all the local
-			 * variables.
-			 */
-			(void)close(pdes[0]);
-			if (pdes[1] != STDOUT_FILENO) {
-				(void)dup2(pdes[1], STDOUT_FILENO);
-				(void)close(pdes[1]);
-				if (twoway)
-					(void)dup2(STDOUT_FILENO, STDIN_FILENO);
-			}else if (twoway && (pdes[1] != STDIN_FILENO))
-				(void)dup2(pdes[1], STDIN_FILENO);
-		}else {
-			if (pdes[0] != STDIN_FILENO) {
-				(void)dup2(pdes[0], STDIN_FILENO);
-				(void)close(pdes[0]);
-			}
-			(void)close(pdes[1]);
-		}
-
-		/* Close all the other pipes in the child process.
-		 * Posix.2 requires this, tho I don't know why.
-		 */
-		for (struct pid *p = PidList; p; p = p->next)
-			(void)close(p->fd);
-
-		/* Execute the command. */
-		#if defined(__CYGWIN__)
-		if (set.cygwinshloc == 0) {
-			execve("sh.exe", argv, environ);
-		}else{
-			execve("/bin/sh", argv, environ);
-		}
-		#else
-		execve("/bin/sh", argv, environ);
-		#endif
+		execute_script_child(pdes, *type == 'r', twoway, argv);
 		_exit(127);
 	default:
 		break;
