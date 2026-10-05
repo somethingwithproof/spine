@@ -189,6 +189,39 @@ void drop_root(uid_t server_uid, gid_t server_gid) {
  *  \return 0 if SUCCESS, or -1 if FAILED
  *
  */
+static bool wait_for_worker_permit(spine_permits_t *permit, int host_id, int host_thread, const char *label) {
+	int retries = 0;
+	for (;;) {
+		int error = spine_permits_try_acquire(permit);
+		if (error == 0) return TRUE;
+		if (error == EDEADLK) {
+			SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] would have deadlocked acquiring %s", host_id, host_thread, label));
+		} else if (error != EINTR && error != EAGAIN) {
+			SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring %s", host_id, host_thread, error, label));
+		}
+		if (++retries == 10) {
+			if (get_time_as_double() - start_time + 1 > set.poller_interval) {
+				SPINE_LOG(("ERROR: Device[%i] HT[%i] polling timed out while acquiring %s", host_id, host_thread, label));
+				return FALSE;
+			}
+			retries = 0;
+		}
+		spine_sleep_usec(10000);
+		total_time = get_time_as_double();
+		if (total_time - start_time > set.poller_interval) {
+			SPINE_LOG(("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices (%s)", host_id, host_thread, label));
+			return FALSE;
+		}
+	}
+}
+
+static bool acquire_worker_permits(spine_permits_t *startup, int host_id, int host_thread) {
+	if (!wait_for_worker_permit(&available_threads, host_id, host_thread, "Available Thread Lock")) return FALSE;
+	if (wait_for_worker_permit(startup, host_id, host_thread, "Thread Initialization Lock")) return TRUE;
+	spine_permits_release(&available_threads);
+	return FALSE;
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
@@ -833,98 +866,8 @@ int main(int argc, char *argv[]) {
 			poller_details = details[device_counter];
 		}
 
-		/* dev note - errno was never primed at this point in previous version of code */
-		int loop_count = 0;
-		double progress_time = 0;
-		unsigned int sem_err = 0;
-		int spine_timeout = FALSE;
-		bool available_acquired = FALSE;
 
-		while (TRUE) {
-			sem_err = spine_permits_try_acquire(&available_threads);
-
-			if (sem_err == 0) {
-				// Acquired a thread
-				available_acquired = TRUE;
-				break;
-			} else if (sem_err == EINTR) {
-				// Interrupted by signal handler
-			} else if (sem_err == EDEADLK) {
-				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] would have deadlocked acquiring Available Thread Lock", host_id, current_thread));
-			} else if (sem_err == EAGAIN) {
-				// Keep trying
-			}
-
-			loop_count++;
-
-			if (loop_count == 10) {
-				progress_time = get_time_as_double() - start_time;
-
-				if (progress_time + 1 > set.poller_interval) {
-					SPINE_LOG(("ERROR: Device[%i] HT[%i] polling timed out while acquiring Available Thread Lock", host_id, current_thread));
-					spine_timeout = TRUE;
-					break;
-				}
-
-				loop_count = 0;
-			}
-
-			spine_sleep_usec(10000);
-
-			total_time = get_time_as_double();
-
-			if (total_time - start_time > set.poller_interval) {
-				SPINE_LOG(("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices External", host_id, current_thread));
-				spine_timeout = TRUE;
-				canexit = TRUE;
-				break;
-			}
-		}
-
-		loop_count = 0;
-
-		while (!spine_timeout) {
-			sem_err = spine_permits_try_acquire(&thread_init_sem);
-
-			if (sem_err == 0) {
-				// Acquired a thread
-				break;
-			} else if (sem_err == EINTR) {
-				// Interrupted by signal handler
-			} else if (sem_err == EDEADLK) {
-				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] would have deadlocked acquiring Thread Initialization Lock", host_id, current_thread));
-			} else if (sem_err == EAGAIN) {
-				// Keep trying
-			} else {
-				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring Thread Initialization Lock", host_id, current_thread, sem_err));
-			}
-
-			loop_count++;
-			if (loop_count == 10) {
-				progress_time = get_time_as_double() - start_time;
-
-				if (progress_time + 1 > set.poller_interval) {
-					SPINE_LOG(("ERROR: Device[%i] HT[%i] polling timed out while acquiring Thread Init Lock", host_id, current_thread));
-					spine_timeout = TRUE;
-					break;
-				}
-
-				loop_count = 0;
-			}
-
-			spine_sleep_usec(10000);
-
-			total_time = get_time_as_double();
-
-			if (total_time - start_time > set.poller_interval) {
-				SPINE_LOG(("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices Internal", host_id, current_thread));
-				spine_timeout = TRUE;
-				canexit = TRUE;
-				break;
-			}
-		}
-
-		if (!spine_timeout) {
+		if (acquire_worker_permits(&thread_init_sem, host_id, current_thread)) {
 			/* Each worker owns immutable instructions; details owns device completion. */
 			poller_thread_t *worker_details = malloc(sizeof(*worker_details));
 			if (worker_details == NULL) die("ERROR: Fatal malloc error: polling worker instructions");
@@ -969,7 +912,6 @@ int main(int argc, char *argv[]) {
 				canexit = TRUE;
 			}
 		} else {
-			if (available_acquired) spine_permits_release(&available_threads);
 			set.exit_code = EXIT_FAILURE;
 			canexit = TRUE;
 		}
