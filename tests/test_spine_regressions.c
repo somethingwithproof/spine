@@ -858,6 +858,106 @@ static void test_icmp_socket_failure(void) {
 	assert(geteuid() == getuid());
 }
 
+static unsigned int query_sample_count(MYSQL *mysql, const char *query) {
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	assert(result != NULL && mysql_num_fields(result) == 2);
+	unsigned int samples = 0;
+	MYSQL_ROW row;
+	while ((row = mysql_fetch_row(result))) samples += (unsigned int)atoi(row[1]);
+	db_free_result(result);
+	return samples;
+}
+
+static void test_poller_query_case(MYSQL *mysql, int poller, int active, int ports) {
+	static const unsigned int all_rows[] = {3, 2, 1};
+	static const unsigned int due_rows[] = {2, 1, 1};
+	set.poller_id = poller;
+	set.active_profiles = active;
+	set.total_snmp_ports = ports;
+	poller_queries_t queries;
+	poller_prepare_queries(&queries, 42, 1, 0);
+	MYSQL_RES *result = db_query(mysql, LOCAL, queries.items);
+	assert(result != NULL && mysql_num_fields(result) == 20);
+	assert(mysql_num_rows(result) == all_rows[poller]);
+	db_free_result(result);
+	result = db_query(mysql, LOCAL, queries.due_items);
+	unsigned int expected_due = active ? all_rows[poller] : due_rows[poller];
+	assert(result != NULL && mysql_num_rows(result) == expected_due);
+	db_free_result(result);
+	assert(query_sample_count(mysql, queries.agents) == all_rows[poller]);
+	assert(query_sample_count(mysql, queries.due_agents) == expected_due);
+}
+
+static void test_poller_schedule(MYSQL *mysql) {
+	poller_queries_t queries;
+	set.poller_interval = 60;
+	set.poller_id = 1;
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET rrd_step=300,rrd_next_step=180 WHERE host_id=42") == TRUE);
+	poller_prepare_queries(&queries, 42, 1, 0);
+	assert(db_insert(mysql, LOCAL, queries.schedule) == TRUE);
+	MYSQL_RES *result = db_query(mysql, LOCAL, "SELECT local_data_id,rrd_next_step FROM poller_item WHERE host_id=42 ORDER BY local_data_id");
+	assert(result != NULL && mysql_num_rows(result) == 3);
+	MYSQL_ROW row = mysql_fetch_row(result);
+	assert(row != NULL && strcmp(row[0], "101") == 0 && strcmp(row[1], "120") == 0);
+	row = mysql_fetch_row(result);
+	assert(row != NULL && strcmp(row[0], "102") == 0 && strcmp(row[1], "120") == 0);
+	row = mysql_fetch_row(result);
+	assert(row != NULL && strcmp(row[0], "103") == 0 && strcmp(row[1], "180") == 0);
+	db_free_result(result);
+	set.poller_id = 0;
+	poller_prepare_queries(&queries, 42, 1, 0);
+	assert(db_insert(mysql, LOCAL, queries.schedule) == TRUE);
+	result = db_query(mysql, LOCAL, "SELECT rrd_next_step FROM poller_item WHERE local_data_id=103");
+	assert(result != NULL && mysql_num_rows(result) == 1);
+	row = mysql_fetch_row(result);
+	assert(row != NULL && strcmp(row[0], "120") == 0);
+	db_free_result(result);
+}
+
+static void test_poller_queries(MYSQL *mysql) {
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item") == TRUE);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host") == TRUE);
+	assert(db_insert(mysql, LOCAL, "INSERT INTO host (id,hostname) VALUES (42,'127.0.0.1')") == TRUE);
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,rrd_next_step,snmp_port) VALUES (101,42,1,0,161),(102,42,1,1,162),(103,42,2,0,161),(104,99,1,0,161),(105,0,1,0,161)") == TRUE);
+	poller_queries_t queries;
+	for (int poller = 0; poller <= 2; poller++) {
+		for (int active = 0; active <= 1; active++) {
+			for (int ports = 1; ports <= 2; ports++) {
+				test_poller_query_case(mysql, poller, active, ports);
+			}
+		}
+	}
+	set.poller_id = 1;
+	poller_prepare_queries(&queries, 42, 1, 1);
+	MYSQL_RES *result = db_query(mysql, LOCAL, queries.items);
+	assert(result != NULL && mysql_num_rows(result) == 1);
+	db_free_result(result);
+	poller_prepare_queries(&queries, 42, 3, 1);
+	result = db_query(mysql, LOCAL, queries.items);
+	assert(result != NULL && mysql_num_rows(result) == 0);
+	db_free_result(result);
+	poller_prepare_queries(&queries, 42, INT_MAX, INT_MAX);
+	result = db_query(mysql, LOCAL, queries.items);
+	assert(result != NULL && mysql_num_rows(result) == 0);
+	db_free_result(result);
+	poller_prepare_queries(&queries, 42, 1, 0);
+	result = db_query(mysql, LOCAL, queries.host);
+	assert(result != NULL && mysql_num_fields(result) == 37 && mysql_num_rows(result) == 1);
+	db_free_result(result);
+	assert(db_insert(mysql, LOCAL, "UPDATE host SET deleted='on' WHERE id=42") == TRUE);
+	result = db_query(mysql, LOCAL, queries.host);
+	assert(result != NULL && mysql_num_rows(result) == 0);
+	db_free_result(result);
+	result = db_query(mysql, LOCAL, queries.reindex);
+	assert(result != NULL && mysql_num_fields(result) == 5 && mysql_num_rows(result) == 0);
+	db_free_result(result);
+	poller_prepare_queries(&queries, 0, 1, 0);
+	result = db_query(mysql, LOCAL, queries.items);
+	assert(result != NULL && mysql_num_rows(result) == 1);
+	db_free_result(result);
+	test_poller_schedule(mysql);
+}
+
 static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
@@ -906,6 +1006,9 @@ static void test_database_configuration(void) {
 	assert(set.ping_timeout == 777);
 	read_config_options();
 	assert(set.ping_timeout == 777);
+	db_connect(LOCAL, &mysql);
+	test_poller_queries(&mysql);
+	db_disconnect(&mysql);
 }
 
 static void test_tcp_loopback(void) {

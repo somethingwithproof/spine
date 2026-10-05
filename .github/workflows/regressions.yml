@@ -47,6 +47,7 @@ jobs:
         run: |
           set -eu
           mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/configuration.sql
+          mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/poller.sql
           ./test_spine_regressions --database
       - name: Verify ICMP against local loopback
         run: |
