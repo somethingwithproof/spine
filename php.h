@@ -36,3 +36,12 @@ extern char *php_readpipe(int php_process, const char *command);
 extern int php_init(int php_process);
 extern void php_close(int php_process);
 extern int php_get_process(void);
+
+enum php_response_status {
+	PHP_RESPONSE_OK,
+	PHP_RESPONSE_TIMEOUT,
+	PHP_RESPONSE_ERROR,
+	PHP_RESPONSE_EOF,
+	PHP_RESPONSE_TOO_LONG
+};
+extern enum php_response_status php_read_response(int fd, char *buffer, size_t capacity, int seconds);

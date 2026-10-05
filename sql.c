@@ -57,7 +57,7 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
 			if (errno == EINTR) {
-				usleep(50000);
+				spine_sleep_usec(50000);
 			} else {
 				db_reconnect(mysql, error, "db_insert");
 				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
@@ -65,7 +65,7 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 			continue;
 		}
 		if (error == 1213 || error == 1205) {
-			usleep(50000);
+			spine_sleep_usec(50000);
 			if (++error_count > 30) {
 				SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 				return FALSE;
@@ -125,7 +125,7 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
 			if (errno == EINTR) {
-				usleep(50000);
+				spine_sleep_usec(50000);
 			} else {
 				db_reconnect(mysql, error, "db_query");
 				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
@@ -133,7 +133,7 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 			continue;
 		}
 		if (error == 1213 || error == 1205) {
-			usleep(50000);
+			spine_sleep_usec(50000);
 			if (++error_count > 30) {
 				SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 				exit(1);
@@ -271,7 +271,7 @@ void db_connect(int type, MYSQL *mysql) {
 			error = mysql_errno(mysql);
 
 			if ((error == 2002 || error == 2003 || error == 2006 || error == 2013) && errno == EINTR) {
-				usleep(5000);
+				spine_sleep_usec(5000);
 				tries++;
 				success = FALSE;
 			} else if (error == 2002) {
@@ -281,7 +281,7 @@ void db_connect(int type, MYSQL *mysql) {
 			} else if (error != 1049 && error != 2005 && error != 1045) {
 				printf("Database: Connection Failed: Error:'%u', Message:'%s'\n", error, mysql_error(mysql));
 				success = FALSE;
-				usleep(50000);
+				spine_sleep_usec(50000);
 			} else {
 				tries   = 0;
 				success = FALSE;

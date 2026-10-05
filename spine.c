@@ -643,12 +643,12 @@ int main(int argc, char *argv[]) {
 
 	if (set.poller_id == 1) {
 		if (set.has_device_0) {
-			num_rows = mysql_num_rows(result) + 1; /* pollerid 1 takes care of non host based data sources */
+			num_rows = spine_count_to_int(mysql_num_rows(result) + 1); /* pollerid 1 takes care of non host based data sources */
 		} else {
-			num_rows = mysql_num_rows(result); /* pollerid 1 takes care of non host based data sources */
+			num_rows = spine_count_to_int(mysql_num_rows(result)); /* pollerid 1 takes care of non host based data sources */
 		}
 	} else {
-		num_rows = mysql_num_rows(result);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 	}
 
 	if (num_rows > 0) {
@@ -858,7 +858,7 @@ int main(int argc, char *argv[]) {
 				loop_count = 0;
 			}
 
-			usleep(10000);
+			spine_sleep_usec(10000);
 
 			total_time = get_time_as_double();
 
@@ -900,7 +900,7 @@ int main(int argc, char *argv[]) {
 				loop_count = 0;
 			}
 
-			usleep(10000);
+			spine_sleep_usec(10000);
 
 			total_time = get_time_as_double();
 
@@ -941,7 +941,7 @@ int main(int argc, char *argv[]) {
 					poller_details->host_data_ids,
 					poller_details->complete));
 			} else if (thread_status == EAGAIN) {
-				usleep(10000);
+				spine_sleep_usec(10000);
 				goto thread_retry;
 			} else if (thread_status == EINVAL) {
 				SPINE_LOG(("ERROR: The Thread Attribute is Not Initialized"));
@@ -968,7 +968,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
-		usleep(500000);
+		spine_sleep_usec(500000);
 		sem_getvalue(&available_threads, &a_threads_value);
 	}
 

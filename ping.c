@@ -295,7 +295,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 		#endif
 
 		if ((icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) == -1) {
-			usleep(500000);
+			spine_sleep_usec(500000);
 			retry_count++;
 
 			if (retry_count > 4) {
@@ -483,7 +483,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				total_time = 0;
 				retry_count++;
 				#ifndef SOLAR_THREAD
-				usleep(1000);
+				spine_sleep_usec(1000);
 				#endif
 			}
 		} else {
@@ -662,7 +662,7 @@ int ping_udp(const host_t *host, ping_t *ping) {
 				} else if (return_code == -1) {
 					if (errno == EINTR) {
 						/* interrupted, try again */
-						usleep(10000);
+						spine_sleep_usec(10000);
 						goto wait_more;
 					} else {
 						snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Down");
@@ -682,7 +682,7 @@ int ping_udp(const host_t *host, ping_t *ping) {
 
 				retry_count++;
 				#ifndef SOLAR_THREAD
-				usleep(1000);
+				spine_sleep_usec(1000);
 				#endif
 			}
 		} else {
@@ -885,7 +885,7 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short
 		if (status == 0) break;
 		if (status == EAI_AGAIN && attempt < 3) {
 			SPINE_LOG(("WARNING: Temporary DNS error for host %s (%s), retrying", hostname, gai_strerror(status)));
-			usleep(50000);
+			spine_sleep_usec(50000);
 			continue;
 		}
 		SPINE_LOG(("WARNING: Error resolving host %s (%s)", hostname, gai_strerror(status)));

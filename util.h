@@ -111,3 +111,10 @@ extern double start_time;
 
 /* the version of Cacti as a decimal */
 int get_cacti_version(MYSQL *psql, int mode);
+
+extern void spine_sleep_usec(unsigned int microseconds);
+extern double spine_monotonic_time(void);
+
+extern int spine_count_to_int(unsigned long long count);
+
+extern int spine_wait_readable(int fd, double deadline);

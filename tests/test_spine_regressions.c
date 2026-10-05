@@ -65,6 +65,26 @@ static void test_string_conversions(void) {
 	escaped = add_slashes("");
 	assert(escaped[0] == '\0');
 	free(escaped);
+	char decorated[] = "text +12.5 Bytes";
+	assert(strcmp(strip_alpha(decorated), "12.5") == 0);
+	char negative[] = "text -12.5 Bytes";
+	assert(strcmp(strip_alpha(negative), "-12.5") == 0);
+	char nonnumeric[] = "no sample";
+	assert(strcmp(strip_alpha(nonnumeric), "") == 0);
+}
+
+static void test_result_count_range(void) {
+	assert(spine_count_to_int(0) == 0);
+	assert(spine_count_to_int(INT_MAX) == INT_MAX);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		spine_count_to_int((unsigned long long)INT_MAX + 1);
+		_exit(99);
+	}
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
 }
 
 static void test_database_escape(void) {
@@ -454,27 +474,60 @@ static void test_php_response(size_t length, bool newline) {
 		_exit(0);
 	}
 	close(pipes[1]);
-	php_t process = {0};
-	process.php_read_fd = pipes[0];
-	php_t *previous = php_processes;
-	php_processes = &process;
-	int previous_servers = set.php_servers;
-	set.php_servers = 1;
-	set.script_timeout = 5;
-	char *result = php_readpipe(0, "regression test");
+	char result[RESULTS_BUFFER];
+	enum php_response_status response_status = php_read_response(pipes[0], result, sizeof(result), 5);
 	if (newline) {
+		assert(response_status == PHP_RESPONSE_OK);
 		assert(strlen(result) == length && result[length - 1] == '\n');
 	} else {
-		assert(strcmp(result, "U") == 0);
+		assert(response_status == PHP_RESPONSE_TOO_LONG);
+		assert(result[sizeof(result) - 1] == '\0');
 	}
-	free(result);
-	php_processes = previous;
-	set.php_servers = previous_servers;
 	close(pipes[0]);
 	int status;
 	assert(waitpid(child, &status, 0) == child);
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
+
+static void test_php_partial_response_timeout(void) {
+	int pipes[2];
+	assert(pipe(pipes) == 0);
+	assert(write(pipes[1], "7", 1) == 1);
+	char result[16];
+	double begin = spine_monotonic_time();
+	assert(php_read_response(pipes[0], result, sizeof(result), 1) == PHP_RESPONSE_TIMEOUT);
+	assert(spine_monotonic_time() - begin < 5);
+	assert(strcmp(result, "7") == 0);
+	close(pipes[1]);
+	assert(php_read_response(pipes[0], result, sizeof(result), 1) == PHP_RESPONSE_EOF);
+	assert(php_read_response(-1, result, sizeof(result), 1) == PHP_RESPONSE_ERROR);
+	assert(php_read_response(FD_SETSIZE, result, sizeof(result), 1) == PHP_RESPONSE_ERROR);
+	assert(php_read_response(pipes[0], result, 1, 1) == PHP_RESPONSE_ERROR);
+	close(pipes[0]);
+}
+
+#ifndef __APPLE__
+static void test_script_execution(void) {
+	/* Linux implements the production unnamed semaphore API. macOS does not. */
+	assert(sem_init(&available_scripts, 0, 1) == 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "regression-device");
+	int previous_timeout = set.script_timeout;
+	set.script_timeout = 1;
+	char command[] = "/bin/printf 7";
+	char *result = exec_poll(&host, command, 1, "DS");
+	assert(strcmp(result, "7") == 0);
+	free(result);
+	char delayed[] = "/bin/sleep 2";
+	double begin = spine_monotonic_time();
+	result = exec_poll(&host, delayed, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	assert(spine_monotonic_time() - begin < 5);
+	free(result);
+	assert(sem_destroy(&available_scripts) == 0);
+	set.script_timeout = previous_timeout;
+}
+#endif
 
 static void test_php_command(size_t length) {
 	char command[BUFSIZE];
@@ -598,13 +651,24 @@ static void test_php_startup(const char *executable) {
 		}
 	}
 	assert(!php_init(-2) && !php_init(set.php_servers));
+	STRNCOPY(set.path_php, "/nonexistent-spine-regression-executable");
+	assert(!php_init(0));
+	assert(processes[0].php_state == PHP_BUSY);
+	assert(processes[0].php_read_fd == -1 && processes[0].php_write_fd == -1);
+	int status;
+	assert(waitpid(processes[0].php_pid, &status, 0) == processes[0].php_pid);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 127);
 	php_processes = previous_processes;
 	set = previous_config;
 }
 
 int main(int argc, char **argv) {
 	if (argc > 1 && strcmp(argv[1], "-q") == 0) return run_test_script_server(argc, argv);
+	extern int *debug_devices;
+	static int devices[100];
+	debug_devices = devices;
 	test_string_conversions();
+	test_result_count_range();
 	test_copy_bounds();
 	test_database_escape();
 	test_database_addresses();
@@ -626,11 +690,15 @@ int main(int argc, char **argv) {
 	test_php_response(4, true);
 	test_php_response(RESULTS_BUFFER - 1, true);
 	test_php_response(RESULTS_BUFFER, false);
+	test_php_partial_response_timeout();
 	init_mutexes();
 	test_php_command(4);
 	test_php_command(BUFSIZE - 3);
 	test_invalid_php_commands();
 	test_php_startup(argv[0]);
+#ifndef __APPLE__
+	test_script_execution();
+#endif
 	puts("production regression tests passed");
 	return 0;
 }

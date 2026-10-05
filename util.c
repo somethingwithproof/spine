@@ -54,6 +54,64 @@ int spine_snprintf(char *output, size_t capacity, const char *format, ...) {
 	return length;
 }
 
+int spine_count_to_int(unsigned long long count) {
+	if (count > INT_MAX) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Result count exceeds supported integer range");
+	}
+	return (int)count;
+}
+
+void spine_sleep_usec(unsigned int microseconds) {
+	struct timespec requested = {
+		(time_t)(microseconds / 1000000), (long)(microseconds % 1000000) * 1000
+	};
+	while (nanosleep(&requested, &requested) != 0) {
+		if (errno != EINTR) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Unable to wait for retry delay");
+		}
+	}
+}
+
+double spine_monotonic_time(void) {
+	struct timespec now;
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to read monotonic clock");
+	}
+	return (double)now.tv_sec + (double)now.tv_nsec / 1000000000;
+}
+
+int spine_wait_readable(int fd, double deadline) {
+	if (fd < 0 || fd >= FD_SETSIZE) {
+		errno = EBADF;
+		return -1;
+	}
+	if (!isfinite(deadline)) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (;;) {
+		double remaining = deadline - spine_monotonic_time();
+		if (remaining <= 0) return 0;
+		if (remaining > INT_MAX) {
+			errno = EINVAL;
+			return -1;
+		}
+		struct timeval timeout;
+		timeout.tv_sec = (time_t)remaining;
+		timeout.tv_usec = (suseconds_t)((remaining - (double)timeout.tv_sec) * 1000000);
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(fd, &fds);
+		int status = select(fd + 1, &fds, NULL, NULL, &timeout);
+		if (status < 0 && errno == EINTR) continue;
+		return status;
+	}
+}
+
+
 void spine_clear_sensitive(void *buffer, size_t length) {
 	volatile unsigned char *bytes = buffer;
 	while (length > 0) {
@@ -712,7 +770,7 @@ void read_config_options() {
 		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
-		num_rows = mysql_num_rows(result);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
 		if (num_rows > 0) set.php_required = TRUE;
@@ -730,7 +788,7 @@ void read_config_options() {
 		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
-		num_rows = mysql_num_rows(result);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
 		if (num_rows > 0) set.php_required = TRUE;
@@ -916,7 +974,7 @@ void poller_push_data_to_main() {
 	}
 
 	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = mysql_num_rows(result);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		rows = 0;
 
 		if (num_rows > 0) {
@@ -1013,7 +1071,7 @@ void poller_push_data_to_main() {
 	}
 
 	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = mysql_num_rows(result);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		rows = 0;
 
 		if (num_rows > 0) {
@@ -1318,8 +1376,8 @@ int spine_log(const char *format, ...) {
 		}
 	}
 
-	int prefix_len = strlen(logprefix);
-	int ulog_len   = strlen(ulogmessage);
+	int prefix_len = spine_count_to_int(strlen(logprefix));
+	int ulog_len   = spine_count_to_int(strlen(ulogmessage));
 	int flog_len   = 0;
 
 	if ((flog_len = strftime(flogmessage, 50, log_fmt, now_ptr)) == 0) {
@@ -1498,7 +1556,7 @@ int is_numeric(char *string) {
 	char *end_ptr_long;
 	char *end_ptr_double;
 	int conv_base=10;
-	int length;
+	size_t length;
 
 	length = strlen(trim(string));
 
@@ -1596,38 +1654,11 @@ int is_hexadecimal(const char * str, const short ignore_special) {
  *
  */
 char *strip_alpha(char *string) {
-	int i;
-	int j;
-
-	i = strlen(string);
-	j = 0;
-
-	/* trim trailing characters */
-	while (i >= 0) {
-		if (isdigit((int)string[i])) {
-			break;
-		} else {
-			string[i] = '\0';
-		}
-		i--;
-	}
-
-	/* trim leading characters */
-	while (j < i) {
-		if (isdigit((int)string[j])) {
-			break;
-		} else if (string[j] == '-') {
-			break;
-		} else if (string[j] == '+') {
-			j++;
-		} else {
-			j++;
-		}
-	}
-
-	string = &string[j];
-
-	return string;
+	size_t end = strlen(string);
+	while (end > 0 && !isdigit((unsigned char)string[end - 1])) string[--end] = '\0';
+	size_t start = 0;
+	while (start < end && !isdigit((unsigned char)string[start]) && string[start] != '-') start++;
+	return string + start;
 }
 
 /*! \fn char *add_slashes(const char *string)
@@ -1698,7 +1729,7 @@ double get_time_as_double(void) {
 
 	gettimeofday(&now, NULL);
 
-	return (now).tv_sec + ((double) (now).tv_usec / 1000000);
+	return (double)now.tv_sec + (double)now.tv_usec / 1000000;
 }
 
 /*! \fn trim()
@@ -1779,7 +1810,7 @@ int strpos(const char *haystack, const char *needle) {
 	const char *p = strstr(haystack, needle);
 
 	if (p) {
-		return p - haystack;
+		return p - haystack <= INT_MAX ? (int)(p - haystack) : -1;
 	}
 
 	return -1;
@@ -1792,7 +1823,7 @@ int strpos(const char *haystack, const char *needle) {
  */
 int char_count(const char *str, int chr) {
 	const unsigned char *my_str = (const unsigned char *) str;
-	const unsigned char my_chr = chr;
+	const unsigned char my_chr = (unsigned char)chr;
 	int count = 0;
 
 	if (!my_chr) return 1;

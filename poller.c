@@ -591,9 +591,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 		"INSERT INTO poller_output_boost"
 		" (local_data_id, rrd_name, time, output) VALUES");
 
-	query8_len   = strlen(query8);
-	query11_len  = strlen(query11);
-	posuffix_len = strlen(posuffix);
+	query8_len   = spine_count_to_int(strlen(query8));
+	query11_len  = spine_count_to_int(strlen(query11));
+	posuffix_len = spine_count_to_int(strlen(posuffix));
 
 	/* initialize the ping structure variables */
 	snprintf(ping->ping_status,   50,            "down");
@@ -605,7 +605,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	if (host_id) {
 		/* get data about this host */
 		if ((result = db_query(&mysql, LOCAL, query2)) != 0) {
-			num_rows = mysql_num_rows(result);
+			num_rows = spine_count_to_int(mysql_num_rows(result));
 
 			if (num_rows != 1) {
 				db_free_result(result);
@@ -919,7 +919,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	/* do the reindex check for this host if not script based */
 	if ((!host->ignore_host) && (host_id)) {
 		if ((result = db_query(&mysql, LOCAL, query4)) != 0) {
-			num_rows = mysql_num_rows(result);
+			num_rows = spine_count_to_int(mysql_num_rows(result));
 
 			if (num_rows > 0) {
 				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, host_thread, num_rows, host->hostname));
@@ -1236,14 +1236,14 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	if (set.poller_interval == 0) {
 		/* get the poller items */
 		if ((result = db_query(&mysql, LOCAL, query1)) != 0) {
-			num_rows = mysql_num_rows(result);
+			num_rows = spine_count_to_int(mysql_num_rows(result));
 		} else {
 			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
 		}
 	} else {
 		/* get the poller items */
 		if ((result = db_query(&mysql, LOCAL, query5)) != 0) {
-			num_rows = mysql_num_rows(result);
+			num_rows = spine_count_to_int(mysql_num_rows(result));
 		} else {
 			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
 		}
@@ -1630,7 +1630,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				host_time,
 				poller_items[i].result);
 
-			result_length = strlen(result_string);
+			result_length = spine_count_to_int(strlen(result_string));
 
 			/* if the next element to the buffer will overflow it, write to the database */
 			if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
@@ -1746,7 +1746,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	}
 
 	if (errors > 0) {
-		int error_query_len = strlen(error_string) + BUFSIZE;
+		int error_query_len = spine_count_to_int(strlen(error_string) + BUFSIZE);
 		char *error_query = (char *)malloc(error_query_len);
 
 		snprintf(error_query, error_query_len, "INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids)"
@@ -1809,7 +1809,7 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
 		SPINE_LOG(("WARNING: Invalid Response(s), Errors[%i] Device[%i] Thread[%i] DS[%s]", *buf_errors, device_id, thread_id, error_string));
 	} else if (!flush) {
 		snprintf(tbuffer, SMALL_BUFSIZE, *buf_errors > 0 ? ", %i" : "%i", local_data_id);
-		error_len = strlen(tbuffer);
+		error_len = spine_count_to_int(strlen(tbuffer));
 		if (*buf_size + error_len >= DBL_BUFSIZE) {
 			SPINE_LOG(("WARNING: Invalid Response(s), Errors[%i] Device[%i] Thread[%i] DS[%s]", *buf_errors, device_id, thread_id, error_string));
 			*buf_errors  = 1;
@@ -1833,9 +1833,8 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
  *
  */
 int is_multipart_output(const char *result) {
-	int space_cnt = 0;
-	int delim_cnt = 0;
-	int i;
+	size_t space_cnt = 0;
+	size_t delim_cnt = 0;
 
 	/* check the easy cases first */
 	if (result) {
@@ -1844,9 +1843,9 @@ int is_multipart_output(const char *result) {
 			if (!strstr(result, " ")) {
 				return TRUE;
 			} else {
-				const int len = strlen(result);
+				const size_t len = strlen(result);
 
-				for (i=0; i<len; i++) {
+				for (size_t i = 0; i < len; i++) {
 					if ((result[i] == ':') || (result[i] == '!')) {
 						delim_cnt = delim_cnt + 1;
 					} else if (result[i] == ' ') {
@@ -2017,13 +2016,8 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 	int close_fd = TRUE;
 	#endif
 
-	int bytes_read;
-	fd_set fds;
-	double begin_time = 0;
-	double end_time = 0;
-	double script_timeout;
-	double remaining_usec = 0;
-	struct timeval timeout;
+	ssize_t bytes_read;
+	double deadline;
 	char *proc_command;
 	char *result_string;
 
@@ -2041,12 +2035,6 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 	/* set zeros */
 	memset(result_string, 0, RESULTS_BUFFER);
 
-	/* set script timeout as double */
-	script_timeout = set.script_timeout;
-
-	/* establish timeout of 25 seconds for pipe response */
-	timeout.tv_sec = set.script_timeout;
-	timeout.tv_usec = 0;
 
 	/* don't run too many scripts, operating systems do not like that. */
 	int retries = 0;
@@ -2069,7 +2057,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 		} else {
 			SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEVDBG, ("DEBUG: Device[%i]: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_err));
 		}
-		usleep(10000);
+		spine_sleep_usec(10000);
 	}
 
 	if (sem_err) {
@@ -2079,7 +2067,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 		needs_cleanup = 1;
 
 		/* record start time */
-		begin_time = get_time_as_double();
+		deadline = spine_monotonic_time() + set.script_timeout;
 
 		/* peel the executable from the command */
 		saveptr = proc_command;
@@ -2105,15 +2093,9 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 			SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] DEBUG: The NIFTY POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
 			#endif
 
-			if (cmd_fd > 0) {
-				retry:
-
-				/* Initialize File Descriptors to Review for Input/Output */
-				FD_ZERO(&fds);
-				FD_SET(cmd_fd, &fds);
-
-				/* wait x seconds for pipe response */
-				switch (select(FD_SETSIZE, &fds, NULL, NULL, &timeout)) {
+			if (cmd_fd >= 0) {
+				/* Interrupted waits share the original response deadline. */
+				switch (spine_wait_readable(cmd_fd, deadline)) {
 					case -1:
 						switch (errno) {
 							case EBADF:
@@ -2124,37 +2106,6 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 								close_fd = FALSE;
 								#endif
 
-								break;
-							case EINTR:
-								#ifndef SOLAR_THREAD
-								/* take a moment */
-								usleep(2000);
-								#endif
-
-								/* record end time */
-								end_time = get_time_as_double();
-
-								/* re-establish new timeout value */
-								timeout.tv_sec  = rint(floor(script_timeout-(end_time-begin_time)));
-								remaining_usec  = set.script_timeout - timeout.tv_sec - (end_time - begin_time);
-
-								if (remaining_usec > 0) {
-									timeout.tv_usec = rint(remaining_usec * 1000000);
-								} else {
-									timeout.tv_usec = 0;
-								}
-								timeout.tv_sec = rint(floor(script_timeout-(end_time-begin_time)));
-								timeout.tv_usec = rint((script_timeout-(end_time-begin_time)-timeout.tv_sec)*1000000);
-
-								if (timeout.tv_sec + timeout.tv_usec > 0) {
-									goto retry;
-								} else {
-									SPINE_LOG(("WARNING: A script timed out while processing EINTR's."));
-									SET_UNDEFINED(result_string);
-									#ifdef USING_TPOPEN
-									close_fd = FALSE;
-									#endif
-								}
 								break;
 							case EINVAL:
 								SPINE_LOG(("Device[%i] ERROR: Possible invalid timeout specified in select() statement.", current_host->id));
@@ -2182,7 +2133,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", current_host->id));
 
 					pid = nft_pchild(cmd_fd);
-					kill(pid, SIGKILL);
+					if (pid > 1) kill(pid, SIGKILL);
 					#endif
 
 					SET_UNDEFINED(result_string);
@@ -2190,7 +2141,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 				default:
 					/* get only one line of output, we will ignore the rest */
 					bytes_read = read(cmd_fd, result_string, RESULTS_BUFFER-1);
-					if (bytes_read > 0) {
+					if (bytes_read > 0 && bytes_read < RESULTS_BUFFER) {
 						result_string[bytes_read] = '\0';
 					} else {
 						if (STRIMATCH(type,"DS")) {

@@ -130,7 +130,7 @@ static pid_t fork_script(void) {
 		int failure = errno;
 		if (attempt < 3 && (failure == EAGAIN || failure == ENOMEM)) {
 			#ifndef SOLAR_THREAD
-			usleep(50000);
+			spine_sleep_usec(50000);
 			#endif
 			continue;
 		}
