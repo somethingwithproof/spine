@@ -33,6 +33,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include <fcntl.h>
 
 /*! \fn char *php_cmd(const char *php_command, int php_process)
  *  \brief calls the script server and executes a script command
@@ -106,15 +107,17 @@ char *php_cmd(const char *php_command, int php_process) {
 	int lock = process_locks[php_process];
 	thread_mutex_lock(lock);
 	char *result = NULL;
-	for (int retry = 0; retry < 3; retry++) {
+	int attempts = 0;
+	bool available = TRUE;
+	while (result == NULL && available && attempts < 3) {
+		attempts++;
 		if (php_write_command(php_processes[php_process].php_write_fd, command)) {
 			result = php_readpipe(php_process, command);
 			if (result[0] == '\0') SET_UNDEFINED(result);
-			break;
+		} else {
+			SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending command. Restarting PHP Script Server", php_process));
+			available = php_close(php_process) && php_init(php_process);
 		}
-		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending command. Restarting PHP Script Server", php_process));
-		php_close(php_process);
-		if (!php_init(php_process)) break;
 	}
 	thread_mutex_unlock(lock);
 	return result != NULL ? result : php_undefined_result();
@@ -193,9 +196,9 @@ char *php_readpipe(int php_process, const char *command) {
 	SET_UNDEFINED(result);
 	php_processes[php_process].php_state = PHP_BUSY;
 	SPINE_LOG(("WARNING: SS[%i] Script Server response failed (status %i) for Command[%s]", php_process, status, command));
-	php_close(php_process);
+	bool closed = php_close(php_process);
 	/* A failed startup must return to its caller, never recursively start. */
-	if (strcmp(command, "INIT") != 0) php_init(php_process);
+	if (closed && strcmp(command, "INIT") != 0) php_init(php_process);
 	return result;
 }
 
@@ -245,6 +248,8 @@ static pid_t php_fork_server(int process) {
 }
 
 static bool php_start_process(int process) {
+	php_t *server = &php_processes[process];
+	if (server->php_pid > 1 && !php_close(process)) return FALSE;
 	int requests[2];
 	int responses[2];
 	char poller_id[TINY_BUFSIZE];
@@ -280,8 +285,8 @@ static bool php_start_process(int process) {
 		pthread_setcancelstate(cancel_state, NULL);
 		return FALSE;
 	}
-	php_t *server = &php_processes[process];
 	server->php_pid = pid;
+	server->php_exit_status = -1;
 	server->php_write_fd = requests[1];
 	server->php_read_fd = responses[0];
 	server->php_state = PHP_BUSY;
@@ -308,78 +313,110 @@ int php_init(int php_process) {
 		return php_start_process(php_process);
 	}
 	for (int process = 0; process < set.php_servers; process++) {
-		if (!php_start_process(process)) return FALSE;
+		if (!php_start_process(process)) {
+			php_close(PHP_INIT);
+			return FALSE;
+		}
 	}
 	return TRUE;
 }
 
-/*! \fn void php_close(int php_process)
- *  \brief close the php script server process
- *  \param php_process the process to close or PHP_INIT
- *
- *  This function will take an input parameter of either a specially coded
- *  PHP_INIT parameter or an integer stating the process number.  With that
- *  information is will close and/or terminate the child PHP Script Server
- *  process and then return to the calling function.
- *
- *  TODO: Make ending of the child process not be reliant on SIG_TERM in cases
- *  where the child process is hung for one reason or another.
- *
+enum php_child_state {
+	PHP_CHILD_REAPED,
+	PHP_CHILD_RUNNING,
+	PHP_CHILD_ERROR
+};
+
+static double php_shutdown_time(void) {
+	/* Shutdown can run from die(); a clock failure must not recurse through
+	 * the fatal handler and attempt shutdown again. */
+	struct timespec now;
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return NAN;
+	return (double)now.tv_sec + (double)now.tv_nsec / 1000000000.0;
+}
+
+static enum php_child_state php_wait_child(php_t *server, double deadline) {
+	while (server->php_pid > 1) {
+		int status;
+		pid_t result = waitpid(server->php_pid, &status, WNOHANG);
+		if (result == server->php_pid) {
+			server->php_exit_status = status;
+			server->php_pid = -1;
+			return PHP_CHILD_REAPED;
+		}
+		if (result < 0) {
+			int error = errno;
+			if (error == ECHILD) {
+				/* It is no longer our child; never signal a possibly reused PID. */
+				server->php_pid = -1;
+				return PHP_CHILD_REAPED;
+			}
+			double now = php_shutdown_time();
+			if (error != EINTR || !isfinite(now) || now >= deadline) return PHP_CHILD_ERROR;
+			continue;
+		}
+		double now = php_shutdown_time();
+		if (!isfinite(now)) return PHP_CHILD_ERROR;
+		if (now >= deadline) return PHP_CHILD_RUNNING;
+		spine_sleep_usec(10000);
+	}
+	return PHP_CHILD_REAPED;
+}
+
+static bool php_stop_child(php_t *server) {
+	const int signals[] = {SIGTERM, SIGKILL};
+	double now = php_shutdown_time();
+	if (!isfinite(now)) return FALSE;
+	enum php_child_state state = php_wait_child(server, now + 0.25);
+	for (size_t index = 0; state == PHP_CHILD_RUNNING && index < sizeof(signals) / sizeof(signals[0]); index++) {
+		/* waitpid confirmed ownership. An exited unreaped child retains its
+		 * PID, so this cannot become a signal to an unrelated reused PID. */
+		if (kill(server->php_pid, signals[index]) < 0 && errno != ESRCH) return FALSE;
+		now = php_shutdown_time();
+		if (!isfinite(now)) return FALSE;
+		state = php_wait_child(server, now + (signals[index] == SIGKILL ? 0.50 : 0.25));
+	}
+	return state == PHP_CHILD_REAPED;
+}
+
+static bool php_close_process(int process) {
+	php_t *server = &php_processes[process];
+	server->php_state = PHP_BUSY;
+	if (server->php_pid <= 1) return TRUE;
+	SPINE_LOG_DEBUG(("DEBUG: SS[%i] Script Server Shutdown Started", process));
+	bool success = TRUE;
+	if (server->php_write_fd >= 0) {
+		/* A stuck server may have a full input pipe. Shutdown must not block
+		 * trying to send quit; the following owned-child escalation is bounded. */
+		int flags = fcntl(server->php_write_fd, F_GETFL);
+		if (flags >= 0 && fcntl(server->php_write_fd, F_SETFL, flags | O_NONBLOCK) == 0) php_write_command(server->php_write_fd, "quit\r\n");
+		if (close(server->php_write_fd) != 0) success = FALSE;
+		server->php_write_fd = -1;
+	}
+	if (server->php_read_fd >= 0) {
+		if (close(server->php_read_fd) != 0) success = FALSE;
+		server->php_read_fd = -1;
+	}
+	if (!php_stop_child(server)) {
+		SPINE_LOG(("ERROR: SS[%i] Script Server shutdown was not confirmed", process));
+		return FALSE;
+	}
+	return success;
+}
+
+/*! \fn bool php_close(int php_process)
+ *  \brief close and reap one or all owned script server children.
+ *  \return TRUE only when shutdown and owned descriptor closure are confirmed.
  */
-void php_close(int php_process) {
-	int num_processes;
-
-	if (php_process == PHP_INIT) {
-		num_processes = set.php_servers;
-	} else {
-		num_processes = 1;
+bool php_close(int php_process) {
+	if (php_processes == NULL) return TRUE;
+	if (set.php_servers < 0 || set.php_servers > MAX_PHP_SERVERS) return FALSE;
+	if (php_process != PHP_INIT && (php_process < 0 || php_process >= set.php_servers)) return FALSE;
+	int first = php_process == PHP_INIT ? 0 : php_process;
+	int end = php_process == PHP_INIT ? set.php_servers : php_process + 1;
+	bool success = TRUE;
+	for (int index = first; index < end; index++) {
+		if (!php_close_process(index)) success = FALSE;
 	}
-
-	for (int i = 0; i < num_processes; i++) {
-		php_t *phpp;
-
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Script Server Shutdown Started", i));
-
-		/* tell the script server to close */
-		if (php_process == PHP_INIT) {
-			phpp = &php_processes[i];
-		} else {
-			phpp = &php_processes[php_process];
-		}
-
-		/* If we still have a valid write pipe, tell PHP to close down
-		 * by sending a "quit" message, then closing the input channel
-		 * so it gets an EOF.
-		 *
-		 * Then we wait a moment before actually killing it to allow for
-		 * a clean shutdown.
-		 */
-		if (phpp->php_write_fd >= 0) {
-			static const char quit[] = "quit\r\n";
-
-			php_write_command(phpp->php_write_fd, quit);
-			close(phpp->php_write_fd);
-			phpp->php_write_fd = -1;
-
-			/* wait before killing php */
-			#ifndef SOLAR_THREAD
-			spine_sleep_usec(50000);			/* 50 msec */
-			#endif
-		}
-
-		/* only try to kill the process if the PID looks valid.
-		 * Trying to kill a negative number is bad news (it's
-	 	 * a process group leader), and PID 1 is "init".
-	  	 */
-		if (phpp->php_pid > 1) {
-			/* end the php script server process */
-			kill(phpp->php_pid, SIGTERM);
-
-			/* reset this PID variable? */
-		}
-
-		/* close file descriptors */
-		close(phpp->php_read_fd);
-		phpp->php_read_fd  = -1;
-	}
+	return success;
 }

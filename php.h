@@ -34,7 +34,7 @@
 extern char *php_cmd(const char *php_command, int php_process);
 extern char *php_readpipe(int php_process, const char *command);
 extern int php_init(int php_process);
-extern void php_close(int php_process);
+extern bool php_close(int php_process);
 extern int php_get_process(void);
 
 enum php_response_status {

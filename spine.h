@@ -517,6 +517,7 @@ typedef struct poller_thread {
 typedef struct php_processes {
 	int    php_state;
 	pid_t  php_pid;
+	int    php_exit_status;
 	int    php_write_fd;
 	int    php_read_fd;
 } php_t;

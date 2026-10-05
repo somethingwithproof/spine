@@ -13,6 +13,7 @@
  */
 #include "common.h"
 #include "spine.h"
+#include <fcntl.h>
 #include <sys/un.h>
 #include <limits.h>
 
@@ -817,6 +818,12 @@ static void test_invalid_php_commands(void) {
 }
 
 static int run_test_script_server(int argc, char **argv) {
+	const char *marker = getenv("SPINE_TEST_PHP_FAIL_SECOND");
+	if (marker != NULL) {
+		int fd = open(marker, O_WRONLY | O_CREAT | O_EXCL, 0600);
+		if (fd < 0) { assert(errno == EEXIST); return 127; }
+		assert(close(fd) == 0);
+	}
 	assert(argc >= 5 && strcmp(argv[2], "regression-server") == 0);
 	if (strcmp(argv[3], "spine") == 0) {
 		assert(argc == 5 && strcmp(argv[4], "1") == 0);
@@ -835,7 +842,7 @@ static int run_test_script_server(int argc, char **argv) {
 		puts("7");
 		fflush(stdout);
 	}
-	return 0;
+	return 17; /* EOF without quit must not count as graceful protocol shutdown. */
 }
 
 static void test_php_startup(const char *executable) {
@@ -866,23 +873,94 @@ static void test_php_startup(const char *executable) {
 			free(result);
 		}
 		pid_t children[] = {processes[0].php_pid, processes[1].php_pid};
-		php_close(PHP_INIT);
+		assert(php_close(PHP_INIT));
 		for (size_t index = 0; index < sizeof(children) / sizeof(children[0]); index++) {
 			int status;
-			assert(waitpid(children[index], &status, 0) == children[index]);
-			assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+			assert(waitpid(children[index], &status, WNOHANG) == -1 && errno == ECHILD);
+			assert(processes[index].php_pid == -1);
+			assert(WIFEXITED(processes[index].php_exit_status) && WEXITSTATUS(processes[index].php_exit_status) == 0);
 		}
 	}
+	char marker[] = "spine-php-partial-startup-XXXXXX";
+	int marker_fd = mkstemp(marker);
+	assert(marker_fd >= 0 && close(marker_fd) == 0 && unlink(marker) == 0);
+	const char *old_marker = getenv("SPINE_TEST_PHP_FAIL_SECOND");
+	char *saved_marker = old_marker == NULL ? NULL : strdup(old_marker);
+	assert(old_marker == NULL || saved_marker != NULL);
+	assert(setenv("SPINE_TEST_PHP_FAIL_SECOND", marker, 1) == 0);
+	assert(!php_init(PHP_INIT));
+	assert(processes[0].php_pid == -1 && processes[1].php_pid == -1);
+	assert(WIFEXITED(processes[0].php_exit_status) && WEXITSTATUS(processes[0].php_exit_status) == 0);
+	assert(WIFEXITED(processes[1].php_exit_status) && WEXITSTATUS(processes[1].php_exit_status) == 127);
+	assert(unlink(marker) == 0);
+	if (saved_marker != NULL) { assert(setenv("SPINE_TEST_PHP_FAIL_SECOND", saved_marker, 1) == 0); free(saved_marker); }
+	else assert(unsetenv("SPINE_TEST_PHP_FAIL_SECOND") == 0);
 	assert(!php_init(-2) && !php_init(set.php_servers));
 	STRNCOPY(set.path_php, "/nonexistent-spine-regression-executable");
 	assert(!php_init(0));
 	assert(processes[0].php_state == PHP_BUSY);
 	assert(processes[0].php_read_fd == -1 && processes[0].php_write_fd == -1);
-	int status;
-	assert(waitpid(processes[0].php_pid, &status, 0) == processes[0].php_pid);
-	assert(WIFEXITED(status) && WEXITSTATUS(status) == 127);
+	assert(processes[0].php_pid == -1);
+	assert(WIFEXITED(processes[0].php_exit_status) && WEXITSTATUS(processes[0].php_exit_status) == 127);
+	char *failed_command = php_cmd("request on stopped server", 0);
+	assert(strcmp(failed_command, "U") == 0);
+	free(failed_command);
+	assert(processes[0].php_pid == -1 && processes[0].php_state == PHP_BUSY);
+	assert(WIFEXITED(processes[0].php_exit_status) && WEXITSTATUS(processes[0].php_exit_status) == 127);
 	php_processes = previous_processes;
 	set = previous_config;
+}
+
+static void test_php_owned_shutdown(void) {
+	int requests[2];
+	int responses[2];
+	assert(pipe(requests) == 0 && pipe(responses) == 0);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		close(requests[1]);
+		close(responses[0]);
+		assert(signal(SIGTERM, SIG_IGN) != SIG_ERR);
+		assert(write(responses[1], "R", 1) == 1);
+		for (;;) pause();
+	}
+	close(requests[0]);
+	close(responses[1]);
+	char ready;
+	assert(read(responses[0], &ready, 1) == 1 && ready == 'R');
+	int flags = fcntl(requests[1], F_GETFL);
+	assert(flags >= 0 && fcntl(requests[1], F_SETFL, flags | O_NONBLOCK) == 0);
+	char padding[1024] = {0};
+	while (write(requests[1], padding, sizeof(padding)) > 0) {}
+	assert(errno == EAGAIN || errno == EWOULDBLOCK);
+	assert(fcntl(requests[1], F_SETFL, flags) == 0);
+	php_t server = {0};
+	server.php_pid = child;
+	server.php_exit_status = -1;
+	server.php_write_fd = requests[1];
+	server.php_read_fd = responses[0];
+	php_t *previous_processes = php_processes;
+	int previous_count = set.php_servers;
+	php_processes = &server;
+	set.php_servers = 1;
+	double begin = spine_monotonic_time();
+	alarm(5);
+	assert(php_close(0));
+	alarm(0);
+	assert(spine_monotonic_time() - begin >= 0.45 && spine_monotonic_time() - begin < 2.0);
+	assert(server.php_pid == -1 && server.php_read_fd == -1 && server.php_write_fd == -1);
+	assert(fcntl(requests[1], F_GETFD) == -1 && errno == EBADF);
+	assert(fcntl(responses[0], F_GETFD) == -1 && errno == EBADF);
+	assert(WIFSIGNALED(server.php_exit_status) && WTERMSIG(server.php_exit_status) == SIGKILL);
+	int status;
+	assert(waitpid(child, &status, WNOHANG) == -1 && errno == ECHILD);
+	assert(php_close(0));
+	/* A stale PID for a non-child must be retired without sending a signal. */
+	server.php_pid = getpid();
+	assert(php_close(0) && server.php_pid == -1);
+	assert(!php_close(-2) && !php_close(1));
+	php_processes = previous_processes;
+	set.php_servers = previous_count;
 }
 
 static void test_udp_deadline(void) {
@@ -1380,6 +1458,7 @@ int main(int argc, char **argv) {
 	test_php_command(BUFSIZE - 3);
 	test_invalid_php_commands();
 	test_php_startup(argv[0]);
+	test_php_owned_shutdown();
 	test_script_execution();
 	puts("production regression tests passed");
 	return 0;

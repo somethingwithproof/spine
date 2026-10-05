@@ -250,6 +250,10 @@ int main(int argc, char *argv[]) {
 	if (php_processes == NULL) die("ERROR: Fatal malloc error: PHP process list!");
 	for (i = 0; i < MAX_PHP_SERVERS; i++) {
 		php_processes[i].php_state = PHP_BUSY;
+		php_processes[i].php_pid = -1;
+		php_processes[i].php_read_fd = -1;
+		php_processes[i].php_write_fd = -1;
+		php_processes[i].php_exit_status = -1;
 	}
 
 	/* create the array of debug devices */
@@ -1051,7 +1055,7 @@ int main(int argc, char *argv[]) {
 
 	/* close the php script server */
 	if (set.php_required && !set.ping_only) {
-		php_close(PHP_INIT);
+		if (!php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
 	}
 
 	SPINE_LOG_DEBUG(("DEBUG: PHP Script Server Pipes Closed"));
