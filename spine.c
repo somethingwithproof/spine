@@ -331,7 +331,8 @@ int main(int argc, char *argv[]) {
 	set.mode              = REMOTE_ONLINE;
 	set.has_device_0      = FALSE;
 
-	for (argv++; *argv; argv++) {
+	argv++;
+	while (*argv) {
 		char	*arg = *argv;
 		char	*opt = strchr(arg, '=');	/* pick off the =VALUE part */
 
@@ -453,6 +454,7 @@ int main(int argc, char *argv[]) {
 		else {
 			die("ERROR: %s is an unknown command-line parameter", arg);
 		}
+		argv++;
 	}
 
 	if (set.ping_only) {

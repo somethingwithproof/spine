@@ -327,7 +327,6 @@ int php_init(int php_process) {
  *
  */
 void php_close(int php_process) {
-	int i;
 	int num_processes;
 
 	if (php_process == PHP_INIT) {
@@ -336,7 +335,7 @@ void php_close(int php_process) {
 		num_processes = 1;
 	}
 
-	for(i = 0; i < num_processes; i++) {
+	for (int i = 0; i < num_processes; i++) {
 		php_t *phpp;
 
 		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Script Server Shutdown Started", i));

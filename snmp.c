@@ -122,72 +122,68 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 		die("ERROR: Fatal malloc error: SNMP privacy passphrase");
 	}
 
-	if (Apsz) {
-		session->securityAuthKeyLen = USM_AUTH_KU_LEN;
-		if (session->securityAuthProto == NULL) {
-			/*
-			 * get .conf set default
-			 */
-			const oid *def = get_default_authtype(&session->securityAuthProtoLen);
-			session->securityAuthProto = snmp_duplicate_objid(def, session->securityAuthProtoLen);
-		}
+	session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+	if (session->securityAuthProto == NULL) {
+		/*
+		 * get .conf set default
+		 */
+		const oid *def = get_default_authtype(&session->securityAuthProtoLen);
+		session->securityAuthProto = snmp_duplicate_objid(def, session->securityAuthProtoLen);
+	}
 
-		if (session->securityAuthProto == NULL) {
-			session->securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
-			session->securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
-		}
+	if (session->securityAuthProto == NULL) {
+		session->securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
+		session->securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
+	}
 
-		if (generate_Ku(session->securityAuthProto,
-			(u_int)spine_count_to_int(session->securityAuthProtoLen),
-			(u_char *) Apsz, strlen(Apsz),
-			session->securityAuthKey,
-			&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
-			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
-			if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
-			free(Apsz);
-			spine_clear_sensitive(Xpsz, strlen(Xpsz));
-			free(Xpsz);
-			return FALSE;
-		}
-
+	if (generate_Ku(session->securityAuthProto,
+		(u_int)spine_count_to_int(session->securityAuthProtoLen),
+		(u_char *) Apsz, strlen(Apsz),
+		session->securityAuthKey,
+		&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
 		if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
 		free(Apsz);
-		Apsz = NULL;
-	}
-
-	if (Xpsz) {
-		session->securityPrivKeyLen = USM_PRIV_KU_LEN;
-		if (session->securityPrivProto == NULL) {
-			/*
-			 * get .conf set default
-			 */
-			const oid *def = get_default_privtype(&session->securityPrivProtoLen);
-			session->securityPrivProto =
-			snmp_duplicate_objid(def, session->securityPrivProtoLen);
-		}
-
-		if (session->securityPrivProto == NULL) {
-			session->securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
-			session->securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
-		}
-
-		if (generate_Ku(session->securityAuthProto,
-			(u_int)spine_count_to_int(session->securityAuthProtoLen),
-			(u_char *) Xpsz, strlen(Xpsz),
-			session->securityPrivKey,
-			&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
-			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));
-			if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
-			free(Apsz);
-			spine_clear_sensitive(Xpsz, strlen(Xpsz));
-			free(Xpsz);
-			return FALSE;
-		}
-
 		spine_clear_sensitive(Xpsz, strlen(Xpsz));
 		free(Xpsz);
-		Xpsz = NULL;
+		return FALSE;
 	}
+
+	if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+	free(Apsz);
+	Apsz = NULL;
+
+	session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+	if (session->securityPrivProto == NULL) {
+		/*
+		 * get .conf set default
+		 */
+		const oid *def = get_default_privtype(&session->securityPrivProtoLen);
+		session->securityPrivProto =
+		snmp_duplicate_objid(def, session->securityPrivProtoLen);
+	}
+
+	if (session->securityPrivProto == NULL) {
+		session->securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
+		session->securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
+	}
+
+	if (generate_Ku(session->securityAuthProto,
+		(u_int)spine_count_to_int(session->securityAuthProtoLen),
+		(u_char *) Xpsz, strlen(Xpsz),
+		session->securityPrivKey,
+		&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));
+		if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+		free(Apsz);
+		spine_clear_sensitive(Xpsz, strlen(Xpsz));
+		free(Xpsz);
+		return FALSE;
+	}
+
+	spine_clear_sensitive(Xpsz, strlen(Xpsz));
+	free(Xpsz);
+	Xpsz = NULL;
 	return TRUE;
 }
 

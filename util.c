@@ -453,10 +453,9 @@ void parse_debug_devices(char *device_list, int *devices, size_t capacity) {
 	devices[0] = 0;
 	char *saveptr = NULL;
 	const char *token = strtok_r(device_list, ",", &saveptr);
-	for (size_t i = 0; token != NULL && i < capacity - 1; i++) {
+	for (size_t i = 0; token != NULL && i < capacity - 1; i++, token = strtok_r(NULL, ",", &saveptr)) {
 		devices[i] = atoi(token);
 		devices[i + 1] = 0;
-		token = strtok_r(NULL, ",", &saveptr);
 	}
 }
 
@@ -1637,9 +1636,8 @@ int is_hexadecimal(const char * str, const short ignore_special) {
 				delim_found = TRUE;
 				break;
 			case '\t':
-				if (ignore_special) {
-					break;
-				}
+				if (!ignore_special) return FALSE;
+				break;
 			default:
 				return FALSE;
 		}
