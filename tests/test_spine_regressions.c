@@ -659,6 +659,40 @@ static void test_snmp_initialization_failure(void) {
 	}) == NULL);
 }
 
+static void test_snmp_security_protocols(void) {
+	snmp_spine_init();
+	snmp_connection_t options = {
+		.host_id = 1, .hostname = "127.0.0.1", .snmp_version = 3,
+		.snmp_community = "", .snmp_username = "regression-user",
+		.snmp_password = "", .snmp_auth_protocol = "SHA",
+		.snmp_priv_passphrase = "", .snmp_priv_protocol = "[None]",
+		.snmp_context = "regression-context", .snmp_engine_id = "",
+		.snmp_port = 1161, .snmp_timeout = 500,
+	};
+	const int levels[] = {SNMP_SEC_LEVEL_NOAUTH, SNMP_SEC_LEVEL_AUTHNOPRIV, SNMP_SEC_LEVEL_AUTHPRIV};
+	for (size_t index = 0; index < sizeof(levels) / sizeof(levels[0]); index++) {
+		options.snmp_password = index == 0 ? "" : "regression-password";
+		options.snmp_priv_protocol = index == 2 ? "AES" : "[None]";
+		options.snmp_priv_passphrase = index == 2 ? "regression-privacy" : "";
+		void *handle = snmp_host_init(&options);
+		assert(handle != NULL);
+		struct snmp_session *session = snmp_sess_session(handle);
+		assert(session != NULL && session->version == SNMP_VERSION_3);
+		assert(session->securityLevel == levels[index]);
+		assert(strcmp(session->securityName, options.snmp_username) == 0);
+		assert(strcmp(session->contextName, options.snmp_context) == 0);
+		assert(session->securityAuthProto != NULL && session->securityPrivProto != NULL);
+		if (index == 2) {
+			assert(session->securityAuthKeyLen == 20); /* SHA-1 Ku length. */
+			assert(session->securityPrivKeyLen == 20);
+		}
+		snmp_host_cleanup(handle);
+	}
+	options.snmp_priv_protocol = "INVALID";
+	assert(snmp_host_init(&options) == NULL);
+	snmp_spine_close();
+}
+
 static void test_child_process(void) {
 	int fd = nft_popen("printf spine-test", "r");
 	assert(fd >= 0);
@@ -1894,6 +1928,7 @@ int main(int argc, char **argv) {
 	test_availability_modes();
 	test_icmp_reply_bounds();
 	test_snmp_initialization_failure();
+	test_snmp_security_protocols();
 	test_child_process();
 	alarm(10);
 	test_duplex_process();

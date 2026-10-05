@@ -201,6 +201,54 @@ static void snmp_host_init_release(struct snmp_session *session, char *auth, cha
 	spine_clear_sensitive(session->securityPrivKey, sizeof(session->securityPrivKey));
 }
 
+static bool snmp_set_security_protocols(struct snmp_session *session, const snmp_connection_t *options) {
+	/* set the authentication protocol */
+	int auth_type = usm_lookup_auth_type(options->snmp_auth_protocol);
+	if (auth_type > 0) {
+		const oid *auth_proto;
+
+		auth_proto = sc_get_auth_oid(auth_type, &session->securityAuthProtoLen);
+		free(session->securityAuthProto);
+		session->securityAuthProto = snmp_duplicate_objid(auth_proto, session->securityAuthProtoLen);
+	} else {
+		SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", options->host_id, options->snmp_auth_protocol));
+		return FALSE;
+	}
+
+	/* set the privacy protocol to none */
+	if (strcmp(options->snmp_priv_protocol, "[None]") == 0 || (strlen(options->snmp_priv_passphrase) == 0)) {
+		session->securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
+		session->securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
+		session->securityPrivKeyLen   = USM_PRIV_KU_LEN;
+
+		/* set the security level to authenticate, but not encrypted */
+		if (strlen(options->snmp_password)) {
+			session->securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
+		} else {
+			session->securityLevel = SNMP_SEC_LEVEL_NOAUTH;
+		}
+	} else {
+		const oid *priv_proto;
+
+		int priv_type = usm_lookup_priv_type(options->snmp_priv_protocol);
+
+		if (priv_type < 0) {
+			SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", options->host_id, options->snmp_priv_protocol));
+			return FALSE;
+		}
+
+		priv_proto = sc_get_priv_oid(priv_type, &session->securityPrivProtoLen);
+		free(session->securityPrivProto);
+		session->securityPrivProto = snmp_duplicate_objid(priv_proto, session->securityPrivProtoLen);
+		session->securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
+
+		if (!snmp_set_security_keys(session, options->host_id, options->snmp_password, options->snmp_priv_passphrase)) {
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
 /*! \fn void *snmp_host_init(const snmp_connection_t *options)
  *  \brief initializes an owned Net-SNMP session from borrowed connection inputs.
  */
@@ -213,7 +261,6 @@ void *snmp_host_init(const snmp_connection_t *options) {
 	char   *Apsz = NULL;
 	char   *Xpsz = NULL;
 	char   *Cpsz = NULL;
-	int    priv_type;
 
 	/* initialize SNMP */
 	snmp_sess_init(&session);
@@ -303,52 +350,9 @@ void *snmp_host_init(const snmp_connection_t *options) {
 			session.contextEngineIDLen = strlen(options->snmp_engine_id);
 		}
 
-		/* set the authentication protocol */
-		int auth_type = usm_lookup_auth_type(options->snmp_auth_protocol);
-		if (auth_type > 0) {
-			const oid *auth_proto;
-
-            auth_proto = sc_get_auth_oid(auth_type, &session.securityAuthProtoLen);
-            free(session.securityAuthProto);
-            session.securityAuthProto = snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
-		} else {
-			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", options->host_id, options->snmp_auth_protocol));
+		if (!snmp_set_security_protocols(&session, options)) {
 			snmp_host_init_release(&session, Apsz, Xpsz);
-			return 0;
-		}
-
-		/* set the privacy protocol to none */
-		if (strcmp(options->snmp_priv_protocol, "[None]") == 0 || (strlen(options->snmp_priv_passphrase) == 0)) {
-			session.securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
-			session.securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
-			session.securityPrivKeyLen   = USM_PRIV_KU_LEN;
-
-			/* set the security level to authenticate, but not encrypted */
-			if (strlen(options->snmp_password)) {
-				session.securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
-			} else {
-				session.securityLevel = SNMP_SEC_LEVEL_NOAUTH;
-			}
-		} else {
-			const oid *priv_proto;
-
-			priv_type = usm_lookup_priv_type(options->snmp_priv_protocol);
-
-			if (priv_type < 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", options->host_id, options->snmp_priv_protocol));
-				snmp_host_init_release(&session, Apsz, Xpsz);
-				return 0;
-			}
-
-			priv_proto = sc_get_priv_oid(priv_type, &session.securityPrivProtoLen);
-			free(session.securityPrivProto);
-			session.securityPrivProto = snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
-			session.securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
-
-			if (!snmp_set_security_keys(&session, options->host_id, options->snmp_password, options->snmp_priv_passphrase)) {
-				snmp_host_init_release(&session, NULL, NULL);
-				return NULL;
-			}
+			return NULL;
 		}
 
 		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", options->host_id, options->snmp_auth_protocol, options->snmp_priv_protocol));
