@@ -45,92 +45,62 @@
  *
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  */
+static int ping_network(host_t *host, ping_t *ping) {
+	if (host->ping_method == PING_ICMP && !set.icmp_avail) {
+		SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
+		host->ping_method = PING_UDP;
+	}
+	if (strstr(host->hostname, "localhost")) {
+		STRNCOPY(ping->ping_status, "0.000");
+		STRNCOPY(ping->ping_response, "PING: Device does not require ping.");
+		return HOST_UP;
+	}
+	if (get_address_type(host) != 1) {
+		if (host->availability_method == AVAIL_PING) {
+			STRNCOPY(ping->ping_status, "0.000");
+			STRNCOPY(ping->ping_response, "PING: Device is Unknown or is IPV6.  Please use the SNMP ping options only.");
+		}
+		return HOST_DOWN;
+	}
+	switch (host->ping_method) {
+		case PING_ICMP: return ping_icmp(host, ping);
+		case PING_UDP: return ping_udp(host, ping);
+		case PING_TCP:
+		case PING_TCP_CLOSED: return ping_tcp(host, ping);
+		default: return HOST_DOWN;
+	}
+}
+
+static int ping_snmp_availability(host_t *host, ping_t *ping, int ping_result) {
+	if (host->availability_method == AVAIL_SNMP_AND_PING && ping_result != HOST_UP) return HOST_DOWN;
+	if (host->availability_method == AVAIL_SNMP_OR_PING && ping_result == HOST_UP) return HOST_UP;
+	/* Preserve the configured no-SNMP contract for v1/v2 without a community. */
+	if (host->snmp_community[0] == '\0' && host->snmp_version < 3) return HOST_UP;
+	double begin = get_time_as_double();
+	int result = ping_snmp(host, ping);
+	double elapsed = (get_time_as_double() - begin) * 1000.0;
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM,
+		("Device[%i] INFO: SNMP Device %s, Time:%.4f ms", host->id, result == HOST_UP ? "Alive" : "Down", elapsed));
+	return result;
+}
+
 int ping_host(host_t *host, ping_t *ping) {
-	int ping_result;
-	int snmp_result;
-	double ping_start_time;
-	double end_time;
-
-	/* snmp pinging has been selected at a minimum */
-	ping_result = 0;
-	snmp_result = 0;
-
-	/* icmp/tcp/udp ping test */
-	if ((host->availability_method == AVAIL_SNMP_AND_PING) ||
-		(host->availability_method == AVAIL_PING) ||
-		(host->availability_method == AVAIL_SNMP_OR_PING)) {
-
-		if ((host->ping_method == PING_ICMP) && (set.icmp_avail == FALSE)) {
-			SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
-			host->ping_method = PING_UDP;
-		}
-
-		if (!strstr(host->hostname, "localhost")) {
-			if (get_address_type(host) == 1) {
-				if (host->ping_method == PING_ICMP) {
-					ping_result = ping_icmp(host, ping);
-				} else if (host->ping_method == PING_UDP) {
-					ping_result = ping_udp(host, ping);
-				} else if (host->ping_method == PING_TCP || host->ping_method == PING_TCP_CLOSED) {
-					ping_result = ping_tcp(host, ping);
-				}
-			} else if (host->availability_method == AVAIL_PING) {
-				snprintf(ping->ping_status, 50, "0.000");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "PING: Device is Unknown or is IPV6.  Please use the SNMP ping options only.");
-				ping_result = HOST_DOWN;
-			}
-		} else {
-			snprintf(ping->ping_status, 50, "0.000");
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "PING: Device does not require ping.");
-			ping_result = HOST_UP;
-		}
+	int network_result = HOST_DOWN;
+	if (host->availability_method == AVAIL_SNMP_AND_PING ||
+		host->availability_method == AVAIL_PING ||
+		host->availability_method == AVAIL_SNMP_OR_PING) {
+		network_result = ping_network(host, ping);
 	}
-
-	/* snmp test */
-	if ((host->availability_method == AVAIL_SNMP) ||
-		(host->availability_method == AVAIL_SNMP_GET_SYSDESC) ||
-		(host->availability_method == AVAIL_SNMP_GET_NEXT) ||
-		(host->availability_method == AVAIL_SNMP_AND_PING) ||
-		(host->availability_method == AVAIL_SNMP_OR_PING)) {
-
-		/* If we are in AND mode and already have a failed ping result, we don't need SNMP */
-		if ((ping_result == HOST_DOWN) && (host->availability_method == AVAIL_SNMP_AND_PING)) {
-			snmp_result = ping_result;
-		} else {
-			/* Lets assume the host is up because if we are in OR mode then we have already
-			 * pinged the host successfully, or some when silly people have not entered an
-			 * snmp_community under v1/2, we assume that this was successfully anyway */
-			snmp_result = HOST_UP;
-			if ((host->availability_method != AVAIL_SNMP_OR_PING) &&
-				((strlen(host->snmp_community) > 0) || (host->snmp_version >= 3))) {
-				ping_start_time = get_time_as_double();
-				snmp_result = ping_snmp(host, ping);
-				end_time = get_time_as_double();
-
-				if (snmp_result == HOST_UP) {
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - ping_start_time));
-				} else {
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - ping_start_time));
-				}
-			}
-		}
-	}
-
 	switch (host->availability_method) {
 		case AVAIL_SNMP_AND_PING:
-			return ((ping_result == HOST_UP) && (snmp_result == HOST_UP)) ? HOST_UP : HOST_DOWN;
 		case AVAIL_SNMP_OR_PING:
-			return ((ping_result == HOST_UP) || (snmp_result == HOST_UP)) ? HOST_UP : HOST_DOWN;
 		case AVAIL_SNMP:
 		case AVAIL_SNMP_GET_NEXT:
 		case AVAIL_SNMP_GET_SYSDESC:
-			return (snmp_result == HOST_UP) ? HOST_UP : HOST_DOWN;
-		case AVAIL_PING:
-			return (ping_result == HOST_UP) ? HOST_UP : HOST_DOWN;
-		case AVAIL_NONE:
-			return HOST_UP;
-		default:
-			return HOST_DOWN;
+			return ping_snmp_availability(host, ping, network_result);
+		case AVAIL_PING: return network_result;
+		case AVAIL_NONE: return HOST_UP;
+		default: return HOST_DOWN;
 	}
 }
 
@@ -146,95 +116,36 @@ int ping_host(host_t *host, ping_t *ping) {
  *
  */
 int ping_snmp(host_t *host, ping_t *ping) {
-	char *poll_result = NULL;
-	char *oid;
-	double begin_time;
-	double end_time;
-	double total_time;
-	double one_thousand = 1000.00;
-
-	if (is_debug_device(host->id)) {
-		SPINE_LOG(("Device[%i] DEBUG: Entering SNMP Ping", host->id));
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering SNMP Ping", host->id));
-	}
-
-	if (host->snmp_session) {
-		if (strlen(host->snmp_community) != 0 || host->snmp_version == 3) {
-			/* by default, we look at sysUptime */
-			if (host->availability_method == AVAIL_SNMP_GET_NEXT) {
-				oid = strdup(".1.3");
-			} else if (host->availability_method == AVAIL_SNMP_GET_SYSDESC) {
-				oid = strdup(".1.3.6.1.2.1.1.1.0");
-			} else {
-				oid = strdup(".1.3.6.1.2.1.1.3.0");
-			}
-
-			if (oid == NULL) die("ERROR: malloc(): strdup() oid ping.c failed");
-
-			/* record start time */
-			begin_time = get_time_as_double();
-
-			if (host->availability_method == AVAIL_SNMP_GET_NEXT) {
-				poll_result = snmp_getnext(host, oid);
-			} else {
-				poll_result = snmp_get(host, oid);
-			}
-
-			/* record end time */
-			end_time = get_time_as_double();
-
-			SPINE_FREE(oid);
-
-			total_time = (end_time - begin_time) * one_thousand;
-
-			/* do positive test cases first */
-			if (host->snmp_status == SNMPERR_UNKNOWN_OBJID) {
-				snprintf(ping->snmp_response, SMALL_BUFSIZE, "Device responded to SNMP");
-				snprintf(ping->snmp_status, 50, "%.5f", total_time);
-
-				SPINE_FREE(poll_result);
-
-				return HOST_UP;
-			} else if (host->snmp_status != SNMPERR_SUCCESS) {
-				if (is_debug_device(host->id)) {
-					if (host->snmp_status == STAT_TIMEOUT) {
-						SPINE_LOG(("Device[%i] SNMP Ping Timeout", host->id));
-					} else {
-						SPINE_LOG(("Device[%i] SNMP Ping Unknown Error", host->id));
-					}
-				} else {
-					if (host->snmp_status == STAT_TIMEOUT) {
-						SPINE_LOG_HIGH(("Device[%i] SNMP Ping Timeout", host->id));
-					} else {
-						SPINE_LOG_HIGH(("Device[%i] SNMP Ping Unknown Error", host->id));
-					}
-				}
-
-				snprintf(ping->snmp_response, SMALL_BUFSIZE, "Device did not respond to SNMP");
-
-				SPINE_FREE(poll_result);
-
-				return HOST_DOWN;
-			} else {
-				snprintf(ping->snmp_response, SMALL_BUFSIZE, "Device responded to SNMP");
-				snprintf(ping->snmp_status, 50, "%.5f", total_time);
-
-				SPINE_FREE(poll_result);
-
-				return HOST_UP;
-			}
-		} else {
-			snprintf(ping->snmp_status, 50, "0.00");
-			snprintf(ping->snmp_response, SMALL_BUFSIZE, "Device does not require SNMP");
-
-			return HOST_UP;
-		}
-	} else {
-		snprintf(ping->snmp_status, 50, "0.00");
-		snprintf(ping->snmp_response, SMALL_BUFSIZE, "Invalid SNMP Session");
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering SNMP Ping", host->id));
+	if (!host->snmp_session) {
+		STRNCOPY(ping->snmp_status, "0.00");
+		STRNCOPY(ping->snmp_response, "Invalid SNMP Session");
 		return HOST_DOWN;
 	}
+	if (host->snmp_community[0] == '\0' && host->snmp_version != 3) {
+		STRNCOPY(ping->snmp_status, "0.00");
+		STRNCOPY(ping->snmp_response, "Device does not require SNMP");
+		return HOST_UP;
+	}
+	char oid[32];
+	switch (host->availability_method) {
+		case AVAIL_SNMP_GET_NEXT: STRNCOPY(oid, ".1.3"); break;
+		case AVAIL_SNMP_GET_SYSDESC: STRNCOPY(oid, ".1.3.6.1.2.1.1.1.0"); break;
+		default: STRNCOPY(oid, ".1.3.6.1.2.1.1.3.0"); break;
+	}
+	double begin = get_time_as_double();
+	char *result = host->availability_method == AVAIL_SNMP_GET_NEXT ? snmp_getnext(host, oid) : snmp_get(host, oid);
+	double elapsed = (get_time_as_double() - begin) * 1000.0;
+	SPINE_FREE(result);
+	if (host->snmp_status == SNMPERR_SUCCESS || host->snmp_status == SNMPERR_UNKNOWN_OBJID) {
+		STRNCOPY(ping->snmp_response, "Device responded to SNMP");
+		spine_snprintf(ping->snmp_status, sizeof(ping->snmp_status), "%.5f", elapsed);
+		return HOST_UP;
+	}
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH,
+		("Device[%i] SNMP Ping %s", host->id, host->snmp_status == STAT_TIMEOUT ? "Timeout" : "Unknown Error"));
+	STRNCOPY(ping->snmp_response, "Device did not respond to SNMP");
+	return HOST_DOWN;
 }
 
 static int ping_down(ping_t *ping, const char *message);

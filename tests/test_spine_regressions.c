@@ -1011,6 +1011,78 @@ static void test_database_configuration(void) {
 	db_disconnect(&mysql);
 }
 
+static void test_snmp_agent(void) {
+	const char *address = getenv("SPINE_TEST_SNMP_HOST");
+	assert(address != NULL && address[0] != '\0');
+	snmp_spine_init();
+	set.snmp_retries = 0;
+	const int methods[] = {AVAIL_SNMP, AVAIL_SNMP_GET_SYSDESC, AVAIL_SNMP_GET_NEXT};
+	for (int version = 1; version <= 2; version++) {
+		host_t host = {0};
+		ping_t ping = {0};
+		strncopy(host.hostname, address, sizeof(host.hostname));
+		STRNCOPY(host.snmp_community, "regression");
+		host.snmp_version = version;
+		host.snmp_session = snmp_host_init(1, host.hostname, version, host.snmp_community, "", "", "SHA", "", "[None]", "", "", 1161, 500);
+		assert(host.snmp_session != NULL);
+		for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
+			host.availability_method = methods[index];
+			assert(ping_host(&host, &ping) == HOST_UP);
+			assert(strcmp(ping.snmp_response, "Device responded to SNMP") == 0);
+			assert(atof(ping.snmp_status) >= 0.0);
+		}
+		host.ping_method = PING_TCP;
+		host.ping_port = -1;
+		host.ping_timeout = 100;
+		host.availability_method = AVAIL_SNMP_OR_PING;
+		assert(ping_host(&host, &ping) == HOST_UP);
+		assert(strcmp(ping.snmp_response, "Device responded to SNMP") == 0);
+		STRNCOPY(host.hostname, "localhost");
+		host.availability_method = AVAIL_SNMP_AND_PING;
+		assert(ping_host(&host, &ping) == HOST_UP);
+		snmp_host_cleanup(host.snmp_session);
+	}
+	snmp_spine_close();
+}
+
+static void test_availability_modes(void) {
+	host_t host = {0};
+	ping_t ping = {0};
+	STRNCOPY(host.hostname, "127.0.0.1");
+	STRNCOPY(host.snmp_community, "regression");
+	host.snmp_version = 2;
+	host.ping_method = PING_TCP;
+	host.ping_port = -1;
+	host.ping_timeout = 100;
+	/* A failed network check must fall back to SNMP in OR mode. */
+	host.availability_method = AVAIL_SNMP_OR_PING;
+	assert(ping_host(&host, &ping) == HOST_DOWN);
+	assert(strcmp(ping.snmp_response, "Invalid SNMP Session") == 0);
+	STRNCOPY(ping.snmp_response, "untouched");
+	host.availability_method = AVAIL_SNMP_AND_PING;
+	assert(ping_host(&host, &ping) == HOST_DOWN);
+	assert(strcmp(ping.snmp_response, "untouched") == 0);
+	/* Preserve the existing localhost exemption, and OR short circuit. */
+	STRNCOPY(host.hostname, "localhost");
+	host.availability_method = AVAIL_SNMP_OR_PING;
+	assert(ping_host(&host, &ping) == HOST_UP);
+	assert(strcmp(ping.snmp_response, "untouched") == 0);
+	host.availability_method = AVAIL_SNMP_AND_PING;
+	assert(ping_host(&host, &ping) == HOST_DOWN);
+	assert(strcmp(ping.snmp_response, "Invalid SNMP Session") == 0);
+	host.availability_method = AVAIL_NONE;
+	assert(ping_host(&host, &ping) == HOST_UP);
+	host.availability_method = AVAIL_PING;
+	assert(ping_host(&host, &ping) == HOST_UP);
+	host.availability_method = AVAIL_STREAM;
+	assert(ping_host(&host, &ping) == HOST_DOWN);
+	host.availability_method = AVAIL_SNMP;
+	host.snmp_community[0] = '\0';
+	assert(ping_host(&host, &ping) == HOST_UP);
+	host.snmp_version = 3;
+	assert(ping_host(&host, &ping) == HOST_DOWN);
+}
+
 static void test_tcp_loopback(void) {
 	int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	assert(server >= 0);
@@ -1067,6 +1139,12 @@ int main(int argc, char **argv) {
 		puts("production ICMP socket-failure regression passed");
 		return 0;
 	}
+	if (argc == 2 && strcmp(argv[1], "--snmp-agent") == 0) {
+		init_mutexes();
+		test_snmp_agent();
+		puts("production SNMP agent regressions passed");
+		return 0;
+	}
 	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
 		init_mutexes();
 		test_database_configuration();
@@ -1095,6 +1173,7 @@ int main(int argc, char **argv) {
 	test_hostnames();
 	test_udp_deadline();
 	test_tcp_loopback();
+	test_availability_modes();
 	test_icmp_reply_bounds();
 	test_snmp_initialization_failure();
 	test_child_process();

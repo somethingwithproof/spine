@@ -33,7 +33,7 @@ jobs:
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev libssl-dev libcap2-bin
+          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin
       - name: Build and test production code
         run: |
           set -eu
@@ -49,6 +49,16 @@ jobs:
           mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/configuration.sql
           mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/poller.sql
           ./test_spine_regressions --database
+      - name: Verify SNMP availability against local agent
+        env:
+          SPINE_TEST_SNMP_HOST: 127.0.0.1
+        run: |
+          set -eu
+          snmpd -f -Lo -C -c tests/fixtures/snmpd.conf > snmp-agent.log 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid"; wait "$agent_pid" || true' EXIT
+          sleep 1
+          ./test_spine_regressions --snmp-agent
       - name: Verify ICMP against local loopback
         run: |
           set -eu
