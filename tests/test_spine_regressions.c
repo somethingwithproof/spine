@@ -1074,6 +1074,25 @@ static void test_database_configuration(void) {
 	db_disconnect(&mysql);
 }
 
+static void test_snmp_multi_responses(host_t *host) {
+	target_t items[4] = {0};
+	snmp_oids_t oids[4] = {0};
+	static const char *const names[] = {".1.3.6.1.2.1.1.6.0", "invalid-regression-oid", ".1.3.6.1.2.1.1.1.999", ".1.3.6.1.2.1.1.4.0"};
+	for (int index = 0; index < 4; index++) {
+		strncopy(oids[index].oid, names[index], sizeof(oids[index].oid));
+		oids[index].array_position = index;
+		items[index].local_data_id = 100 + index;
+	}
+	snmp_get_multi(host, items, oids, 4);
+	assert(!host->ignore_host);
+	assert(strstr(oids[0].result, "isolated-regression-agent") != NULL);
+	assert(strcmp(oids[1].result, "U") == 0);
+	if (host->snmp_version == 1) assert(strcmp(oids[2].result, "U") == 0);
+	else assert(strstr(oids[2].result, "No Such Instance") != NULL);
+	assert(strstr(oids[3].result, "regression") != NULL);
+	snmp_get_multi(NULL, NULL, NULL, 0);
+}
+
 static void test_snmp_scalar_responses(host_t *host) {
 	char *result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
 	assert(strstr(result, "isolated-regression-agent") != NULL && !host->ignore_host);
@@ -1121,6 +1140,7 @@ static void test_snmp_agent(void) {
 		host.snmp_session = snmp_host_init(1, host.hostname, version, host.snmp_community, "", "", "SHA", "", "[None]", "", "", 1161, 500);
 		assert(host.snmp_session != NULL);
 		test_snmp_scalar_responses(&host);
+		test_snmp_multi_responses(&host);
 		assert(snmp_count(&host, ".1.3.6.1.2.1.1.6") == 1 && !host.ignore_host);
 		assert(snmp_count(&host, ".1.3.6.1.2.1.1.9999") == 0 && !host.ignore_host);
 		/* At the end of the entire MIB, v1 sends an agent error. The old

@@ -679,6 +679,55 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
 	}
 }
 
+static void snmp_multi_undefined(snmp_oids_t *oids, int count) {
+	for (int index = 0; index < count; index++) SET_UNDEFINED(oids[index].result);
+}
+
+static struct snmp_pdu *snmp_multi_request(host_t *host, const target_t *items, snmp_oids_t *oids, int count) {
+	struct snmp_pdu *request = snmp_pdu_create(SNMP_MSG_GET);
+	if (request == NULL) return NULL;
+	for (int index = 0; index < count; index++) {
+		if (IS_UNDEFINED(oids[index].result)) continue;
+		oid name[MAX_OID_LEN];
+		size_t length = MAX_OID_LEN;
+		if (!snmp_parse_oid(oids[index].oid, name, &length)) {
+			SPINE_LOG(("Device[%i] DS[%i] ERROR: Problems parsing Multi SNMP OID! (oid: %s), Set MAX_OIDS to 1 for this host to isolate bad OID", host->id, items[oids[index].array_position].local_data_id, oids[index].oid));
+			SET_UNDEFINED(oids[index].result);
+		} else if (snmp_add_null_var(request, name, length) == NULL) {
+			SET_UNDEFINED(oids[index].result);
+		}
+	}
+	if (request->variables == NULL) {
+		snmp_free_pdu(request);
+		return NULL;
+	}
+	return request;
+}
+
+static bool snmp_multi_error_index(snmp_oids_t *oids, int count, long error_index) {
+	long current = 0;
+	for (int index = 0; index < count; index++) {
+		if (IS_UNDEFINED(oids[index].result)) continue;
+		if (++current == error_index) {
+			SET_UNDEFINED(oids[index].result);
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void snmp_multi_values(snmp_oids_t *oids, int count, const struct variable_list *variable) {
+	for (int index = 0; index < count; index++) {
+		if (IS_UNDEFINED(oids[index].result)) continue;
+		if (variable == NULL) {
+			SET_UNDEFINED(oids[index].result);
+			continue;
+		}
+		snmp_format_scalar(oids[index].result, variable, FALSE);
+		variable = variable->next_variable;
+	}
+}
+
 /*! \fn char *snmp_get_multi(host_t *current_host, const target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids)
  *  \brief performs multiple OID snmp_get's in a single network call
  *
@@ -687,120 +736,51 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
  *  the snmp_oids array with the results from the snmp api call.
  *
  */
-void snmp_get_multi(host_t *current_host, const target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids) {
-	struct snmp_pdu *pdu       = NULL;
-	struct snmp_pdu *response  = NULL;
-	const struct variable_list *vars = NULL;
-	int status;
-	int i;
-	int array_count;
-	int index_count;
-	char   temp_result[RESULTS_BUFFER];
-
-	struct nameStruct {
-		oid             name[MAX_OID_LEN];
-		size_t          name_len;
-	};
-	struct nameStruct *name;
-	struct nameStruct *namep;
-
-	/* load up oids */
-	name = calloc(num_oids, sizeof(*name));
-	namep = name;
-	pdu = snmp_pdu_create(SNMP_MSG_GET);
-	for (i = 0; i < num_oids; i++) {
-		namep->name_len = MAX_OID_LEN;
-
-		if (!snmp_parse_oid(snmp_oids[i].oid, namep->name, &namep->name_len)) {
-			SPINE_LOG(("Device[%i] DS[%i] ERROR: Problems parsing Multi SNMP OID! (oid: %s), Set MAX_OIDS to 1 for this host to isolate bad OID", current_host->id, poller_items[snmp_oids[i].array_position].local_data_id, snmp_oids[i].oid));
-
-			/* Mark this OID as "bad" */
-			SET_UNDEFINED(snmp_oids[i].result);
-		} else {
-			snmp_add_null_var(pdu, namep->name, namep->name_len);
-		}
-
-		namep++;
+void snmp_get_multi(host_t *host, const target_t *items, snmp_oids_t *oids, int count) {
+	if (count <= 0) return;
+	if (host == NULL || items == NULL || oids == NULL) die("ERROR: Invalid multi-SNMP request storage");
+	if (host->snmp_session == NULL) {
+		snmp_multi_undefined(oids, count);
+		host->snmp_status = STAT_DESCRIP_ERROR;
+		return;
 	}
-
-	status = STAT_DESCRIP_ERROR;
-
-	/* execute the multi-get request */
-	retry:
-	status = snmp_sess_synch_response(current_host->snmp_session, pdu, &response);
-
-	/* add status to host structure */
-	current_host->snmp_status = status;
-
-	/* liftoff, successful poll, process it!! */
-	if (status == STAT_SUCCESS) {
-		if (response == NULL) {
-			SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get_multi"));
-			status = STAT_ERROR;
-		} else {
-			if (response->errstat == SNMP_ERR_NOERROR) {
-				vars = response->variables;
-
-				for (i = 0; i < num_oids && vars; i++) {
-					if (!IS_UNDEFINED(snmp_oids[i].result)) {
-						snprint_value(temp_result, RESULTS_BUFFER, vars->name, vars->name_length, vars);
-
-						snprintf(snmp_oids[i].result, RESULTS_BUFFER, "%s", trim(temp_result));
-
-						vars = vars->next_variable;
-					}
-				}
+	struct snmp_pdu *request = snmp_multi_request(host, items, oids, count);
+	if (request == NULL) {
+		snmp_multi_undefined(oids, count);
+		host->snmp_status = STAT_ERROR;
+		return;
+	}
+	int status = STAT_DESCRIP_ERROR;
+	/* Every v1 retry removes one valid OID, so at most count requests are
+	 * possible. The synchronous call consumes each submitted request. */
+	for (int attempt = 0; request != NULL && attempt < count; attempt++) {
+		struct snmp_pdu *response = NULL;
+		status = snmp_sess_synch_response(host->snmp_session, request, &response);
+		request = NULL;
+		host->snmp_status = status;
+		if (status == STAT_SUCCESS) {
+			if (response == NULL) {
+				SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get_multi"));
+				status = STAT_ERROR;
+				snmp_multi_undefined(oids, count);
+			} else if (response->errstat == SNMP_ERR_NOERROR) {
+				snmp_multi_values(oids, count, response->variables);
+			} else if (snmp_multi_error_index(oids, count, response->errindex)) {
+				request = snmp_fix_pdu(response, SNMP_MSG_GET);
 			} else {
-				if (response->errindex != 0) {
-					index_count = 1;
-					array_count = 0;
-
-					/* Find our index against errindex */
-					while (array_count < num_oids) {
-						if (IS_UNDEFINED(snmp_oids[array_count].result) ) {
-							array_count++;
-						} else {
-							/* if we have found our error, exit */
-							if (index_count == response->errindex) {
-								SET_UNDEFINED(snmp_oids[array_count].result);
-
-								break;
-							}
-							array_count++;
-							index_count++;
-						}
-
-					}
-
-					/* remove the invalid OID from the PDU */
-					pdu = snmp_fix_pdu(response, SNMP_MSG_GET);
-
-					/* free the previous response */
-					snmp_free_pdu(response);
-
-					response = NULL;
-					if (pdu != NULL) {
-						/* retry the request */
-						goto retry;
-					} else {
-						/* all OID's errored out so exit cleanly */
-						status = STAT_SUCCESS;
-					}
-				}
+				status = STAT_ERROR;
+				snmp_multi_undefined(oids, count);
 			}
 		}
+		if (response != NULL) snmp_free_pdu(response);
 	}
-
+	if (request != NULL) {
+		snmp_free_pdu(request);
+		status = STAT_ERROR;
+		snmp_multi_undefined(oids, count);
+	}
 	if (status == STAT_TIMEOUT) {
-		current_host->ignore_host = 1;
-		for (i = 0; i < num_oids; i++) {
-			SET_UNDEFINED(snmp_oids[i].result);
-		}
+		host->ignore_host = TRUE;
+		snmp_multi_undefined(oids, count);
 	}
-
-	if (response != NULL) {
-		snmp_free_pdu(response);
-	}
-
-	free(name);
 }
