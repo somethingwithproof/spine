@@ -35,6 +35,8 @@
 extern void read_config_options(void);
 extern int read_spine_config(const char *file);
 extern void config_defaults(void);
+extern bool poller_transfer_status(MYSQL *source, MYSQL *destination);
+extern void poller_push_data_to_main(void);
 
 /* cacti logging function */
 extern int spine_log(const char *format, ...)

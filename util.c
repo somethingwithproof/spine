@@ -961,246 +961,128 @@ void read_config_options() {
 	}
 }
 
-void poller_push_data_to_main() {
-	MYSQL      mysql;
-	MYSQL      mysqlr;
-	MYSQL_RES  *result;
-	MYSQL_ROW  row;
-	int        num_rows;
-	int        rows;
-	char       sqlbuf[HUGE_BUFSIZE];
-	char       *sqlp;
-	char       query[MEGA_BUFSIZE];
-	char       prefix[BUFSIZE];
-	char       suffix[BUFSIZE];
-	// tmpstr needs to be greater than 2 * the maximum column size being processed below
-	char       tmpstr[DBL_BUFSIZE];
+typedef struct {
+	const char *table;
+	const char *columns;
+	const char *filter_column;
+	const char *order_column;
+	const char *const *updates;
+	size_t update_count;
+	size_t field_count;
+	size_t row_limit;
+} poller_transfer_t;
 
-	db_connect(LOCAL, &mysql);
-	db_connect(REMOTE, &mysqlr);
+static void transfer_queries(const poller_transfer_t *plan, char *query, size_t query_capacity, char *prefix, size_t prefix_capacity, char *suffix, size_t suffix_capacity) {
+	size_t used = (size_t)spine_snprintf(query, query_capacity, "SELECT SQL_NO_CACHE %s FROM %s WHERE poller_id = %d", plan->columns, plan->table, set.poller_id);
+	if (set.host_id_list[0] != '\0') used += (size_t)spine_snprintf(query + used, query_capacity - used, " AND %s IN (%s)", plan->filter_column, set.host_id_list);
+	spine_snprintf(query + used, query_capacity - used, " ORDER BY %s", plan->order_column);
+	spine_snprintf(prefix, prefix_capacity, "INSERT INTO %s (%s) VALUES ", plan->table, plan->columns);
+	used = (size_t)spine_snprintf(suffix, suffix_capacity, "%s ON DUPLICATE KEY UPDATE ", set.dbonupdate == 0 ? "" : " AS rs");
+	for (size_t index = 0; index < plan->update_count; index++) {
+		const char *column = plan->updates[index];
+		if (set.dbonupdate == 0) used += (size_t)spine_snprintf(suffix + used, suffix_capacity - used, "%s%s=VALUES(%s)", index == 0 ? "" : ", ", column, column);
+		else used += (size_t)spine_snprintf(suffix + used, suffix_capacity - used, "%s%s=rs.%s", index == 0 ? "" : ", ", column, column);
+	}
+}
 
-	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-	db_insert(&mysqlr, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(&mysqlr, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+static size_t transfer_row(MYSQL *destination, MYSQL_ROW row, size_t field_count, char *output, size_t capacity) {
+	/* The selected columns are at most 300 UTF-8 characters: allow 4 bytes per
+	 * character and doubling for SQL escaping. Preserve SQL NULL explicitly. */
+	char escaped[DBL_BUFSIZE * 2];
+	size_t used = (size_t)spine_snprintf(output, capacity, "(");
+	for (size_t index = 0; index < field_count; index++) {
+		if (row[index] == NULL) {
+			used += (size_t)spine_snprintf(output + used, capacity - used, "%sNULL", index == 0 ? "" : ", ");
+		} else {
+			db_escape(destination, escaped, sizeof(escaped), row[index]);
+			used += (size_t)spine_snprintf(output + used, capacity - used, "%s'%s'", index == 0 ? "" : ", ", escaped);
+		}
+	}
+	used += (size_t)spine_snprintf(output + used, capacity - used, ")");
+	return used;
+}
 
+static bool transfer_batch(MYSQL *destination, char *buffer, size_t used, const char *suffix) {
+	spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", suffix);
+	return db_insert(destination, REMOTE, buffer);
+}
+
+static bool transfer_table(MYSQL *source, MYSQL *destination, const poller_transfer_t *plan) {
+	char query[MEGA_BUFSIZE];
+	char prefix[BUFSIZE];
+	char suffix[BUFSIZE];
+	char row_sql[BUFSIZE * 8];
+	transfer_queries(plan, query, sizeof(query), prefix, sizeof(prefix), suffix, sizeof(suffix));
+	MYSQL_RES *result = db_query(source, LOCAL, query);
+	if (result == NULL) return FALSE;
+	if (mysql_num_fields(result) != plan->field_count) {
+		db_free_result(result);
+		return FALSE;
+	}
+	char *buffer = malloc(HUGE_BUFSIZE);
+	if (buffer == NULL) { db_free_result(result); return FALSE; }
+	size_t used = 0;
+	size_t rows = 0;
+	size_t suffix_length = strlen(suffix);
+	MYSQL_ROW row;
+	bool success = TRUE;
+	while (success && (row = mysql_fetch_row(result)) != NULL) {
+		size_t length = transfer_row(destination, row, plan->field_count, row_sql, sizeof(row_sql));
+		if (rows > 0 && (rows == plan->row_limit || length + suffix_length + 3 > HUGE_BUFSIZE - used)) {
+			success = transfer_batch(destination, buffer, used, suffix);
+			rows = 0;
+		}
+		if (success) {
+			if (rows == 0) used = (size_t)spine_snprintf(buffer, HUGE_BUFSIZE, "%s", prefix);
+			else used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, ", ");
+			used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", row_sql);
+			rows++;
+		}
+	}
+	if (mysql_errno(source) != 0) success = FALSE;
+	if (success && rows > 0) success = transfer_batch(destination, buffer, used, suffix);
+	free(buffer);
+	db_free_result(result);
+	return success;
+}
+
+bool poller_transfer_status(MYSQL *source, MYSQL *destination) {
+	static const char *const host_updates[] = {
+		"snmp_sysDescr", "snmp_sysObjectID", "snmp_sysUpTimeInstance", "snmp_sysContact", "snmp_sysName", "snmp_sysLocation",
+		"status", "status_event_count", "status_fail_date", "status_rec_date", "status_last_error", "min_time", "max_time",
+		"cur_time", "avg_time", "polling_time", "total_polls", "failed_polls", "availability", "last_updated"
+	};
+	static const char *const item_updates[] = {"rrd_next_step"};
+	static const poller_transfer_t host_plan = {
+		"host", "id, snmp_sysDescr, snmp_sysObjectID, snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, status, status_event_count, status_fail_date, status_rec_date, status_last_error, min_time, max_time, cur_time, avg_time, polling_time, total_polls, failed_polls, availability, last_updated",
+		"id", "id", host_updates, sizeof(host_updates) / sizeof(host_updates[0]), 21, 500
+	};
+	static const poller_transfer_t item_plan = {
+		"poller_item", "local_data_id, host_id, rrd_name, rrd_step, rrd_next_step",
+		"host_id", "local_data_id, rrd_name", item_updates, sizeof(item_updates) / sizeof(item_updates[0]), 5, 10000
+	};
 	SPINE_LOG_MEDIUM(("Pushing Host Status to Main Server"));
-
-	if (strlen(set.host_id_list)) {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE id, snmp_sysDescr, snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-			"status, status_event_count, status_fail_date, status_rec_date, "
-			"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-			"total_polls, failed_polls, availability, last_updated "
-			"FROM host "
-			"WHERE poller_id = %d "
-			"AND id IN (%s)", set.poller_id, set.host_id_list);
-	} else {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE id, snmp_sysDescr, snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-			"status, status_event_count, status_fail_date, status_rec_date, "
-			"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-			"total_polls, failed_polls, availability, last_updated "
-			"FROM host "
-			"WHERE poller_id = %d", set.poller_id);
-	}
-
-	snprintf(prefix, BUFSIZE, "INSERT INTO host (id, snmp_sysDescr, snmp_sysObjectID, "
-		"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-		"status, status_event_count, status_fail_date, status_rec_date, "
-		"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-		"total_polls, failed_polls, availability, last_updated) VALUES ");
-
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=VALUES(snmp_sysDescr), "
-			"snmp_sysObjectID=VALUES(snmp_sysObjectID), "
-			"snmp_sysUpTimeInstance=VALUES(snmp_sysUpTimeInstance), "
-			"snmp_sysContact=VALUES(snmp_sysContact), "
-			"snmp_sysName=VALUES(snmp_sysName), "
-			"snmp_sysLocation=VALUES(snmp_sysLocation), "
-			"status=VALUES(status), "
-			"status_event_count=VALUES(status_event_count), "
-			"status_fail_date=VALUES(status_fail_date), "
-			"status_rec_date=VALUES(status_rec_date), "
-			"status_last_error=VALUES(status_last_error), "
-			"min_time=VALUES(min_time), "
-			"max_time=VALUES(max_time), "
-			"cur_time=VALUES(cur_time), "
-			"avg_time=VALUES(avg_time), "
-			"polling_time=VALUES(polling_time), "
-			"total_polls=VALUES(total_polls), "
-			"failed_polls=VALUES(failed_polls), "
-			"availability=VALUES(availability), "
-			"last_updated=VALUES(last_updated)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=rs.snmp_sysDescr, "
-			"snmp_sysObjectID=rs.snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance=rs.snmp_sysUpTimeInstance, "
-			"snmp_sysContact=rs.snmp_sysContact, "
-			"snmp_sysName=rs.snmp_sysName, "
-			"snmp_sysLocation=rs.snmp_sysLocation, "
-			"status=rs.status, "
-			"status_event_count=rs.status_event_count, "
-			"status_fail_date=rs.status_fail_date, "
-			"status_rec_date=rs.status_rec_date, "
-			"status_last_error=rs.status_last_error, "
-			"min_time=rs.min_time, "
-			"max_time=rs.max_time, "
-			"cur_time=rs.cur_time, "
-			"avg_time=rs.avg_time, "
-			"polling_time=rs.polling_time, "
-			"total_polls=rs.total_polls, "
-			"failed_polls=rs.failed_polls, "
-			"availability=rs.availability, "
-			"last_updated=rs.last_updated");
-	}
-
-	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = spine_count_to_int(mysql_num_rows(result));
-		rows = 0;
-
-		if (num_rows > 0) {
-			while ((row = mysql_fetch_row(result))) {
-				if (rows < 500) {
-					if (rows == 0) {
-						sqlp  = sqlbuf;
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", prefix);
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " (");
-					} else {
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), ", (");
-					}
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[0]); // id mediumint
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[1]); // snmp_sysDescr varchar(300)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // snmp_sysObjectID varchar(128)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[3]); // snmp_sysUpTimeInstance bigint
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[4]); // snmp_sysContact varchar(300)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[5]); // snmp_sysName varchar(300)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[6]); // snmp_sysLocation varchar(300)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[7]); // status tinyint
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[8]); // status_event_count mediumint
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[9]);  // status_fail_date timestamp
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[10]); // status_rec_date timestamp
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[11]); // status_last_error varchar(255)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[12]); // min_time decimal(10,5)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[13]); // max_time decimal(10,5)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[14]); // cur_time decimal(10,5)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[15]); // avg_time decimal(10,5)
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[16]); // polling_time double
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[17]); // total_polls int
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[18]); // failed_polls int
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[19]); // availability decimal(8,5)
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[20]); // last_updated timestamp
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s'", tmpstr);
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), ")");
-
-					rows++;
-				} else {
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
-				}
-			}
-		}
-
-		if (rows > 0) {
-			sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
-		}
-	}
-
-	db_free_result(result);
-
+	if (!transfer_table(source, destination, &host_plan)) return FALSE;
 	SPINE_LOG_MEDIUM(("Pushing Poller Item RRD Next Step to Main Server"));
+	return transfer_table(source, destination, &item_plan);
+}
 
-	if (strlen(set.host_id_list)) {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE local_data_id, host_id, rrd_name, rrd_step, rrd_next_step "
-			"FROM poller_item "
-			"WHERE poller_id = %d "
-			"AND host_id IN (%s)", set.poller_id, set.host_id_list);
-	} else {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE local_data_id, host_id, rrd_name, rrd_step, rrd_next_step "
-			"FROM poller_item "
-			"WHERE poller_id = %d ",
-			set.poller_id);
+void poller_push_data_to_main(void) {
+	MYSQL source;
+	MYSQL destination;
+	db_connect(LOCAL, &source);
+	db_connect(REMOTE, &destination);
+	/* Preserve the supported zero-date and GROUP BY session policies. */
+	bool configured = db_insert(&source, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))") &&
+		db_insert(&source, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))") &&
+		db_insert(&destination, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))") &&
+		db_insert(&destination, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+	if (!configured || !poller_transfer_status(&source, &destination)) {
+		SPINE_LOG(("ERROR: Collector synchronization incomplete; earlier batches may have reached the main server. Local rows are retained for retry."));
+		set.exit_code = EXIT_FAILURE;
 	}
-
-	snprintf(prefix, BUFSIZE, "INSERT INTO poller_item (local_data_id, host_id, rrd_name, rrd_step, rrd_next_step) VALUES ");
-
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=VALUES(rrd_next_step)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=rs.rrd_next_step");
-	}
-
-	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = spine_count_to_int(mysql_num_rows(result));
-		rows = 0;
-
-		if (num_rows > 0) {
-			while ((row = mysql_fetch_row(result))) {
-				if (rows < 10000) {
-					if (rows == 0) {
-						sqlp = sqlbuf;
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", prefix);
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " (");
-					} else {
-						sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), ", (");
-					}
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[0]); // local_data_id
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[1]); // host_id
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // rrd_name
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "'%s', ", tmpstr);
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s, ", row[3]); // rrd_step
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s",   row[4]); // rrd_next_step
-
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), ")");
-
-					rows++;
-				} else {
-					sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
-				}
-			}
-		}
-
-		if (rows > 0) {
-			spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
-		}
-	}
-
-	db_free_result(result);
-
-	db_disconnect(&mysql);
-	db_disconnect(&mysqlr);
+	db_disconnect(&source);
+	db_disconnect(&destination);
 }
 
 /*! \fn int read_spine_config(const char *file)

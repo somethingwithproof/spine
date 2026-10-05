@@ -1153,6 +1153,128 @@ static void test_poller_queries(MYSQL *mysql) {
 	test_poller_schedule(mysql);
 }
 
+static unsigned long database_count(MYSQL *mysql, const char *query) {
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	assert(result != NULL && mysql_num_rows(result) == 1 && mysql_num_fields(result) == 1);
+	MYSQL_ROW row = mysql_fetch_row(result);
+	assert(row != NULL && row[0] != NULL);
+	unsigned long value = strtoul(row[0], NULL, 10);
+	db_free_result(result);
+	return value;
+}
+
+static void seed_transfer_rows(MYSQL *source) {
+	assert(db_insert(source, LOCAL, "DELETE FROM host"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item"));
+	for (int index = 1; index <= 502; index++) {
+		char query[BUFSIZE];
+		spine_snprintf(query, sizeof(query), "INSERT INTO host (id,poller_id,snmp_sysDescr,status_last_error,last_updated,min_time) VALUES (%d,%d,'quote\\\' and slash\\\\',NULL,NULL,NULL)", index, index == 502 ? 3 : 2);
+		assert(db_insert(source, LOCAL, query));
+	}
+	assert(db_insert(source, LOCAL, "UPDATE host SET snmp_sysDescr=REPEAT(CONVERT(0xF09F8CB5 USING utf8mb4),300) WHERE id=501"));
+	for (int begin = 1; begin <= 10002; begin += 100) {
+		char query[BUFSIZE * 8];
+		size_t used = (size_t)spine_snprintf(query, sizeof(query), "INSERT INTO poller_item (local_data_id,host_id,poller_id,rrd_name,rrd_step,rrd_next_step) VALUES ");
+		int end = begin + 100;
+		if (end > 10003) end = 10003;
+		for (int index = begin; index < end; index++) {
+			used += (size_t)spine_snprintf(query + used, sizeof(query) - used, "%s(%d,%d,%d,'r\\\'r',300,120)", index == begin ? "" : ",", index, index == 10002 ? 502 : 501, index == 10002 ? 3 : 2);
+		}
+		assert(db_insert(source, LOCAL, query));
+	}
+}
+
+static void test_transfer_boundary(MYSQL *source, MYSQL *destination) {
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 501);
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 10001);
+	assert(database_count(destination, "SELECT COUNT(*) FROM host WHERE status_last_error IS NULL AND min_time IS NULL") == 501);
+	assert(database_count(destination, "SELECT COUNT(*) FROM host d JOIN spine_regressions.host s ON s.id=d.id WHERE NOT (d.last_updated <=> s.last_updated)") == 0);
+	assert(database_count(destination, "SELECT CHAR_LENGTH(snmp_sysDescr) FROM host WHERE id=501") == 300);
+	assert(database_count(destination, "SELECT OCTET_LENGTH(snmp_sysDescr) FROM host WHERE id=501") == 1200);
+	assert(database_count(destination, "SELECT COUNT(*) FROM host WHERE snmp_sysDescr=CONCAT('quote',CHAR(39),' and slash',CHAR(92))") == 500);
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item WHERE rrd_name='r\\\'r' AND rrd_next_step=120") == 10001);
+	/* Upsert retries must update only the existing documented columns. */
+	assert(db_insert(destination, REMOTE, "UPDATE poller_item SET rrd_step=900,rrd_next_step=999"));
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item WHERE rrd_step=900 AND rrd_next_step=120") == 10001);
+}
+
+static void test_transfer_failure_and_filter(MYSQL *source, MYSQL *destination) {
+	assert(db_insert(destination, REMOTE, "DELETE FROM host"));
+	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
+	assert(db_insert(destination, REMOTE, "CREATE TRIGGER reject_transfer BEFORE INSERT ON host FOR EACH ROW BEGIN IF NEW.id=501 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='regression late-batch failure'; END IF; END"));
+	assert(!poller_transfer_status(source, destination));
+	set.exit_code = EXIT_SUCCESS;
+	poller_push_data_to_main();
+	assert(set.exit_code == EXIT_FAILURE);
+	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 500);
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 0);
+	assert(database_count(source, "SELECT COUNT(*) FROM host") == 502);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_item") == 10002);
+	assert(db_insert(destination, REMOTE, "DROP TRIGGER reject_transfer"));
+	set.exit_code = EXIT_SUCCESS;
+	poller_push_data_to_main();
+	assert(set.exit_code == EXIT_SUCCESS);
+	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 501);
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 10001);
+	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
+	assert(db_insert(destination, REMOTE, "CREATE TRIGGER reject_item_transfer BEFORE INSERT ON poller_item FOR EACH ROW BEGIN IF NEW.local_data_id=10001 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='regression final-item failure'; END IF; END"));
+	assert(!poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 10000);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_item") == 10002);
+	assert(db_insert(destination, REMOTE, "DROP TRIGGER reject_item_transfer"));
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 10001);
+	/* Full-width Unicode across all text fields must flush by bytes before 500 rows. */
+	assert(db_insert(source, LOCAL, "UPDATE host SET snmp_sysDescr=REPEAT(CONVERT(0xF09F8CB5 USING utf8mb4),300),snmp_sysContact=snmp_sysDescr,snmp_sysName=snmp_sysDescr,snmp_sysLocation=snmp_sysDescr WHERE poller_id=2"));
+	assert(db_insert(destination, REMOTE, "DELETE FROM host"));
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM host WHERE OCTET_LENGTH(snmp_sysDescr)=1200 AND OCTET_LENGTH(snmp_sysLocation)=1200") == 501);
+	assert(db_insert(destination, REMOTE, "DELETE FROM host"));
+	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
+	STRNCOPY(set.host_id_list, "1");
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 1);
+	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 0);
+	set.host_id_list[0] = '\0';
+	assert(db_insert(source, LOCAL, "DELETE FROM host"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item"));
+	assert(poller_transfer_status(source, destination));
+	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 1);
+}
+
+static void test_collector_transfer(MYSQL *source) {
+	config_t previous = set;
+	set.poller_id = 2;
+	set.dbonupdate = 0;
+	set.host_id_list[0] = '\0';
+	char database[80];
+	char query[BUFSIZE];
+	spine_snprintf(database, sizeof(database), "spine_transfer_%ld", (long)getpid());
+	STRNCOPY(set.rdb_host, set.db_host);
+	STRNCOPY(set.rdb_user, set.db_user);
+	STRNCOPY(set.rdb_pass, set.db_pass);
+	STRNCOPY(set.rdb_db, database);
+	set.rdb_port = set.db_port;
+	set.rdb_ssl = FALSE;
+	spine_snprintf(query, sizeof(query), "CREATE DATABASE %s CHARACTER SET utf8mb4", database);
+	assert(db_insert(source, LOCAL, query));
+	MYSQL destination;
+	db_connect(LOCAL, &destination);
+	assert(mysql_select_db(&destination, database) == 0);
+	assert(mysql_set_character_set(source, "utf8mb4") == 0 && mysql_set_character_set(&destination, "utf8mb4") == 0);
+	assert(db_insert(&destination, REMOTE, "CREATE TABLE host LIKE spine_regressions.host"));
+	assert(db_insert(&destination, REMOTE, "CREATE TABLE poller_item LIKE spine_regressions.poller_item"));
+	seed_transfer_rows(source);
+	test_transfer_boundary(source, &destination);
+	test_transfer_failure_and_filter(source, &destination);
+	db_disconnect(&destination);
+	spine_snprintf(query, sizeof(query), "DROP DATABASE %s", database);
+	assert(db_insert(source, LOCAL, query));
+	set = previous;
+}
+
 static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
@@ -1203,6 +1325,7 @@ static void test_database_configuration(void) {
 	assert(set.ping_timeout == 777);
 	db_connect(LOCAL, &mysql);
 	test_poller_queries(&mysql);
+	test_collector_transfer(&mysql);
 	db_disconnect(&mysql);
 }
 
