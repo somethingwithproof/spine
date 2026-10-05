@@ -603,7 +603,8 @@ static void read_ping_options(MYSQL *mysql) {
 static void read_process_options(MYSQL *mysql, int mode) {
 	char *res;
 	/* get Cacti defined max threads override spine.conf */
-	if ((set.threads_set == FALSE) && ((res = getpsetting(mysql, mode, "threads")) != 0)) {
+	res = set.threads_set == FALSE ? getpsetting(mysql, mode, "threads") : NULL;
+	if (res != NULL) {
 		set.threads = atoi(res);
 		free(res);
 		if (set.threads > MAX_THREADS) {

@@ -1818,7 +1818,7 @@ int is_multipart_output(const char *result) {
 	size_t delim_cnt = 0;
 
 	/* check the easy cases first */
-	if ((result) && ((strstr(result, ":")) || (strstr(result, "!")))) {
+	if (result && (strstr(result, ":") || strstr(result, "!"))) {
 		if (!strstr(result, " ")) {
 			return TRUE;
 		} else {
