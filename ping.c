@@ -237,301 +237,121 @@ int ping_snmp(host_t *host, ping_t *ping) {
 	}
 }
 
-/*! \fn int ping_icmp(host_t *host, ping_t *ping)
- *  \brief ping a host using an ICMP packet
- *  \param host a pointer to the current host structure
- *  \param ping a pointer to the current hosts ping structure
- *
- *  This function pings a host using ICMP.  The ICMP packet contains a marker
- *  to the "Cacti" application so that firewall's can be configured to allow.
- *  It will modify the ping structure to include the specifics of the ping results.
- *
- *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
- *
- */
-int ping_icmp(host_t *host, ping_t *ping) {
-	int    icmp_socket;
+static int ping_down(ping_t *ping, const char *message);
 
-	double begin_time;
-	double end_time;
-	double total_time;
-	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
+/* Parse bytes rather than casting an unaligned, possibly short packet. */
+bool spine_icmp_reply_matches(const unsigned char *reply, size_t length, uint16_t id, uint16_t sequence) {
+	if (reply == NULL || length < 20 || (reply[0] >> 4) != 4 || reply[9] != IPPROTO_ICMP) return FALSE;
+	size_t header = (size_t)(reply[0] & 15) * 4;
+	if (header < 20 || header > length || length - header < ICMP_HDR_SIZE) return FALSE;
+	if (reply[header] != ICMP_ECHOREPLY || reply[header + 1] != 0) return FALSE;
+	uint16_t received_id;
+	uint16_t received_sequence;
+	memcpy(&received_id, reply + header + 4, sizeof(received_id));
+	memcpy(&received_sequence, reply + header + 6, sizeof(received_sequence));
+	return received_id == id && received_sequence == sequence;
+}
 
-	struct sockaddr_in recvname;
-	struct sockaddr_in fromname;
-	char   socket_reply[BUFSIZE];
-	int    retry_count;
-	const char *cacti_msg = "cacti-monitoring-system\0";
-	int    packet_len;
-	socklen_t    fromlen;
-	ssize_t    return_code;
-	fd_set socket_fds;
-
-	static   unsigned int seq = 0;
-	struct   icmp  *icmp;
-	const struct ip *ip;
-	const struct icmp *pkt;
-	unsigned char  *packet;
-
-	if (is_debug_device(host->id)) {
-		SPINE_LOG(("Device[%i] DEBUG: Entering ICMP Ping", host->id));
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering ICMP Ping", host->id));
-	}
-
-	/* get ICMP socket */
-	retry_count = 0;
-	while (TRUE) {
-		#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-		if (hasCaps() != TRUE) {
-			thread_mutex_lock(LOCK_SETEUID);
-			if (seteuid(0) == -1) {
-				SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-			}
-		}
-		#endif
-
-		if ((icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) == -1) {
-			spine_sleep_usec(500000);
-			retry_count++;
-
-			if (retry_count > 4) {
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping unable to create ICMP Socket");
-				snprintf(ping->ping_status, 50, "down");
-				#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-				if (hasCaps() != TRUE) {
-					if (seteuid(getuid()) == -1) {
-						SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-					}
-					thread_mutex_unlock(LOCK_SETEUID);
-				}
-				#endif
-
-				return HOST_DOWN;
-			}
-		} else {
-			break;
-		}
-	}
-
+/* Privilege ownership is confined to socket creation, including failed
+ * attempts; closing an already-owned descriptor needs no privilege change. */
+static int ping_icmp_socket(void) {
 	#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-	if (hasCaps() != TRUE) {
-		if (seteuid(getuid()) == -1) {
-			SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-		}
-		thread_mutex_unlock(LOCK_SETEUID);
+	bool change_privilege = hasCaps() != TRUE;
+	if (change_privilege) {
+		thread_mutex_lock(LOCK_SETEUID);
+		if (seteuid(0) == -1) SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
 	}
 	#endif
-
-	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
-
-	/* allocate the packet in memory */
-	packet_len = ICMP_HDR_SIZE + strlen(cacti_msg);
-
-	if (!(packet = malloc(packet_len))) {
-		die("ERROR: Fatal malloc error: ping.c ping_icmp!");
+	int fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	int socket_error = errno;
+	#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
+	if (change_privilege) {
+		int dropped = seteuid(getuid());
+		thread_mutex_unlock(LOCK_SETEUID);
+		if (dropped == -1) {
+			if (fd >= 0) close(fd);
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Spine unable to drop from root to local user");
+		}
 	}
-	memset(packet, 0, packet_len);
+	#endif
+	errno = socket_error;
+	return fd;
+}
 
-	/* set the memory of the ping address */
-	memset(&fromname, 0, sizeof(struct sockaddr_in));
-	memset(&recvname, 0, sizeof(struct sockaddr_in));
+static int ping_icmp_open(void) {
+	for (int attempt = 0; attempt < 5; attempt++) {
+		int fd = ping_icmp_socket();
+		if (fd >= 0) {
+			int flags = fcntl(fd, F_GETFL, 0);
+			if (flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) return fd;
+			close(fd);
+			return -1;
+		}
+		spine_sleep_usec(500000);
+	}
+	return -1;
+}
 
-	icmp = (struct icmp*) packet;
+static int ping_icmp_response(int fd, const struct sockaddr_in *target, const struct icmp *request, double deadline) {
+	unsigned char reply[BUFSIZE];
+	for (;;) {
+		int ready = spine_wait_readable(fd, deadline);
+		if (ready <= 0) return ready;
+		struct sockaddr_in source = {0};
+		socklen_t length = sizeof(source);
+		ssize_t received = recvfrom(fd, reply, sizeof(reply), 0, (struct sockaddr *)&source, &length);
+		if (received < 0) {
+			if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
+			return -1;
+		}
+		if (length >= sizeof(source) && source.sin_addr.s_addr == target->sin_addr.s_addr &&
+			spine_icmp_reply_matches(reply, (size_t)received, request->icmp_id, request->icmp_seq)) return 1;
+	}
+}
 
-	icmp->icmp_type = ICMP_ECHO;
-	icmp->icmp_code = 0;
-	icmp->icmp_id   = getpid() & 0xFFFF;
-
-	/* lock set/get the sequence and unlock */
+int ping_icmp(const host_t *host, ping_t *ping) {
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering ICMP Ping", host->id));
+	if (host->hostname[0] == '\0') return ping_down(ping, "ICMP: Destination address not specified");
+	struct sockaddr_in target = {0};
+	if (!init_sockaddr(&target, host->hostname, 7)) return ping_down(ping, "ICMP: Destination hostname invalid");
+	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "ICMP: Ping timed out");
+	int fd = ping_icmp_open();
+	if (fd < 0) return ping_down(ping, "ICMP: Ping unable to create ICMP Socket");
+	static const char payload[] = "cacti-monitoring-system";
+	union {
+		struct icmp alignment;
+		unsigned char bytes[ICMP_HDR_SIZE + sizeof(payload) - 1];
+	} packet = {0};
+	struct icmp *request = &packet.alignment;
+	request->icmp_type = ICMP_ECHO;
+	request->icmp_id = htons((uint16_t)((unsigned int)getpid() & 65535));
+	static unsigned int sequence;
 	thread_mutex_lock(LOCK_GHBN);
-	icmp->icmp_seq = seq++;
+	request->icmp_seq = htons((uint16_t)(sequence++ & 65535));
 	thread_mutex_unlock(LOCK_GHBN);
-
-	icmp->icmp_cksum = 0;
-	memcpy(packet+ICMP_HDR_SIZE, cacti_msg, strlen(cacti_msg));
-	icmp->icmp_cksum = get_checksum(packet, packet_len);
-
-	/* hostname must be nonblank */
-	if ((strlen(host->hostname) != 0) && (icmp_socket != -1)) {
-		/* initialize variables */
-		snprintf(ping->ping_status, 50, "down");
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "default");
-
-		/* get address of hostname */
-		if (init_sockaddr(&fromname, host->hostname, 7)) {
-			retry_count = 0;
-			total_time  = 0;
-			begin_time  = get_time_as_double();
-
-			/* initialize file descriptor to review for input/output */
-			FD_ZERO(&socket_fds);
-			FD_SET(icmp_socket,&socket_fds);
-
-			while (1) {
-				if (retry_count > host->ping_retries) {
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping timed out");
-					snprintf(ping->ping_status, 50, "down");
-					free(packet);
-					close(icmp_socket);
-					return HOST_DOWN;
-				}
-
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] DEBUG: Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, icmp->icmp_seq, retry_count, host->ping_retries));
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, icmp->icmp_seq, retry_count, host->ping_retries));
-				}
-
-				/* decrement the timeout value by the total time */
-				timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-				timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
-
-				/* set the socket send and receive timeout */
-				setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-				setsockopt(icmp_socket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
-
-				/* send packet to destination */
-				return_code = sendto(icmp_socket, packet, packet_len, 0, (struct sockaddr *) &fromname, sizeof(fromname));
-
-				fromlen = sizeof(fromname);
-
-				/* wait for a response on the socket */
-				keep_listening:
-				return_code = select(FD_SETSIZE, &socket_fds, NULL, NULL, &timeout);
-
-				/* record end time */
-				end_time = get_time_as_double();
-
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
-
-				if (total_time < host_timeout) {
-					#if !(defined(__CYGWIN__))
-					return_code = recvfrom(icmp_socket, socket_reply, BUFSIZE, MSG_WAITALL, (struct sockaddr *) &recvname, &fromlen);
-					#else
-					return_code = recvfrom(icmp_socket, socket_reply, BUFSIZE, MSG_PEEK, (struct sockaddr *) &recvname, &fromlen);
-					#endif
-
-					if (return_code < 0) {
-						if (errno == EINTR) {
-							/* call was interrupted by some system event */
-
-							if (is_debug_device(host->id)) {
-								SPINE_LOG(("Device[%i] DEBUG: Received EINTR", host->id));
-							} else {
-								SPINE_LOG_DEBUG(("DEBUG: Device[%i] Received EINTR", host->id));
-							}
-
-							goto keep_listening;
-						}
-					} else {
-						ip  = (struct ip *) socket_reply;
-						pkt = (struct icmp *) (socket_reply + (ip->ip_hl << 2));
-
-						if (fromname.sin_addr.s_addr == recvname.sin_addr.s_addr) {
-							if (pkt->icmp_type == ICMP_ECHOREPLY) {
-								SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-								snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Device is Alive");
-								snprintf(ping->ping_status, 50, "%.5f", total_time);
-								free(packet);
-								#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-								if (hasCaps() != TRUE) {
-									thread_mutex_lock(LOCK_SETEUID);
-									if (seteuid(0) == -1) {
-										SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-									}
-								}
-								#endif
-								close(icmp_socket);
-								#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-								if (hasCaps() != TRUE) {
-									if (seteuid(getuid()) == -1) {
-										SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-									}
-									thread_mutex_unlock(LOCK_SETEUID);
-								}
-								#endif
-
-								return HOST_UP;
-							} else {
-								/* received a response other than an echo reply */
-								if (total_time > host_timeout) {
-									retry_count++;
-									total_time = 0;
-								}
-
-								continue;
-							}
-						} else {
-							/* another host responded */
-							goto keep_listening;
-						}
-					}
-				} else {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] DEBUG: Exceeded Device Timeout, Retrying", host->id));
-					} else {
-						SPINE_LOG_DEBUG(("DEBUG: Device[%i] Exceeded Device Timeout, Retrying", host->id));
-					}
-				}
-
-				total_time = 0;
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				spine_sleep_usec(1000);
-				#endif
-			}
-		} else {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			free(packet);
-			#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps() != TRUE) {
-				thread_mutex_lock(LOCK_SETEUID);
-				if (seteuid(0) == -1) {
-					SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-				}
-			}
-			#endif
-			close(icmp_socket);
-			#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps() != TRUE) {
-				if (seteuid(getuid()) == -1) {
-					SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-				}
-				thread_mutex_unlock(LOCK_SETEUID);
-			}
-			#endif
-			return HOST_DOWN;
+	memcpy(packet.bytes + ICMP_HDR_SIZE, payload, sizeof(payload) - 1);
+	request->icmp_cksum = get_checksum(packet.bytes, sizeof(packet.bytes));
+	double begin = spine_monotonic_time();
+	for (unsigned int attempt = 0; ; attempt++) {
+		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		ssize_t sent;
+		do {
+			sent = sendto(fd, packet.bytes, sizeof(packet.bytes), 0, (struct sockaddr *)&target, sizeof(target));
+		} while (sent < 0 && errno == EINTR && spine_monotonic_time() < deadline);
+		int result = sent == (ssize_t)sizeof(packet.bytes) ? ping_icmp_response(fd, &target, request, deadline) : -1;
+		if (result > 0) {
+			double elapsed = (spine_monotonic_time() - begin) * 1000;
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: ICMP Device Alive, Try Count:%u, Time:%.4f ms", host->id, attempt + 1, elapsed));
+			strncopy(ping->ping_response, "ICMP: Device is Alive", SMALL_BUFSIZE);
+			snprintf(ping->ping_status, 50, "%.5f", elapsed);
+			close(fd);
+			return HOST_UP;
 		}
-	} else {
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Destination address not specified");
-		snprintf(ping->ping_status, 50, "down");
-		free(packet);
-		if (icmp_socket != -1) {
-			#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps() != TRUE) {
-				thread_mutex_lock(LOCK_SETEUID);
-				if (seteuid(0) == -1) {
-					SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-				}
-			}
-			#endif
-			close(icmp_socket);
-			#if !(defined(__CYGWIN__) && !defined(SOLAR_PRIV))
-			if (hasCaps() != TRUE) {
-				if (seteuid(getuid()) == -1) {
-					SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-				}
-				thread_mutex_unlock(LOCK_SETEUID);
-			}
-			#endif
+		if (attempt >= (unsigned int)host->ping_retries) {
+			close(fd);
+			return ping_down(ping, "ICMP: Ping timed out");
 		}
-		return HOST_DOWN;
 	}
 }
 

@@ -20,7 +20,7 @@ jobs:
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev libsnmp-dev libssl-dev
+          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev libsnmp-dev libssl-dev libcap2-bin
       - name: Build and test production code
         run: |
           set -eu
@@ -28,3 +28,9 @@ jobs:
           autoreconf -fi
           ./configure
           make -j2 check
+      - name: Verify ICMP against local loopback
+        run: |
+          set -eu
+          ./test_spine_regressions --icmp-no-capability
+          sudo setcap cap_net_raw+ep ./test_spine_regressions
+          ./test_spine_regressions --raw-icmp

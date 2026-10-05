@@ -735,6 +735,62 @@ static void test_udp_deadline(void) {
 	assert(ping_udp(&host, &ping) == HOST_DOWN);
 }
 
+static void test_icmp_reply_bounds(void) {
+	unsigned char storage[29] = {0};
+	unsigned char *reply = storage + 1;
+	reply[0] = 0x45;
+	reply[9] = IPPROTO_ICMP;
+	uint16_t id = htons(123);
+	uint16_t sequence = htons(456);
+	memcpy(reply + 24, &id, sizeof(id));
+	memcpy(reply + 26, &sequence, sizeof(sequence));
+	assert(spine_icmp_reply_matches(reply, 28, id, sequence));
+	assert(!spine_icmp_reply_matches(NULL, 28, id, sequence));
+	for (size_t length = 0; length < 28; length++) assert(!spine_icmp_reply_matches(reply, length, id, sequence));
+	assert(!spine_icmp_reply_matches(reply, 28, htons(124), sequence));
+	assert(!spine_icmp_reply_matches(reply, 28, id, htons(457)));
+	reply[0] = 0x44;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+	reply[0] = 0x4f;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+	reply[0] = 0x65;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+	reply[0] = 0x45;
+	reply[20] = ICMP_ECHO;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+	reply[20] = ICMP_ECHOREPLY;
+	reply[21] = 1;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+	reply[21] = 0;
+	reply[9] = IPPROTO_TCP;
+	assert(!spine_icmp_reply_matches(reply, 28, id, sequence));
+}
+
+static void test_icmp_loopback(void) {
+	host_t host = {0};
+	STRNCOPY(host.hostname, "127.0.0.1");
+	host.ping_timeout = 500;
+	host.ping_retries = 0;
+	ping_t ping = {0};
+	assert(ping_icmp(&host, &ping) == HOST_UP);
+	assert(strcmp(ping.ping_response, "ICMP: Device is Alive") == 0);
+	assert(geteuid() == getuid());
+}
+
+static void test_icmp_socket_failure(void) {
+	assert(geteuid() != 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "127.0.0.1");
+	host.ping_timeout = 100;
+	ping_t ping = {0};
+	/* Failed socket retries must release the privilege mutex each time. */
+	alarm(6);
+	assert(ping_icmp(&host, &ping) == HOST_DOWN);
+	alarm(0);
+	assert(strcmp(ping.ping_response, "ICMP: Ping unable to create ICMP Socket") == 0);
+	assert(geteuid() == getuid());
+}
+
 static void test_tcp_loopback(void) {
 	int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	assert(server >= 0);
@@ -779,6 +835,18 @@ int main(int argc, char **argv) {
 	extern int *debug_devices;
 	static int devices[100];
 	debug_devices = devices;
+	if (argc == 2 && strcmp(argv[1], "--raw-icmp") == 0) {
+		init_mutexes();
+		test_icmp_loopback();
+		puts("production ICMP loopback regression passed");
+		return 0;
+	}
+	if (argc == 2 && strcmp(argv[1], "--icmp-no-capability") == 0) {
+		init_mutexes();
+		test_icmp_socket_failure();
+		puts("production ICMP socket-failure regression passed");
+		return 0;
+	}
 	test_string_conversions();
 	test_result_count_range();
 	test_concurrent_permits();
@@ -800,6 +868,7 @@ int main(int argc, char **argv) {
 	test_hostnames();
 	test_udp_deadline();
 	test_tcp_loopback();
+	test_icmp_reply_bounds();
 	test_snmp_initialization_failure();
 	test_child_process();
 	test_php_response(4, true);

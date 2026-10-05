@@ -136,7 +136,8 @@ struct icmp
 /* Host availability functions */
 extern int ping_host(host_t *host, ping_t *ping);
 extern int ping_snmp(host_t *host, ping_t *ping);
-extern int ping_icmp(host_t *host, ping_t *ping);
+extern bool spine_icmp_reply_matches(const unsigned char *reply, size_t length, uint16_t id, uint16_t sequence);
+extern int ping_icmp(const host_t *host, ping_t *ping);
 extern int ping_udp(const host_t *host, ping_t *ping);
 extern int ping_tcp(const host_t *host, ping_t *ping);
 extern name_t *get_namebyhost(const char *hostname, name_t *name);
