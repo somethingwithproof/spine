@@ -562,211 +562,133 @@ unsigned short int get_checksum(void* buf, int len) {
 	return answer;
 }
 
-/*! \fn void update_host_status(int status, host_t *host, ping_t *ping, int availability_method)
- *  \brief update the host table in Cacti with the result of the ping of the host.
- *  \param status the current poll status of the host, either HOST_UP, or HOST_DOWN
- *  \param host a pointer to the current host structure
- *  \param ping a pointer to the current hosts ping structure
- *  \param availability_method the method that was used to poll the host
- *
- *  This function will determine if the host is UP, DOWN, or RECOVERING based upon
- *  the ping result and it's current status.  It will update the Cacti database
- *  with the calculated status.
- *
- */
-void update_host_status(int status, host_t *host, ping_t *ping, int availability_method) {
-	int    issue_log_message = FALSE;
-	double ping_time;
- 	double hundred_percent = 100.00;
-	char   current_date[40];
+static bool host_requires_snmp(const host_t *host) {
+	return host->snmp_community[0] != '\0' || host->snmp_version >= 3;
+}
 
-	snprintf(current_date, 40, "%lu", time(NULL));
-
-	/* host is down */
-	if (status == HOST_DOWN) {
-		/* update total polls, failed polls and availability */
-		host->failed_polls = host->failed_polls + 1;
-		host->total_polls = host->total_polls + 1;
-		host->availability = hundred_percent * (host->total_polls - host->failed_polls) / host->total_polls;
-
-		/*determine the error message to display */
-		switch (availability_method) {
+static void host_failure_message(host_t *host, const ping_t *ping, int method) {
+	switch (method) {
 		case AVAIL_SNMP_OR_PING:
 		case AVAIL_SNMP_AND_PING:
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
-			} else {
+			if (host_requires_snmp(host)) {
 				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s, %s", ping->snmp_response, ping->ping_response);
+			} else {
+				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
 			}
 			break;
 		case AVAIL_SNMP:
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", "Device does not require SNMP");
-			} else {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->snmp_response);
-			}
+			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", host_requires_snmp(host) ? ping->snmp_response : "Device does not require SNMP");
 			break;
 		default:
 			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
-		}
+	}
+}
 
-		/* determine if to send an alert and update remainder of statistics */
-		if (host->status == HOST_UP) {
-			/* increment the event failure count */
+static bool host_failure_transition(host_t *host, const char *date) {
+	switch (host->status) {
+		case HOST_UP:
 			host->status_event_count++;
-
-			/* if it's time to issue an error message, indicate so */
 			if (host->status_event_count >= set.ping_failure_count) {
-				/* host is now down, flag it that way */
 				host->status = HOST_DOWN;
-
-				issue_log_message = TRUE;
-
-				/* update the failure date only if the failure count is 1 */
-				if (set.ping_failure_count == 1) {
-					snprintf(host->status_fail_date, 40, "%s", current_date);
-				}
-			} else {
-				/* host down for the first time, set event date */
-				if (host->status_event_count == 1) {
-					snprintf(host->status_fail_date, 40, "%s", current_date);
-				}
+				if (set.ping_failure_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
+				return TRUE;
 			}
-		} else if (host->status == HOST_RECOVERING) {
-			/* host is recovering, put back in failed state */
+			if (host->status_event_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
+			return FALSE;
+		case HOST_RECOVERING:
 			host->status_event_count = 1;
 			host->status = HOST_DOWN;
-		} else if (host->status == HOST_UNKNOWN) {
-			/* host was unknown and now is down */
+			return FALSE;
+		case HOST_UNKNOWN:
 			host->status = HOST_DOWN;
 			host->status_event_count = 0;
-		} else {
+			return FALSE;
+		default:
 			host->status_event_count++;
-		}
+			return FALSE;
+	}
+}
+
+static bool host_recovery_transition(host_t *host, const char *date) {
+	if (host->status != HOST_DOWN && host->status != HOST_RECOVERING) {
+		host->status = HOST_UP;
+		host->status_event_count = 0;
+		return FALSE;
+	}
+	if (host->status == HOST_DOWN) {
+		host->status = HOST_RECOVERING;
+		host->status_event_count = 1;
 	} else {
-		/* host is up!! */
-
-		/* update total polls and availability */
-		host->total_polls = host->total_polls + 1;
-		host->availability = hundred_percent * (host->total_polls - host->failed_polls) / host->total_polls;
-
-		/* determine the ping statistic to set and do so */
-		if (availability_method == AVAIL_SNMP_AND_PING) {
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				ping_time = atof(ping->ping_status);
-			} else {
-				/* calculate the average of the two times */
-				ping_time = (atof(ping->snmp_status) + atof(ping->ping_status)) / 2;
-			}
-		} else if (availability_method == AVAIL_SNMP) {
-			if (strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
-				ping_time = 0.000;
-			} else {
-				ping_time = atof(ping->snmp_status);
-			}
-		} else if (availability_method == AVAIL_NONE) {
-			ping_time = 0.000;
-		} else {
-			ping_time = atof(ping->ping_status);
-		}
-
-		/* update times as required */
-		host->cur_time = ping_time;
-
-		/* maximum time */
-		if (ping_time > host->max_time)
-			host->max_time = ping_time;
-
-		/* minimum time */
-		if (ping_time < host->min_time)
-			host->min_time = ping_time;
-
-		/* average time */
-		host->avg_time = (((host->total_polls-1-host->failed_polls)
-			* host->avg_time) + ping_time) / (host->total_polls-host->failed_polls);
-
-		/* the host was down, now it's recovering */
-		if ((host->status == HOST_DOWN) || (host->status == HOST_RECOVERING)) {
-			/* just up, change to recovering */
-			if (host->status == HOST_DOWN) {
-				host->status = HOST_RECOVERING;
-				host->status_event_count = 1;
-			} else {
-				host->status_event_count++;
-			}
-
-			/* if it's time to issue a recovery message, indicate so */
-			if (host->status_event_count >= set.ping_recovery_count) {
-				/* host is up, flag it that way */
-				host->status = HOST_UP;
-
-				issue_log_message = TRUE;
-
-				/* update the recovery date only if the recovery count is 1 */
-				if (set.ping_recovery_count == 1) {
-					snprintf(host->status_rec_date, 40, "%s", current_date);
-				}
-
-				/* reset the event counter */
-				host->status_event_count = 0;
-			} else {
-				/* host recovering for the first time, set event date */
-				if (host->status_event_count == 1) {
-					snprintf(host->status_rec_date, 40, "%s", current_date);
-				}
-			}
-		} else if (host->status_event_count > 0) {
-			/* host was unknown and now is up */
-			host->status = HOST_UP;
-			host->status_event_count = 0;
-		} else {
-			/* host was unknown and now is up */
-			host->status = HOST_UP;
-			host->status_event_count = 0;
-		}
+		host->status_event_count++;
 	}
-
-	/* if the user wants a flood of information then flood them */
-	if (set.log_level >= POLLER_VERBOSITY_HIGH) {
-		if ((host->status == HOST_UP) || (host->status == HOST_RECOVERING)) {
-			/* log ping result if we are to use a ping for reachability testing */
-			if (availability_method == AVAIL_SNMP_AND_PING) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-			} else if (availability_method == AVAIL_SNMP_OR_PING) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-			} else if (availability_method == AVAIL_SNMP) {
-				if ((strlen(host->snmp_community) == 0) && (host->snmp_version < 3)) {
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: Device does not require SNMP", host->id));
-				} else {
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				}
-			} else if (availability_method == AVAIL_NONE) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] No Device Availability Method Selected", host->id));
-			} else {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING: Result %s", host->id, ping->ping_response));
-			}
-		} else {
-			if (availability_method == AVAIL_SNMP_AND_PING) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-			} else if (availability_method == AVAIL_SNMP) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-			} else if (availability_method == AVAIL_NONE) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] No Device Availability Method Selected", host->id));
-			} else {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
-			}
-		}
+	if (host->status_event_count >= set.ping_recovery_count) {
+		host->status = HOST_UP;
+		if (set.ping_recovery_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
+		host->status_event_count = 0;
+		return TRUE;
 	}
+	if (host->status_event_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
+	return FALSE;
+}
 
-	/* if there is supposed to be an event generated, do it */
-	if (issue_log_message) {
-		if (host->status == HOST_DOWN) {
-			SPINE_LOG(("Device[%i] Hostname[%s] ERROR: HOST EVENT: Device is DOWN Message: %s", host->id, host->hostname, host->status_last_error));
-		} else {
-			SPINE_LOG(("Device[%i] Hostname[%s] NOTICE: HOST EVENT: Device Returned from DOWN State", host->id, host->hostname));
-		}
+static double host_response_time(const host_t *host, const ping_t *ping, int method) {
+	switch (method) {
+		case AVAIL_SNMP_AND_PING:
+			return host_requires_snmp(host) ? (atof(ping->snmp_status) + atof(ping->ping_status)) / 2 : atof(ping->ping_status);
+		case AVAIL_SNMP:
+			return host_requires_snmp(host) ? atof(ping->snmp_status) : 0.0;
+		case AVAIL_NONE:
+			return 0.0;
+		default:
+			return atof(ping->ping_status);
+	}
+}
+
+static void host_response_statistics(host_t *host, double ping_time) {
+	host->cur_time = ping_time;
+	if (ping_time > host->max_time) host->max_time = ping_time;
+	if (ping_time < host->min_time) host->min_time = ping_time;
+	host->avg_time = (((host->total_polls - 1 - host->failed_polls) * host->avg_time) + ping_time) / (host->total_polls - host->failed_polls);
+}
+
+static void log_host_availability(const host_t *host, const ping_t *ping, int method) {
+	if (set.log_level < POLLER_VERBOSITY_HIGH) return;
+	bool up = host->status == HOST_UP || host->status == HOST_RECOVERING;
+	if (method == AVAIL_SNMP_AND_PING || (method == AVAIL_SNMP_OR_PING && up)) {
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
+	} else if (method == AVAIL_SNMP) {
+		const char *message = up && !host_requires_snmp(host) ? "Device does not require SNMP" : ping->snmp_response;
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, message));
+	} else if (method == AVAIL_NONE) {
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] No Device Availability Method Selected", host->id));
+	} else if (up) {
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING: Result %s", host->id, ping->ping_response));
+	} else {
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
+	}
+}
+
+/*! Update availability statistics and apply failure/recovery thresholds. */
+void update_host_status(int status, host_t *host, ping_t *ping, int availability_method) {
+	char current_date[40];
+	snprintf(current_date, sizeof(current_date), "%lu", time(NULL));
+	bool issue_log_message;
+	host->total_polls++;
+	if (status == HOST_DOWN) {
+		host->failed_polls++;
+		host_failure_message(host, ping, availability_method);
+		issue_log_message = host_failure_transition(host, current_date);
+	} else {
+		host_response_statistics(host, host_response_time(host, ping, availability_method));
+		issue_log_message = host_recovery_transition(host, current_date);
+	}
+	host->availability = 100.0 * (host->total_polls - host->failed_polls) / host->total_polls;
+	log_host_availability(host, ping, availability_method);
+	if (!issue_log_message) return;
+	if (host->status == HOST_DOWN) {
+		SPINE_LOG(("Device[%i] Hostname[%s] ERROR: HOST EVENT: Device is DOWN Message: %s", host->id, host->hostname, host->status_last_error));
+	} else {
+		SPINE_LOG(("Device[%i] Hostname[%s] NOTICE: HOST EVENT: Device Returned from DOWN State", host->id, host->hostname));
 	}
 }

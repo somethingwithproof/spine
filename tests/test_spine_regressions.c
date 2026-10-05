@@ -1352,6 +1352,54 @@ static void test_snmp_agent(void) {
 	snmp_spine_close();
 }
 
+static void test_host_status_transitions(void) {
+	config_t previous = set;
+	set.log_level = POLLER_VERBOSITY_NONE;
+	set.ping_failure_count = 2;
+	set.ping_recovery_count = 2;
+	host_t host = {0};
+	ping_t ping = {0};
+	STRNCOPY(host.snmp_community, "regression");
+	host.snmp_version = 2;
+	host.status = HOST_UP;
+	host.min_time = 1000;
+	STRNCOPY(ping.ping_status, "4");
+	STRNCOPY(ping.snmp_status, "8");
+	STRNCOPY(ping.ping_response, "network unavailable");
+	STRNCOPY(ping.snmp_response, "SNMP unavailable");
+	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP_AND_PING);
+	assert(host.status == HOST_UP && host.status_event_count == 1 && host.status_fail_date[0] != '\0');
+	assert(strcmp(host.status_last_error, "SNMP unavailable, network unavailable") == 0);
+	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP_AND_PING);
+	assert(host.status == HOST_DOWN && host.status_event_count == 2);
+	update_host_status(HOST_UP, &host, &ping, AVAIL_SNMP_AND_PING);
+	assert(host.status == HOST_RECOVERING && host.status_event_count == 1 && host.status_rec_date[0] != '\0');
+	assert(host.cur_time == 6 && host.min_time == 6 && host.max_time == 6 && host.avg_time == 6);
+	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP);
+	assert(host.status == HOST_DOWN && host.status_event_count == 1);
+	update_host_status(HOST_UP, &host, &ping, AVAIL_SNMP);
+	update_host_status(HOST_UP, &host, &ping, AVAIL_PING);
+	assert(host.status == HOST_UP && host.status_event_count == 0);
+	assert(host.total_polls == 6 && host.failed_polls == 3 && host.availability == 50);
+	assert(host.cur_time == 4 && host.avg_time == 6 && host.min_time == 4 && host.max_time == 8);
+	const int methods[] = {AVAIL_NONE, AVAIL_SNMP, AVAIL_PING, AVAIL_SNMP_AND_PING, AVAIL_SNMP_OR_PING};
+	const double expected[] = {0, 8, 4, 6, 4};
+	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
+		host_t sample = {0};
+		sample.min_time = 1000;
+		sample.snmp_version = 3; /* v3 needs no community. */
+		update_host_status(HOST_UP, &sample, &ping, methods[index]);
+		assert(sample.status == HOST_UP && sample.cur_time == expected[index] && sample.avg_time == expected[index]);
+	}
+	host_t no_snmp = {0};
+	no_snmp.snmp_version = 2;
+	update_host_status(HOST_UP, &no_snmp, &ping, AVAIL_SNMP);
+	assert(no_snmp.cur_time == 0);
+	update_host_status(HOST_DOWN, &no_snmp, &ping, AVAIL_SNMP);
+	assert(strcmp(no_snmp.status_last_error, "Device does not require SNMP") == 0);
+	set = previous;
+}
+
 static void test_availability_modes(void) {
 	host_t host = {0};
 	ping_t ping = {0};
@@ -1495,6 +1543,7 @@ int main(int argc, char **argv) {
 	test_invalid_php_commands();
 	test_php_startup(argv[0]);
 	test_php_owned_shutdown();
+	test_host_status_transitions();
 	test_script_execution();
 	puts("production regression tests passed");
 	return 0;
