@@ -791,6 +791,56 @@ static void test_icmp_socket_failure(void) {
 	assert(geteuid() == getuid());
 }
 
+static void test_database_configuration(void) {
+	const char *hostname = getenv("SPINE_TEST_DB_HOST");
+	assert(hostname != NULL && hostname[0] != '\0');
+	config_defaults();
+	strncopy(set.db_host, hostname, sizeof(set.db_host));
+	STRNCOPY(set.db_user, "root");
+	STRNCOPY(set.db_db, "spine_regressions");
+	set.db_pass[0] = '\0';
+	set.db_port = 3306;
+	set.poller_id = 1;
+	set.start_host_id = -1;
+	set.end_host_id = -1;
+	set.parent_fork = SPINE_PARENT;
+	MYSQL mysql;
+	db_connect(LOCAL, &mysql);
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM settings") == TRUE);
+	assert(db_insert(&mysql, LOCAL, "INSERT INTO settings (name,value) VALUES ('path_webroot','/srv/cacti'),('path_cactilog',''),('ping_timeout','650'),('script_timeout','2'),('php_servers','100'),('max_get_size','200'),('default_datechar','99')") == TRUE);
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_item") == TRUE);
+	assert(db_insert(&mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,action) VALUES (1,42,2)") == TRUE);
+	db_disconnect(&mysql);
+	read_config_options();
+	assert(set.cacti_version == 1232);
+	assert(strcmp(set.path_php_server, "/srv/cacti/script_server.php") == 0);
+	assert(strcmp(set.path_logfile, "/srv/cacti/log/cacti.log") == 0);
+	assert(set.ping_timeout == 650 && set.script_timeout == 5);
+	assert(set.php_servers == MAX_PHP_SERVERS && set.snmp_max_get_size == 128);
+	assert(set.log_datetime_separator == GDC_DEFAULT);
+	assert(set.threads == 7 && set.php_required);
+	db_connect(LOCAL, &mysql);
+	MYSQL_RES *result = db_query(&mysql, LOCAL, "SELECT value FROM settings WHERE name='spine_capabilities'");
+	assert(result != NULL && mysql_num_rows(result) == 1);
+	MYSQL_ROW row = mysql_fetch_row(result);
+	assert(row != NULL && row[0] != NULL && strstr(row[0], "authProtocols") != NULL);
+	db_free_result(result);
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_item") == TRUE);
+	assert(db_insert(&mysql, LOCAL, "UPDATE settings SET value='/tmp/configured.log' WHERE name='path_cactilog'") == TRUE);
+	db_disconnect(&mysql);
+	set.threads_set = TRUE;
+	set.threads = 3;
+	STRNCOPY(set.host_id_list, "42");
+	read_config_options();
+	assert(set.threads == 3 && !set.php_required);
+	assert(strcmp(set.path_logfile, "/tmp/configured.log") == 0);
+	set_option("ping_timeout", "777");
+	read_config_options();
+	assert(set.ping_timeout == 777);
+	read_config_options();
+	assert(set.ping_timeout == 777);
+}
+
 static void test_tcp_loopback(void) {
 	int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	assert(server >= 0);
@@ -845,6 +895,12 @@ int main(int argc, char **argv) {
 		init_mutexes();
 		test_icmp_socket_failure();
 		puts("production ICMP socket-failure regression passed");
+		return 0;
+	}
+	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
+		init_mutexes();
+		test_database_configuration();
+		puts("production database configuration regressions passed");
 		return 0;
 	}
 	test_string_conversions();

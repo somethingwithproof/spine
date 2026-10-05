@@ -14,13 +14,26 @@ jobs:
   regressions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      database:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+          MARIADB_DATABASE: spine_regressions
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Install build dependencies
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev libsnmp-dev libssl-dev libcap2-bin
+          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev libssl-dev libcap2-bin
       - name: Build and test production code
         run: |
           set -eu
@@ -28,6 +41,13 @@ jobs:
           autoreconf -fi
           ./configure
           make -j2 check
+      - name: Verify database configuration loading
+        env:
+          SPINE_TEST_DB_HOST: 127.0.0.1
+        run: |
+          set -eu
+          mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/configuration.sql
+          ./test_spine_regressions --database
       - name: Verify ICMP against local loopback
         run: |
           set -eu

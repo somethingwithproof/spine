@@ -457,72 +457,25 @@ void parse_debug_devices(char *device_list, int *devices, size_t capacity) {
 	}
 }
 
-/*! \fn void read_config_options(void)
- *  \brief Reads the default Spine runtime parameters from the database and set's the global array
- *
- *  load default values from the database for poller processing
- *
- */
-void read_config_options() {
-	MYSQL      mysql;
-	MYSQL      mysqlr;
-	MYSQL_RES  *result;
-	int        num_rows;
-	int        mode;
-	char       web_root[BUFSIZE];
-	char       sqlbuf[HUGE_BUFSIZE];
-	char       *sqlp;
+static void read_logging_options(MYSQL *mysql) {
 	char *res;
-	char       spine_capabilities[BUFSIZE];
-
-	/* publish spine snmpv3 capabilities to the database */
-	memset(spine_capabilities, 0, sizeof(spine_capabilities));
-
-	db_connect(LOCAL, &mysql);
-
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-		db_connect(REMOTE, &mysqlr);
-		mode = REMOTE;
-	} else {
-		mode = LOCAL;
-	}
-
-	/* get the mysql server version */
-	if ((res = getglobalvariable(&mysql, LOCAL, "version")) != 0) {
-		snprintf(set.dbversion, BUFSIZE, "%s", res);
-		free(res);
-	}
-
-	if (STRIMATCH(set.dbversion, "mariadb")) {
-		set.dbonupdate = 0;
-	} else if (strpos(set.dbversion, "8.") == 0) {
-		set.dbonupdate = 1;
-	} else {
-		set.dbonupdate = 0;
-	}
-
-	/* get the cacti version from the database */
-	set.cacti_version = get_cacti_version(&mysql, LOCAL);
-
-	/* log the path_webroot variable */
-	SPINE_LOG_DEBUG(("DEBUG: The binary Cacti version is %d", set.cacti_version));
-
+	char web_root[BUFSIZE] = {0};
 	/* get logging level from database - overrides spine.conf */
-	if ((res = getsetting(&mysql, LOCAL, "log_verbosity")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "log_verbosity")) != 0) {
 		const int n = atoi(res);
 		free(res);
 		if (n != 0) set.log_level = n;
 	}
 
 	/* determine script server path operation and default log file processing */
-	if ((res = getsetting(&mysql, LOCAL, "path_webroot")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "path_webroot")) != 0) {
 		snprintf(set.path_php_server, BUFSIZE, "%s/script_server.php", res);
 		snprintf(web_root, BUFSIZE, "%s", res);
 		free(res);
 	}
 
 	/* determine logfile path */
-	if ((res = getsetting(&mysql, LOCAL, "path_cactilog")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "path_cactilog")) != 0) {
 		if (strlen(res) != 0) {
 			snprintf(set.path_logfile, DBL_BUFSIZE, "%s", res);
 		} else {
@@ -538,7 +491,7 @@ void read_config_options() {
  	}
 
 	/* get log separator */
-	if ((res = getsetting(&mysql, LOCAL, "default_datechar")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "default_datechar")) != 0) {
 		set.log_datetime_separator = atoi(res);
 		free(res);
 
@@ -548,7 +501,7 @@ void read_config_options() {
 	}
 
 	/* get log separator */
-	if ((res = getsetting(&mysql, LOCAL, "default_datechar")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "default_datechar")) != 0) {
 		set.log_datetime_separator = atoi(res);
 		free(res);
 
@@ -558,7 +511,7 @@ void read_config_options() {
 	}
 
 	/* determine log file, syslog or both, default is 1 or log file only */
-	if ((res = getsetting(&mysql, LOCAL, "log_destination")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "log_destination")) != 0) {
 		set.log_destination = parse_logdest(res, LOGDEST_FILE);
 		free(res);
 	} else {
@@ -581,17 +534,12 @@ void read_config_options() {
 
 	set.logfile_processed = TRUE;
 
-	/* get PHP Path Information for Scripting */
-	if ((res = getsetting(&mysql, LOCAL, "path_php_binary")) != 0) {
-		STRNCOPY(set.path_php, res);
-		free(res);
-	}
+}
 
-	/* log the path_php variable */
-	SPINE_LOG_DEBUG(("DEBUG: The path_php variable is %s", set.path_php));
-
+static void read_ping_options(MYSQL *mysql) {
+	char *res;
 	/* set availability_method */
-	if ((res = getsetting(&mysql, LOCAL, "availability_method")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "availability_method")) != 0) {
 		set.availability_method = atoi(res);
 		free(res);
 	}
@@ -600,7 +548,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The availability_method variable is %i", set.availability_method));
 
 	/* set ping_recovery_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_recovery_count")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "ping_recovery_count")) != 0) {
 		set.ping_recovery_count = atoi(res);
 		free(res);
 	}
@@ -609,7 +557,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The ping_recovery_count variable is %i", set.ping_recovery_count));
 
 	/* set ping_failure_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_failure_count")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "ping_failure_count")) != 0) {
 		set.ping_failure_count = atoi(res);
 		free(res);
 	}
@@ -618,7 +566,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The ping_failure_count variable is %i", set.ping_failure_count));
 
 	/* set ping_method */
-	if ((res = getsetting(&mysql, LOCAL, "ping_method")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "ping_method")) != 0) {
 		set.ping_method = atoi(res);
 		free(res);
 	}
@@ -627,7 +575,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The ping_method variable is %i", set.ping_method));
 
 	/* set ping_retries */
-	if ((res = getsetting(&mysql, LOCAL, "ping_retries")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "ping_retries")) != 0) {
 		set.ping_retries = atoi(res);
 		free(res);
 	}
@@ -636,7 +584,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The ping_retries variable is %i", set.ping_retries));
 
 	/* set ping_timeout */
-	if ((res = getsetting(&mysql, LOCAL, "ping_timeout")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "ping_timeout")) != 0) {
 		set.ping_timeout = atoi(res);
 		free(res);
 	} else {
@@ -647,7 +595,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The ping_timeout variable is %i", set.ping_timeout));
 
 	/* set snmp_retries */
-	if ((res = getsetting(&mysql, LOCAL, "snmp_retries")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "snmp_retries")) != 0) {
 		set.snmp_retries = atoi(res);
 		free(res);
 	} else {
@@ -657,38 +605,12 @@ void read_config_options() {
 	/* log the snmp_retries variable */
 	SPINE_LOG_DEBUG(("DEBUG: The snmp_retries variable is %i", set.snmp_retries));
 
-	/* set logging option for errors */
-	set.log_perror = getboolsetting(&mysql, LOCAL, "log_perror", FALSE);
+}
 
-	/* log the log_perror variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_perror variable is %i", set.log_perror));
-
-	/* set logging option for errors */
-	set.log_pwarn = getboolsetting(&mysql, LOCAL, "log_pwarn", FALSE);
-
-	/* log the log_pwarn variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_pwarn variable is %i", set.log_pwarn));
-
-	/* set option to increase insert performance */
-	set.boost_redirect = getboolsetting(&mysql, LOCAL, "boost_redirect", FALSE);
-
-	/* log the boost_redirect variable */
-	SPINE_LOG_DEBUG(("DEBUG: The boost_redirect variable is %i", set.boost_redirect));
-
-	/* set option for determining if boost is enabled */
-	set.boost_enabled = getboolsetting(&mysql, LOCAL, "boost_rrd_update_enable", FALSE);
-
-	/* log the boost_rrd_update_enable variable */
-	SPINE_LOG_DEBUG(("DEBUG: The boost_rrd_update_enable variable is %i", set.boost_enabled));
-
-	/* set logging option for statistics */
-	set.log_pstats = getboolsetting(&mysql, LOCAL, "log_pstats", FALSE);
-
-	/* log the log_pstats variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_pstats variable is %i", set.log_pstats));
-
+static void read_process_options(MYSQL *mysql, int mode) {
+	char *res;
 	/* get Cacti defined max threads override spine.conf */
-	if ((set.threads_set == FALSE) && ((res = getpsetting(&mysql, mode, "threads")) != 0)) {
+	if ((set.threads_set == FALSE) && ((res = getpsetting(mysql, mode, "threads")) != 0)) {
 		set.threads = atoi(res);
 		free(res);
 		if (set.threads > MAX_THREADS) {
@@ -700,7 +622,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The threads variable is %i", set.threads));
 
 	/* get the poller_interval for those who have elected to go with a 1 minute polling interval */
-	if ((res = getsetting(&mysql, LOCAL, "poller_interval")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "poller_interval")) != 0) {
 		set.poller_interval = atoi(res);
 		free(res);
 	} else {
@@ -715,7 +637,7 @@ void read_config_options() {
 	}
 
 	/* get the concurrent_processes variable to determine thread sleep values */
-	if ((res = getsetting(&mysql, LOCAL, "concurrent_processes")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "concurrent_processes")) != 0) {
 		set.num_parent_processes = atoi(res);
 		free(res);
 	} else {
@@ -726,7 +648,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The number of concurrent processes is %i", set.num_parent_processes));
 
 	/* get the script timeout to establish timeouts */
-	if ((res = getsetting(&mysql, LOCAL, "script_timeout")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "script_timeout")) != 0) {
 		set.script_timeout = atoi(res);
 		free(res);
 		if (set.script_timeout < 5) {
@@ -739,8 +661,12 @@ void read_config_options() {
 	/* log the script timeout value */
 	SPINE_LOG_DEBUG(("DEBUG: The script timeout is %i", set.script_timeout));
 
+}
+
+static void read_script_options(MYSQL *mysql) {
+	char *res;
 	/* get selective_device_debug string */
-	if ((res = getsetting(&mysql, LOCAL, "selective_device_debug")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "selective_device_debug")) != 0) {
 		STRNCOPY(set.selective_device_debug, res);
 		free(res);
 	}
@@ -749,7 +675,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The selective_device_debug variable is %s", set.selective_device_debug));
 
 	/* get spine_log_level */
-	if ((res = getsetting(&mysql, LOCAL, "spine_log_level")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "spine_log_level")) != 0) {
 		set.spine_log_level = atoi(res);
 		free(res);
 	}
@@ -758,7 +684,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The spine_log_level variable is %i", set.spine_log_level));
 
 	/* get the number of script server processes to run */
-	if ((res = getsetting(&mysql, LOCAL, "php_servers")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "php_servers")) != 0) {
 		set.php_servers = atoi(res);
 		free(res);
 
@@ -777,7 +703,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The number of php script servers to run is %i", set.php_servers));
 
 	/* get the number of active profiles on the system run */
-	if ((res = getsetting(&mysql, LOCAL, "active_profiles")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "active_profiles")) != 0) {
 		set.active_profiles = atoi(res);
 		free(res);
 
@@ -792,7 +718,7 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The number of active data source profiles is %i", set.active_profiles));
 
 	/* get the number of snmp_ports in use */
-	if ((res = getsetting(&mysql, LOCAL, "total_snmp_ports")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "total_snmp_ports")) != 0) {
 		set.total_snmp_ports = atoi(res);
 		free(res);
 
@@ -806,6 +732,13 @@ void read_config_options() {
 	/* log the script timeout value */
 	SPINE_LOG_DEBUG(("DEBUG: The number of snmp ports on the system is %i", set.total_snmp_ports));
 
+}
+
+static void read_php_requirement(MYSQL *mysql) {
+	MYSQL_RES *result;
+	int num_rows;
+	char sqlbuf[HUGE_BUFSIZE];
+	char *sqlp;
 	/*----------------------------------------------------------------
 	 * determine if the php script server is required by searching for
 	 * all the host records for an action of POLLER_ACTION_PHP_SCRIPT_SERVER.
@@ -824,7 +757,7 @@ void read_config_options() {
 		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " AND poller_id=%i", set.poller_id);
 		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
-		result = db_query(&mysql, LOCAL, sqlbuf);
+		result = db_query(mysql, LOCAL, sqlbuf);
 		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
@@ -842,7 +775,7 @@ void read_config_options() {
 		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " AND poller_id=%i", set.poller_id);
 		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
-		result = db_query(&mysql, LOCAL, sqlbuf);
+		result = db_query(mysql, LOCAL, sqlbuf);
 		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
@@ -858,8 +791,12 @@ void read_config_options() {
 		? ""
 		: "Not "));
 
+}
+
+static void read_snmp_batch_size(MYSQL *mysql) {
+	char *res;
 	/* determine the maximum oid's to obtain in a single get request */
-	if ((res = getsetting(&mysql, LOCAL, "max_get_size")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "max_get_size")) != 0) {
 		set.snmp_max_get_size = atoi(res);
 		free(res);
 
@@ -873,6 +810,10 @@ void read_config_options() {
 	/* log the snmp_max_get_size variable */
 	SPINE_LOG_DEBUG(("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp_max_get_size));
 
+}
+
+static void publish_snmp_capabilities(MYSQL *mysql) {
+	char spine_capabilities[BUFSIZE] = {0};
 	int authCount = 0;
 
 	strcat(spine_capabilities, "{ authProtocols: \"");
@@ -921,8 +862,104 @@ void read_config_options() {
 	strcat(spine_capabilities, "\" }");
 
 	if (set.poller_id == 1) {
-		putsetting(&mysql, LOCAL, "spine_capabilities", spine_capabilities);
+		putsetting(mysql, LOCAL, "spine_capabilities", spine_capabilities);
 	}
+
+}
+
+/*! \fn void read_config_options(void)
+ *  \brief Reads the default Spine runtime parameters from the database and set's the global array
+ *
+ *  load default values from the database for poller processing
+ *
+ */
+void read_config_options() {
+	MYSQL mysql;
+	MYSQL mysqlr;
+	int mode;
+	char *res;
+
+	db_connect(LOCAL, &mysql);
+
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+		db_connect(REMOTE, &mysqlr);
+		mode = REMOTE;
+	} else {
+		mode = LOCAL;
+	}
+
+	/* get the mysql server version */
+	if ((res = getglobalvariable(&mysql, LOCAL, "version")) != 0) {
+		snprintf(set.dbversion, BUFSIZE, "%s", res);
+		free(res);
+	}
+
+	if (STRIMATCH(set.dbversion, "mariadb")) {
+		set.dbonupdate = 0;
+	} else if (strpos(set.dbversion, "8.") == 0) {
+		set.dbonupdate = 1;
+	} else {
+		set.dbonupdate = 0;
+	}
+
+	/* get the cacti version from the database */
+	set.cacti_version = get_cacti_version(&mysql, LOCAL);
+
+	/* log the path_webroot variable */
+	SPINE_LOG_DEBUG(("DEBUG: The binary Cacti version is %d", set.cacti_version));
+
+	read_logging_options(&mysql);
+
+	/* get PHP Path Information for Scripting */
+	if ((res = getsetting(&mysql, LOCAL, "path_php_binary")) != 0) {
+		STRNCOPY(set.path_php, res);
+		free(res);
+	}
+
+	/* log the path_php variable */
+	SPINE_LOG_DEBUG(("DEBUG: The path_php variable is %s", set.path_php));
+
+	read_ping_options(&mysql);
+
+	/* set logging option for errors */
+	set.log_perror = getboolsetting(&mysql, LOCAL, "log_perror", FALSE);
+
+	/* log the log_perror variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_perror variable is %i", set.log_perror));
+
+	/* set logging option for errors */
+	set.log_pwarn = getboolsetting(&mysql, LOCAL, "log_pwarn", FALSE);
+
+	/* log the log_pwarn variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_pwarn variable is %i", set.log_pwarn));
+
+	/* set option to increase insert performance */
+	set.boost_redirect = getboolsetting(&mysql, LOCAL, "boost_redirect", FALSE);
+
+	/* log the boost_redirect variable */
+	SPINE_LOG_DEBUG(("DEBUG: The boost_redirect variable is %i", set.boost_redirect));
+
+	/* set option for determining if boost is enabled */
+	set.boost_enabled = getboolsetting(&mysql, LOCAL, "boost_rrd_update_enable", FALSE);
+
+	/* log the boost_rrd_update_enable variable */
+	SPINE_LOG_DEBUG(("DEBUG: The boost_rrd_update_enable variable is %i", set.boost_enabled));
+
+	/* set logging option for statistics */
+	set.log_pstats = getboolsetting(&mysql, LOCAL, "log_pstats", FALSE);
+
+	/* log the log_pstats variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_pstats variable is %i", set.log_pstats));
+
+	read_process_options(&mysql, mode);
+
+	read_script_options(&mysql);
+
+	read_php_requirement(&mysql);
+
+	read_snmp_batch_size(&mysql);
+
+	publish_snmp_capabilities(&mysql);
 
 	db_disconnect(&mysql);
 

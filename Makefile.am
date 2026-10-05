@@ -32,6 +32,7 @@ bin_PROGRAMS = spine
 man_MANS = spine.1
 
 check_PROGRAMS = test_spine_regressions
+dist_noinst_DATA = tests/fixtures/configuration.sql
 TESTS = $(check_PROGRAMS)
 test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c
 # Link the real production translation units and globals, with a separate test
