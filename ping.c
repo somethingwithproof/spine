@@ -646,7 +646,7 @@ unsigned short int get_checksum(void* buf, int len) {
 
 	sum    = (sum >> 16) + (sum & 0xffff);
 	sum   += (sum >> 16);
-	answer = ~sum;				/* truncate to 16 bits */
+	answer = (unsigned short int)((unsigned int)~sum & 0xffff); /* checksum truncation is intentional */
 
 	return answer;
 }

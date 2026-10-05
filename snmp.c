@@ -139,7 +139,7 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 
 		if (generate_Ku(session->securityAuthProto,
 			session->securityAuthProtoLen,
-			(u_char *) Apsz, strlen(Apsz),
+			(u_char *) Apsz, (u_int)spine_count_to_int(strlen(Apsz)),
 			session->securityAuthKey,
 			&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
 			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
@@ -173,7 +173,7 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 
 		if (generate_Ku(session->securityAuthProto,
 			session->securityAuthProtoLen,
-			(u_char *) Xpsz, strlen(Xpsz),
+			(u_char *) Xpsz, (u_int)spine_count_to_int(strlen(Xpsz)),
 			session->securityPrivKey,
 			&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
 			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));

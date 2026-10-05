@@ -1461,9 +1461,9 @@ int spine_log(const char *format, ...) {
 
 	int prefix_len = spine_count_to_int(strlen(logprefix));
 	int ulog_len   = spine_count_to_int(strlen(ulogmessage));
-	int flog_len   = 0;
+	int flog_len = spine_count_to_int(strftime(flogmessage, 50, log_fmt, now_ptr));
 
-	if ((flog_len = strftime(flogmessage, 50, log_fmt, now_ptr)) == 0) {
+	if (flog_len == 0) {
 		flogmessage[0] = '\0';
 		#ifdef DISABLE_STDERR
 		fp = stdout;
