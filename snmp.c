@@ -187,16 +187,6 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 	return TRUE;
 }
 
-/*! \fn void *snmp_host_init(int host_id, char *hostname, int snmp_version,
- * char *snmp_community, char *snmp_username, const char *snmp_password,
- * char *snmp_auth_protocol, const char *snmp_priv_passphrase, char *snmp_priv_protocol,
- * char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout)
- *  \brief initializes an snmp_session object for a Spine host
- *
- *	This function will initialize NET-SNMP for the Spine host
- *  in question.
- *
- */
 static void snmp_host_init_release(struct snmp_session *session, char *auth, char *priv) {
 	if (auth != NULL) spine_clear_sensitive(auth, strlen(auth));
 	if (priv != NULL) spine_clear_sensitive(priv, strlen(priv));
@@ -211,10 +201,10 @@ static void snmp_host_init_release(struct snmp_session *session, char *auth, cha
 	spine_clear_sensitive(session->securityPrivKey, sizeof(session->securityPrivKey));
 }
 
-void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community,
-	char *snmp_username, const char *snmp_password, char *snmp_auth_protocol,
-	const char *snmp_priv_passphrase, char *snmp_priv_protocol,
-	char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout) {
+/*! \fn void *snmp_host_init(const snmp_connection_t *options)
+ *  \brief initializes an owned Net-SNMP session from borrowed connection inputs.
+ */
+void *snmp_host_init(const snmp_connection_t *options) {
 
 	void   *sessp = NULL;
 	struct snmp_session session;
@@ -271,50 +261,50 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	session.contextEngineIDLen = 0;
 
 	/* verify snmp version is accurate */
-	if (snmp_version == 2) {
+	if (options->snmp_version == 2) {
 		session.version       = SNMP_VERSION_2c;
 		session.securityModel = SNMP_SEC_MODEL_SNMPv2c;
-	} else if (snmp_version == 1) {
+	} else if (options->snmp_version == 1) {
 		session.version       = SNMP_VERSION_1;
 		session.securityModel = SNMP_SEC_MODEL_SNMPv1;
-	} else if (snmp_version == 3) {
+	} else if (options->snmp_version == 3) {
 		session.version       = SNMP_VERSION_3;
 		session.securityModel = USM_SEC_MODEL_NUMBER;
 	} else {
-		SPINE_LOG(("Device[%i] ERROR: SNMP Version Error for Device '%s'", host_id, hostname));
+		SPINE_LOG(("Device[%i] ERROR: SNMP Version Error for Device '%s'", options->host_id, options->hostname));
 		snmp_host_init_release(&session, Apsz, Xpsz);
 		return 0;
 	}
 
-	snprintf(hostnameport, BUFSIZE, "%s:%i", hostname, snmp_port);
+	snprintf(hostnameport, BUFSIZE, "%s:%i", options->hostname, options->snmp_port);
 	session.peername    = hostnameport;
 	session.retries     = set.snmp_retries;
-	session.timeout     = (snmp_timeout * 1000); /* net-snmp likes microseconds */
+	session.timeout     = (options->snmp_timeout * 1000); /* net-snmp likes microseconds */
 
-	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", host_id, hostnameport, session.timeout, snmp_timeout, session.retries));
+	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", options->host_id, hostnameport, session.timeout, options->snmp_timeout, session.retries));
 
-	if ((snmp_version == 2) || (snmp_version == 1)) {
-		session.community     = (unsigned char*) snmp_community;
-		session.community_len = strlen(snmp_community);
+	if ((options->snmp_version == 2) || (options->snmp_version == 1)) {
+		session.community     = (unsigned char*) options->snmp_community;
+		session.community_len = strlen(options->snmp_community);
 	} else {
 		session.community       = (unsigned char *) Cpsz;
 		session.community_len   = 0;
 
-		session.securityName    = snmp_username;
+		session.securityName    = options->snmp_username;
 		session.securityNameLen = strlen(session.securityName);
 
-		if (snmp_context && strlen(snmp_context)) {
-			session.contextName    = snmp_context;
+		if (options->snmp_context && strlen(options->snmp_context)) {
+			session.contextName    = options->snmp_context;
 			session.contextNameLen = strlen(session.contextName);
 		}
 
-		if (snmp_engine_id && strlen(snmp_engine_id)) {
-			session.contextEngineID    = (unsigned char*) snmp_engine_id;
-			session.contextEngineIDLen = strlen(snmp_engine_id);
+		if (options->snmp_engine_id && strlen(options->snmp_engine_id)) {
+			session.contextEngineID    = (unsigned char*) options->snmp_engine_id;
+			session.contextEngineIDLen = strlen(options->snmp_engine_id);
 		}
 
 		/* set the authentication protocol */
-		int auth_type = usm_lookup_auth_type(snmp_auth_protocol);
+		int auth_type = usm_lookup_auth_type(options->snmp_auth_protocol);
 		if (auth_type > 0) {
 			const oid *auth_proto;
 
@@ -322,19 +312,19 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
             free(session.securityAuthProto);
             session.securityAuthProto = snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
 		} else {
-			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", host_id, snmp_auth_protocol));
+			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", options->host_id, options->snmp_auth_protocol));
 			snmp_host_init_release(&session, Apsz, Xpsz);
 			return 0;
 		}
 
 		/* set the privacy protocol to none */
-		if (strcmp(snmp_priv_protocol, "[None]") == 0 || (strlen(snmp_priv_passphrase) == 0)) {
+		if (strcmp(options->snmp_priv_protocol, "[None]") == 0 || (strlen(options->snmp_priv_passphrase) == 0)) {
 			session.securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
 			session.securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
 			session.securityPrivKeyLen   = USM_PRIV_KU_LEN;
 
 			/* set the security level to authenticate, but not encrypted */
-			if (strlen(snmp_password)) {
+			if (strlen(options->snmp_password)) {
 				session.securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
 			} else {
 				session.securityLevel = SNMP_SEC_LEVEL_NOAUTH;
@@ -342,10 +332,10 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		} else {
 			const oid *priv_proto;
 
-			priv_type = usm_lookup_priv_type(snmp_priv_protocol);
+			priv_type = usm_lookup_priv_type(options->snmp_priv_protocol);
 
 			if (priv_type < 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", host_id, snmp_priv_protocol));
+				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", options->host_id, options->snmp_priv_protocol));
 				snmp_host_init_release(&session, Apsz, Xpsz);
 				return 0;
 			}
@@ -355,13 +345,13 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			session.securityPrivProto = snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
 			session.securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
 
-			if (!snmp_set_security_keys(&session, host_id, snmp_password, snmp_priv_passphrase)) {
+			if (!snmp_set_security_keys(&session, options->host_id, options->snmp_password, options->snmp_priv_passphrase)) {
 				snmp_host_init_release(&session, NULL, NULL);
 				return NULL;
 			}
 		}
 
-		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", host_id, snmp_auth_protocol, snmp_priv_protocol));
+		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", options->host_id, options->snmp_auth_protocol, options->snmp_priv_protocol));
 	}
 
 	/* open SNMP Session */
@@ -370,7 +360,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	thread_mutex_unlock(LOCK_SNMP);
 
 	if (!sessp) {
-		SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
+		SPINE_LOG_DEVICE(options->host_id, POLLER_VERBOSITY_MEDIUM, ("ERROR: Device[%i] Problem initializing SNMP session '%s'", options->host_id, options->hostname));
 	}
 
 	snmp_host_init_release(&session, Apsz, Xpsz);
@@ -450,7 +440,7 @@ static int snmp_format_scalar(char *output, const struct variable_list *variable
 	return STAT_SUCCESS;
 }
 
-static int snmp_get_variable(host_t *host, const char *text_oid, const struct variable_list *variable, char *output) {
+static int snmp_get_variable(const host_t *host, const char *text_oid, const struct variable_list *variable, char *output) {
 	switch (variable->type) {
 		case SNMP_NOSUCHOBJECT:
 			if (strstr(text_oid, ".1.3.6.1.2.1.1.1.0") || strstr(text_oid, ".1.3.6.1.2.1.1.3.0")) {
@@ -679,7 +669,7 @@ static void snmp_multi_undefined(snmp_oids_t *oids, int count) {
 	for (int index = 0; index < count; index++) SET_UNDEFINED(oids[index].result);
 }
 
-static struct snmp_pdu *snmp_multi_request(host_t *host, const target_t *items, snmp_oids_t *oids, int count) {
+static struct snmp_pdu *snmp_multi_request(const host_t *host, const target_t *items, snmp_oids_t *oids, int count) {
 	struct snmp_pdu *request = snmp_pdu_create(SNMP_MSG_GET);
 	if (request == NULL) return NULL;
 	for (int index = 0; index < count; index++) {

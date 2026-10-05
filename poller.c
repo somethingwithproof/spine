@@ -510,19 +510,21 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				if (((host->snmp_version >= 1) && (host->snmp_version <= 2) &&
 					(strlen(host->snmp_community) > 0)) ||
 					(host->snmp_version == 3)) {
-					host->snmp_session = snmp_host_init(host->id,
-						host->hostname,
-						host->snmp_version,
-						host->snmp_community,
-						host->snmp_username,
-						host->snmp_password,
-						host->snmp_auth_protocol,
-						host->snmp_priv_passphrase,
-						host->snmp_priv_protocol,
-						host->snmp_context,
-						host->snmp_engine_id,
-						host->snmp_port,
-						host->snmp_timeout);
+					host->snmp_session = snmp_host_init(&(snmp_connection_t){
+						.host_id = host->id,
+						.hostname = host->hostname,
+						.snmp_version = host->snmp_version,
+						.snmp_community = host->snmp_community,
+						.snmp_username = host->snmp_username,
+						.snmp_password = host->snmp_password,
+						.snmp_auth_protocol = host->snmp_auth_protocol,
+						.snmp_priv_passphrase = host->snmp_priv_passphrase,
+						.snmp_priv_protocol = host->snmp_priv_protocol,
+						.snmp_context = host->snmp_context,
+						.snmp_engine_id = host->snmp_engine_id,
+						.snmp_port = host->snmp_port,
+						.snmp_timeout = host->snmp_timeout,
+					});
 				} else {
 					host->snmp_session = NULL;
 				}
@@ -1112,13 +1114,21 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 					STRNCOPY(last_snmp_context,         poller_items[i].snmp_context);
 					STRNCOPY(last_snmp_engine_id,       poller_items[i].snmp_engine_id);
 
-					host->snmp_session = snmp_host_init(host->id, poller_items[i].hostname,
-						poller_items[i].snmp_version, poller_items[i].snmp_community,
-						poller_items[i].snmp_username, poller_items[i].snmp_password,
-						poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
-						poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
-						poller_items[i].snmp_engine_id,
-						poller_items[i].snmp_port, poller_items[i].snmp_timeout);
+					host->snmp_session = snmp_host_init(&(snmp_connection_t){
+						.host_id = host->id,
+						.hostname = poller_items[i].hostname,
+						.snmp_version = poller_items[i].snmp_version,
+						.snmp_community = poller_items[i].snmp_community,
+						.snmp_username = poller_items[i].snmp_username,
+						.snmp_password = poller_items[i].snmp_password,
+						.snmp_auth_protocol = poller_items[i].snmp_auth_protocol,
+						.snmp_priv_passphrase = poller_items[i].snmp_priv_passphrase,
+						.snmp_priv_protocol = poller_items[i].snmp_priv_protocol,
+						.snmp_context = poller_items[i].snmp_context,
+						.snmp_engine_id = poller_items[i].snmp_engine_id,
+						.snmp_port = poller_items[i].snmp_port,
+						.snmp_timeout = poller_items[i].snmp_timeout,
+					});
 
 					k++;
 				}
@@ -1179,13 +1189,21 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 						host->snmp_session = NULL;
 					}
 
-					host->snmp_session = snmp_host_init(host->id, poller_items[i].hostname,
-						poller_items[i].snmp_version, poller_items[i].snmp_community,
-						poller_items[i].snmp_username, poller_items[i].snmp_password,
-						poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
-						poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
-						poller_items[i].snmp_engine_id,
-						poller_items[i].snmp_port, poller_items[i].snmp_timeout);
+					host->snmp_session = snmp_host_init(&(snmp_connection_t){
+						.host_id = host->id,
+						.hostname = poller_items[i].hostname,
+						.snmp_version = poller_items[i].snmp_version,
+						.snmp_community = poller_items[i].snmp_community,
+						.snmp_username = poller_items[i].snmp_username,
+						.snmp_password = poller_items[i].snmp_password,
+						.snmp_auth_protocol = poller_items[i].snmp_auth_protocol,
+						.snmp_priv_passphrase = poller_items[i].snmp_priv_passphrase,
+						.snmp_priv_protocol = poller_items[i].snmp_priv_protocol,
+						.snmp_context = poller_items[i].snmp_context,
+						.snmp_engine_id = poller_items[i].snmp_engine_id,
+						.snmp_port = poller_items[i].snmp_port,
+						.snmp_timeout = poller_items[i].snmp_timeout,
+					});
 
 					last_snmp_port    = poller_items[i].snmp_port;
 					last_snmp_version = poller_items[i].snmp_version;

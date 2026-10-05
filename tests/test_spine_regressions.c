@@ -596,14 +596,66 @@ static void test_hostnames(void) {
 static void test_snmp_initialization_failure(void) {
 	/* These inputs fail before a network session opens. Temporary connection
 	 * parameters and passphrase copies must be released on every error path. */
-	assert(snmp_host_init(1, "127.0.0.1", 99, "public", "", "", "SHA",
-		"", "[None]", "", "", 161, 1000) == NULL);
-	assert(snmp_host_init(1, "127.0.0.1", 3, "public", "user", "short", "INVALID",
-		"", "[None]", "", "", 161, 1000) == NULL);
-	assert(snmp_host_init(1, "127.0.0.1", 3, "public", "user", "short", "SHA",
-		"short", "AES", "", "", 161, 1000) == NULL);
-	assert(snmp_host_init(1, "127.0.0.1", 3, "public", "user", "regression-password", "SHA",
-		"short", "AES", "", "", 161, 1000) == NULL);
+	assert(snmp_host_init(&(snmp_connection_t){
+		.host_id = 1,
+		.hostname = "127.0.0.1",
+		.snmp_version = 99,
+		.snmp_community = "public",
+		.snmp_username = "",
+		.snmp_password = "",
+		.snmp_auth_protocol = "SHA",
+		.snmp_priv_passphrase = "",
+		.snmp_priv_protocol = "[None]",
+		.snmp_context = "",
+		.snmp_engine_id = "",
+		.snmp_port = 161,
+		.snmp_timeout = 1000,
+	}) == NULL);
+	assert(snmp_host_init(&(snmp_connection_t){
+		.host_id = 1,
+		.hostname = "127.0.0.1",
+		.snmp_version = 3,
+		.snmp_community = "public",
+		.snmp_username = "user",
+		.snmp_password = "short",
+		.snmp_auth_protocol = "INVALID",
+		.snmp_priv_passphrase = "",
+		.snmp_priv_protocol = "[None]",
+		.snmp_context = "",
+		.snmp_engine_id = "",
+		.snmp_port = 161,
+		.snmp_timeout = 1000,
+	}) == NULL);
+	assert(snmp_host_init(&(snmp_connection_t){
+		.host_id = 1,
+		.hostname = "127.0.0.1",
+		.snmp_version = 3,
+		.snmp_community = "public",
+		.snmp_username = "user",
+		.snmp_password = "short",
+		.snmp_auth_protocol = "SHA",
+		.snmp_priv_passphrase = "short",
+		.snmp_priv_protocol = "AES",
+		.snmp_context = "",
+		.snmp_engine_id = "",
+		.snmp_port = 161,
+		.snmp_timeout = 1000,
+	}) == NULL);
+	assert(snmp_host_init(&(snmp_connection_t){
+		.host_id = 1,
+		.hostname = "127.0.0.1",
+		.snmp_version = 3,
+		.snmp_community = "public",
+		.snmp_username = "user",
+		.snmp_password = "regression-password",
+		.snmp_auth_protocol = "SHA",
+		.snmp_priv_passphrase = "short",
+		.snmp_priv_protocol = "AES",
+		.snmp_context = "",
+		.snmp_engine_id = "",
+		.snmp_port = 161,
+		.snmp_timeout = 1000,
+	}) == NULL);
 }
 
 static void test_child_process(void) {
@@ -1137,7 +1189,21 @@ static void test_snmp_agent(void) {
 		strncopy(host.hostname, address, sizeof(host.hostname));
 		STRNCOPY(host.snmp_community, "regression");
 		host.snmp_version = version;
-		host.snmp_session = snmp_host_init(1, host.hostname, version, host.snmp_community, "", "", "SHA", "", "[None]", "", "", 1161, 500);
+		host.snmp_session = snmp_host_init(&(snmp_connection_t){
+			.host_id = 1,
+			.hostname = host.hostname,
+			.snmp_version = version,
+			.snmp_community = host.snmp_community,
+			.snmp_username = "",
+			.snmp_password = "",
+			.snmp_auth_protocol = "SHA",
+			.snmp_priv_passphrase = "",
+			.snmp_priv_protocol = "[None]",
+			.snmp_context = "",
+			.snmp_engine_id = "",
+			.snmp_port = 1161,
+			.snmp_timeout = 500,
+		});
 		assert(host.snmp_session != NULL);
 		test_snmp_scalar_responses(&host);
 		test_snmp_multi_responses(&host);

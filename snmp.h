@@ -33,7 +33,24 @@
 
 extern void snmp_spine_init(void);
 extern void snmp_spine_close(void);
-extern void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community, char *snmp_username, const char *snmp_password, char *snmp_auth_protocol, const char *snmp_priv_passphrase, char *snmp_priv_protocol, char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout);
+/* Borrowed connection inputs; Net-SNMP clones the session before return. */
+typedef struct {
+	int host_id;
+	char *hostname;
+	int snmp_version;
+	char *snmp_community;
+	char *snmp_username;
+	const char *snmp_password;
+	char *snmp_auth_protocol;
+	const char *snmp_priv_passphrase;
+	char *snmp_priv_protocol;
+	char *snmp_context;
+	char *snmp_engine_id;
+	int snmp_port;
+	int snmp_timeout;
+} snmp_connection_t;
+
+extern void *snmp_host_init(const snmp_connection_t *options);
 extern void snmp_host_cleanup(void *snmp_session);
 extern char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fail);
 extern char *snmp_get(host_t *current_host, char *snmp_oid);
