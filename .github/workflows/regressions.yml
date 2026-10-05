@@ -1,0 +1,30 @@
+name: Production regressions
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install build dependencies
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev libsnmp-dev libssl-dev
+      - name: Build and test production code
+        run: |
+          set -eu
+          mkdir -p config m4
+          autoreconf -fi
+          ./configure
+          make -j2 check

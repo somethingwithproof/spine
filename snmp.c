@@ -104,6 +104,93 @@ void snmp_spine_close(void) {
 	snmp_shutdown("spine");
 }
 
+static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
+		const char *auth_password, const char *priv_password) {
+	char *Apsz = NULL;
+	char *Xpsz = NULL;
+	// Auth Protocol Setup
+
+	Apsz = strdup(auth_password);
+	if (Apsz == NULL) die("ERROR: Fatal malloc error: SNMP authentication passphrase");
+
+	// Privacy Protocol Setup
+
+	Xpsz = strdup(priv_password);
+	if (Xpsz == NULL) {
+		if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+		free(Apsz);
+		die("ERROR: Fatal malloc error: SNMP privacy passphrase");
+	}
+
+	if (Apsz) {
+		session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+		if (session->securityAuthProto == NULL) {
+			/*
+			 * get .conf set default
+			 */
+			const oid *def = get_default_authtype(&session->securityAuthProtoLen);
+			session->securityAuthProto = snmp_duplicate_objid(def, session->securityAuthProtoLen);
+		}
+
+		if (session->securityAuthProto == NULL) {
+			session->securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
+			session->securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
+		}
+
+		if (generate_Ku(session->securityAuthProto,
+			session->securityAuthProtoLen,
+			(u_char *) Apsz, strlen(Apsz),
+			session->securityAuthKey,
+			&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
+			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
+			if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+			free(Apsz);
+			spine_clear_sensitive(Xpsz, strlen(Xpsz));
+			free(Xpsz);
+			return FALSE;
+		}
+
+		if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+		free(Apsz);
+		Apsz = NULL;
+	}
+
+	if (Xpsz) {
+		session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+		if (session->securityPrivProto == NULL) {
+			/*
+			 * get .conf set default
+			 */
+			const oid *def = get_default_privtype(&session->securityPrivProtoLen);
+			session->securityPrivProto =
+			snmp_duplicate_objid(def, session->securityPrivProtoLen);
+		}
+
+		if (session->securityPrivProto == NULL) {
+			session->securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
+			session->securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
+		}
+
+		if (generate_Ku(session->securityAuthProto,
+			session->securityAuthProtoLen,
+			(u_char *) Xpsz, strlen(Xpsz),
+			session->securityPrivKey,
+			&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
+			SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));
+			if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+			free(Apsz);
+			spine_clear_sensitive(Xpsz, strlen(Xpsz));
+			free(Xpsz);
+			return FALSE;
+		}
+
+		spine_clear_sensitive(Xpsz, strlen(Xpsz));
+		free(Xpsz);
+		Xpsz = NULL;
+	}
+	return TRUE;
+}
+
 /*! \fn void *snmp_host_init(int host_id, char *hostname, int snmp_version,
  * char *snmp_community, char *snmp_username, char *snmp_password,
  * char *snmp_auth_protocol, char *snmp_priv_passphrase, char *snmp_priv_protocol,
@@ -114,6 +201,20 @@ void snmp_spine_close(void) {
  *  in question.
  *
  */
+static void snmp_host_init_release(struct snmp_session *session, char *auth, char *priv) {
+	if (auth != NULL) spine_clear_sensitive(auth, strlen(auth));
+	if (priv != NULL) spine_clear_sensitive(priv, strlen(priv));
+	free(auth);
+	free(priv);
+	#if SNMP_LOCALNAME == 1
+	free(session->localname);
+	#endif
+	free(session->securityAuthProto);
+	free(session->securityPrivProto);
+	spine_clear_sensitive(session->securityAuthKey, sizeof(session->securityAuthKey));
+	spine_clear_sensitive(session->securityPrivKey, sizeof(session->securityPrivKey));
+}
+
 void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community,
 	char *snmp_username, char *snmp_password, char *snmp_auth_protocol,
 	char *snmp_priv_passphrase, char *snmp_priv_protocol,
@@ -127,7 +228,6 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	char   *Xpsz = NULL;
 	char   *Cpsz = NULL;
 	int    priv_type;
-	int    zero_sensitive = 0;
 
 	/* initialize SNMP */
 	snmp_sess_init(&session);
@@ -186,6 +286,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		session.securityModel = USM_SEC_MODEL_NUMBER;
 	} else {
 		SPINE_LOG(("Device[%i] ERROR: SNMP Version Error for Device '%s'", host_id, hostname));
+		snmp_host_init_release(&session, Apsz, Xpsz);
 		return 0;
 	}
 
@@ -226,6 +327,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
             session.securityAuthProto = snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
 		} else {
 			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", host_id, snmp_auth_protocol));
+			snmp_host_init_release(&session, Apsz, Xpsz);
 			return 0;
 		}
 
@@ -248,6 +350,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 
 			if (priv_type < 0) {
 				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", host_id, snmp_priv_protocol));
+				snmp_host_init_release(&session, Apsz, Xpsz);
 				return 0;
 			}
 
@@ -256,85 +359,9 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			session.securityPrivProto = snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
 			session.securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
 
-			// Auth Protocol Setup
-			if (Apsz && zero_sensitive) {
-				memset(Apsz, 0x0, strlen(Apsz));
-			}
-
-			free(Apsz);
-			Apsz = strdup(snmp_password);
-
-			if (zero_sensitive) {
-	            memset(snmp_password, 0x0, strlen(snmp_password));
-			}
-
-			// Privacy Protocol Setup
-			if (Xpsz && zero_sensitive) {
-				memset(Xpsz, 0x0, strlen(Xpsz));
-			}
-
-			free(Xpsz);
-			Xpsz = strdup(snmp_priv_passphrase);
-
-			if (zero_sensitive) {
-				memset(snmp_priv_passphrase, 0x0, strlen(snmp_priv_passphrase));
-			}
-
-			if (Apsz) {
-				session.securityAuthKeyLen = USM_AUTH_KU_LEN;
-				if (session.securityAuthProto == NULL) {
-					/*
-					 * get .conf set default
-					 */
-					const oid *def = get_default_authtype(&session.securityAuthProtoLen);
-					session.securityAuthProto = snmp_duplicate_objid(def, session.securityAuthProtoLen);
-				}
-
-				if (session.securityAuthProto == NULL) {
-					session.securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
-					session.securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
-				}
-
-				if (generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Apsz, strlen(Apsz),
-					session.securityAuthKey,
-					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
-					return 0;
-				}
-
-				free(Apsz);
-				Apsz = NULL;
-			}
-
-			if (Xpsz) {
-				session.securityPrivKeyLen = USM_PRIV_KU_LEN;
-				if (session.securityPrivProto == NULL) {
-					/*
-					 * get .conf set default
-					 */
-					const oid *def = get_default_privtype(&session.securityPrivProtoLen);
-					session.securityPrivProto =
-					snmp_duplicate_objid(def, session.securityPrivProtoLen);
-				}
-
-				if (session.securityPrivProto == NULL) {
-					session.securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
-					session.securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
-				}
-
-				if (generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Xpsz, strlen(Xpsz),
-					session.securityPrivKey,
-					&session.securityPrivKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));
-					return 0;
-				}
-
-				free(Xpsz);
-				Xpsz = NULL;
+			if (!snmp_set_security_keys(&session, host_id, snmp_password, snmp_priv_passphrase)) {
+				snmp_host_init_release(&session, NULL, NULL);
+				return NULL;
 			}
 		}
 
@@ -347,13 +374,10 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	thread_mutex_unlock(LOCK_SNMP);
 
 	if (!sessp) {
-		if (is_debug_device(host_id)) {
-			SPINE_LOG(("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
-		} else {
-			SPINE_LOG_MEDIUM(("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
-		}
+		SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
 	}
 
+	snmp_host_init_release(&session, Apsz, Xpsz);
 	return sessp;
 }
 
@@ -383,7 +407,7 @@ void snmp_host_cleanup(void *snmp_session) {
 char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fail) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
-	struct variable_list *vars = NULL;
+	const struct variable_list *vars = NULL;
 	size_t anOID_len           = MAX_OID_LEN;
 	oid    anOID[MAX_OID_LEN];
 	int    status;
@@ -549,7 +573,7 @@ char *snmp_get(host_t *current_host, char *snmp_oid) {
 char *snmp_getnext(host_t *current_host, char *snmp_oid) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
-	struct variable_list *vars = NULL;
+	const struct variable_list *vars = NULL;
 	size_t anOID_len           = MAX_OID_LEN;
 	oid    anOID[MAX_OID_LEN];
 	int    status;
@@ -633,7 +657,7 @@ char *snmp_getnext(host_t *current_host, char *snmp_oid) {
 int snmp_count(host_t *current_host, char *snmp_oid) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
-	struct variable_list *vars = NULL;
+	const struct variable_list *vars = NULL;
 	size_t anOID_len           = MAX_OID_LEN;
 	size_t rootlen             = MAX_OID_LEN;
 	oid    anOID[MAX_OID_LEN];
@@ -645,11 +669,7 @@ int snmp_count(host_t *current_host, char *snmp_oid) {
 
 	status = STAT_DESCRIP_ERROR;
 
-	if (is_debug_device(current_host->id)) {
-		SPINE_LOG(("DEBUG: walk starts at OID %s", snmp_oid));
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: walk starts at OID %s", snmp_oid));
-	}
+	SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: walk starts at OID %s", snmp_oid));
 
 	if (current_host->snmp_session != NULL) {
 		rootlen = MAX_OID_LEN;
@@ -731,7 +751,7 @@ int snmp_count(host_t *current_host, char *snmp_oid) {
 	return count;
 }
 
-/*! \fn void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, struct variable_list *variable)
+/*! \fn void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, const struct variable_list *variable)
  *
  *  \brief replacement for the buggy net-snmp.org snprint_value function
  *
@@ -740,9 +760,11 @@ int snmp_count(host_t *current_host, char *snmp_oid) {
  *  the function is modified.
  *
  */
-void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, struct variable_list *variable) {
+void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, const struct variable_list *variable) {
 	u_char *buf    = NULL;
 	size_t out_len = 0;
+	(void)objid;
+	(void)objidlen;
 
 	if (buf_len > 0) {
 		if ((buf = (u_char *) calloc(buf_len, 1)) != 0) {
@@ -758,7 +780,7 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
 	}
 }
 
-/*! \fn char *snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids)
+/*! \fn char *snmp_get_multi(host_t *current_host, const target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids)
  *  \brief performs multiple OID snmp_get's in a single network call
  *
  *	This function will a group of snmp OID's for a host.  The host snmp
@@ -766,10 +788,10 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
  *  the snmp_oids array with the results from the snmp api call.
  *
  */
-void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids) {
+void snmp_get_multi(host_t *current_host, const target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids) {
 	struct snmp_pdu *pdu       = NULL;
 	struct snmp_pdu *response  = NULL;
-	struct variable_list *vars = NULL;
+	const struct variable_list *vars = NULL;
 	int status;
 	int i;
 	int array_count;
@@ -779,10 +801,13 @@ void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *s
 	struct nameStruct {
 		oid             name[MAX_OID_LEN];
 		size_t          name_len;
-	} *name, *namep;
+	};
+	struct nameStruct *name;
+	struct nameStruct *namep;
 
 	/* load up oids */
-	namep = name = (struct nameStruct *) calloc(num_oids, sizeof(*name));
+	name = calloc(num_oids, sizeof(*name));
+	namep = name;
 	pdu = snmp_pdu_create(SNMP_MSG_GET);
 	for (i = 0; i < num_oids; i++) {
 		namep->name_len = MAX_OID_LEN;

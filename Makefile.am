@@ -31,5 +31,12 @@ bin_PROGRAMS = spine
 
 man_MANS = spine.1
 
+check_PROGRAMS = test_spine_regressions
+TESTS = $(check_PROGRAMS)
+test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c
+# Link the real production translation units and globals, with a separate test
+# entry point. The test source undefines main before declaring its own entry.
+test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
+
 spine.1: $(bin_PROGRAMS)
 	$(HELP2MAN) --output=$@ --name='Data Collector for Cacti' --no-info --version-option='--version' ./spine

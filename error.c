@@ -51,7 +51,7 @@ static void spine_signal_handler(int spine_signal) {
 	/* variables for time display */
 	time_t nowbin;
 	struct tm now_time;
-	struct tm *now_ptr;
+	const struct tm *now_ptr;
 
 	/* get time for poller_output table */
 	nowbin = time(&nowbin);
@@ -63,6 +63,7 @@ static void spine_signal_handler(int spine_signal) {
 	char logtime[50];
 
 	strftime(logtime, 50, log_fmt, now_ptr);
+	free(log_fmt);
 
 	switch (spine_signal) {
 		case SIGABRT:
@@ -74,7 +75,6 @@ static void spine_signal_handler(int spine_signal) {
 		case SIGSEGV:
 			fprintf(stderr, "%s FATAL: Spine Encountered a Segmentation Fault\n", logtime);
 			exit(1);
-			break;
 		case SIGBUS:
 			fprintf(stderr, "%s FATAL: Spine Encountered a Bus Error\n", logtime);
 			break;
@@ -119,7 +119,7 @@ void install_spine_signal_handler(void) {
 	for (i=0; spine_fatal_signals[i]; ++i) {
 		sigaction(spine_fatal_signals[i], NULL, &sa);
 		if (sa.sa_handler == SIG_DFL) {
-			sa.sa_handler = spine_signal_handler;
+			sa.sa_handler = &spine_signal_handler;
 			sigemptyset(&sa.sa_mask);
 			sa.sa_flags = SA_RESTART;
 			sigaction(spine_fatal_signals[i], &sa, NULL);
@@ -148,7 +148,7 @@ void uninstall_spine_signal_handler(void) {
 
 	for (i=0; spine_fatal_signals[i]; ++i) {
 		sigaction(spine_fatal_signals[i], NULL, &sa);
-		if (sa.sa_handler == spine_signal_handler) {
+		if (sa.sa_handler == &spine_signal_handler) {
 			sa.sa_handler = SIG_DFL;
 			sigaction(spine_fatal_signals[i], &sa, NULL);
 		}
@@ -156,7 +156,7 @@ void uninstall_spine_signal_handler(void) {
 
 	for ( i=0; spine_fatal_signals[i]; ++i ) {
 		ohandler = signal(spine_fatal_signals[i], SIG_DFL);
-		if (ohandler != spine_signal_handler) {
+		if (ohandler != &spine_signal_handler) {
 			signal(spine_fatal_signals[i], ohandler);
 		}
 	}

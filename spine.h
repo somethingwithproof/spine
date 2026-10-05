@@ -127,6 +127,8 @@
 #define SPINE_LOG_HIGH(format_and_args)   (void)(set.log_level >= POLLER_VERBOSITY_HIGH && spine_log format_and_args)
 #define SPINE_LOG_DEBUG(format_and_args)  (void)(set.log_level >= POLLER_VERBOSITY_DEBUG && spine_log format_and_args)
 #define SPINE_LOG_DEVDBG(format_and_args) (void)(set.log_level >= POLLER_VERBOSITY_DEVDBG && spine_log format_and_args)
+#define SPINE_LOG_DEVICE(host_id, verbosity, format_and_args) \
+	(void)(spine_should_log_device(host_id, verbosity) && spine_log format_and_args)
 
 /* general constants */
 #define MAX_THREADS 100

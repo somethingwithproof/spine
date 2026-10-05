@@ -39,5 +39,5 @@ extern char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fai
 extern char *snmp_get(host_t *current_host, char *snmp_oid);
 extern char *snmp_getnext(host_t *current_host, char *snmp_oid);
 extern int snmp_count(host_t *current_host, char *snmp_oid);
-extern void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids);
-extern void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, struct variable_list *variable);
+extern void snmp_get_multi(host_t *current_host, const target_t *poller_items, snmp_oids_t *snmp_oids, int num_oids);
+extern void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, const struct variable_list *variable);

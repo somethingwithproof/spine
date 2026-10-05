@@ -47,7 +47,7 @@
 int ping_host(host_t *host, ping_t *ping) {
 	int ping_result;
 	int snmp_result;
-	double start_time;
+	double ping_start_time;
 	double end_time;
 
 	/* snmp pinging has been selected at a minimum */
@@ -104,22 +104,14 @@ int ping_host(host_t *host, ping_t *ping) {
 			snmp_result = HOST_UP;
 			if ((host->availability_method != AVAIL_SNMP_OR_PING) &&
 				((strlen(host->snmp_community) > 0) || (host->snmp_version >= 3))) {
-				start_time = get_time_as_double();
+				ping_start_time = get_time_as_double();
 				snmp_result = ping_snmp(host, ping);
 				end_time = get_time_as_double();
 
 				if (snmp_result == HOST_UP) {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - start_time));
-					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - start_time));
-					}
+					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: SNMP Device Alive, Time:%.4f ms", host->id, end_time - ping_start_time));
 				} else {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - start_time));
-					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - start_time));
-					}
+					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: SNMP Device Down, Time:%.4f ms", host->id, end_time - ping_start_time));
 				}
 			}
 		}
@@ -157,7 +149,9 @@ int ping_host(host_t *host, ping_t *ping) {
 int ping_snmp(host_t *host, ping_t *ping) {
 	char *poll_result = NULL;
 	char *oid;
-	double begin_time, end_time, total_time;
+	double begin_time;
+	double end_time;
+	double total_time;
 	double one_thousand = 1000.00;
 
 	if (is_debug_device(host->id)) {
@@ -259,7 +253,9 @@ int ping_snmp(host_t *host, ping_t *ping) {
 int ping_icmp(host_t *host, ping_t *ping) {
 	int    icmp_socket;
 
-	double begin_time, end_time, total_time;
+	double begin_time;
+	double end_time;
+	double total_time;
 	double host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
@@ -315,8 +311,6 @@ int ping_icmp(host_t *host, ping_t *ping) {
 				#endif
 
 				return HOST_DOWN;
-
-				break;
 			}
 		} else {
 			break;
@@ -441,11 +435,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 						if (fromname.sin_addr.s_addr == recvname.sin_addr.s_addr) {
 							if (pkt->icmp_type == ICMP_ECHOREPLY) {
-								if (is_debug_device(host->id)) {
-									SPINE_LOG(("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-								} else {
-									SPINE_LOG_MEDIUM(("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-								}
+								SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
 								snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Device is Alive");
 								snprintf(ping->ping_status, 50, "%.5f", total_time);
 								free(packet);
@@ -546,7 +536,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	}
 }
 
-/*! \fn int ping_udp(host_t *host, ping_t *ping)
+/*! \fn int ping_udp(const host_t *host, ping_t *ping)
  *  \brief ping a host using an UDP datagram
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -558,8 +548,10 @@ int ping_icmp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_udp(host_t *host, ping_t *ping) {
-	double begin_time, end_time, total_time;
+int ping_udp(const host_t *host, ping_t *ping) {
+	double begin_time;
+	double end_time;
+	double total_time;
 	double host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
@@ -660,11 +652,7 @@ int ping_udp(host_t *host, ping_t *ping) {
 						return_code = read(udp_socket, socket_reply, BUFSIZE);
 
 						if (return_code == -1 && (errno == EHOSTUNREACH || errno == ECONNRESET || errno == ECONNREFUSED)) {
-							if (is_debug_device(host->id)) {
-								SPINE_LOG(("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-							} else {
-								SPINE_LOG_MEDIUM(("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-							}
+							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
 							snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Alive");
 							snprintf(ping->ping_status, 50, "%.5f", total_time);
 							close(udp_socket);
@@ -712,7 +700,7 @@ int ping_udp(host_t *host, ping_t *ping) {
 }
 
 
-/*! \fn int ping_tcp(host_t *host, ping_t *ping)
+/*! \fn int ping_tcp(const host_t *host, ping_t *ping)
  *  \brief ping a host using an TCP syn
  *  \param host a pointer to the current host structure
  *  \param ping a pointer to the current hosts ping structure
@@ -724,8 +712,10 @@ int ping_udp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_tcp(host_t *host, ping_t *ping) {
-	double begin_time, end_time, total_time;
+int ping_tcp(const host_t *host, ping_t *ping) {
+	double begin_time;
+	double end_time;
+	double total_time;
 	double host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
@@ -782,11 +772,7 @@ int ping_tcp(host_t *host, ping_t *ping) {
 				total_time = (end_time - begin_time) * one_thousand;
 
 				if ((return_code == -1 && errno == ECONNREFUSED && host->ping_method == PING_TCP_CLOSED) || return_code == 0) {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-					}
+					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
 					snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Device is Alive");
 					snprintf(ping->ping_status, 50, "%.5f", total_time);
 					close(tcp_socket);
@@ -829,9 +815,10 @@ int ping_tcp(host_t *host, ping_t *ping) {
  *  \return 1 - IPv4, 2 - IPv6, 0 - Unknown
  */
 int get_address_type(host_t *host) {
-	struct addrinfo hints, *res, *res_list;
+	struct addrinfo hints;
+	struct addrinfo *res_list;
 	char addrstr[255];
-	void *ptr = NULL;
+	const void *ptr = NULL;
 	int addr_found = FALSE;
 
 	memset(&hints, 0, sizeof(hints));
@@ -846,7 +833,7 @@ int get_address_type(host_t *host) {
 		return SPINE_NONE;
 	}
 
-	for (res = res_list; res != NULL; res = res->ai_next) {
+	for (struct addrinfo *res = res_list; res != NULL; res = res->ai_next) {
 		inet_ntop(res->ai_family, res->ai_addr->sa_data, addrstr, 100);
 
 		switch(res->ai_family) {
@@ -858,6 +845,8 @@ int get_address_type(host_t *host) {
 				ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
 				addr_found = TRUE;
 				break;
+			default:
+				continue;
 		}
 
 		inet_ntop(res->ai_family, ptr, addrstr, 100);
@@ -887,183 +876,61 @@ int get_address_type(host_t *host) {
  *
  */
 int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port) {
-	struct addrinfo hints, *hostinfo;
-	int rv, retry_count;
-
-	// Initialize the hints structure
-	memset(&hints, 0, sizeof hints);
-
+	struct addrinfo hints = {0};
+	struct addrinfo *hostinfo = NULL;
 	hints.ai_family = AF_INET;
 	hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG;
-	retry_count = 0;
-	rv = 0;
-
-	while (TRUE) {
-		rv = getaddrinfo(hostname, NULL, &hints, &hostinfo);
-
-		if (rv == 0) {
-			break;
-		} else {
-			switch (rv) {
-				case EAI_AGAIN:
-					if (retry_count < 3) {
-						SPINE_LOG(("WARNING: EAGAIN received resolving after 3 retryies for host %s (%s)", hostname, gai_strerror(rv)));
-						if (hostinfo != NULL) {
-							freeaddrinfo(hostinfo);
-						}
-
-						retry_count++;
-						usleep(50000);
-						continue;
-					} else {
-						SPINE_LOG(("WARNING: Error resolving after 3 retryies for host %s (%s)", hostname, gai_strerror(rv)));
-						if (hostinfo != NULL) {
-							freeaddrinfo(hostinfo);
-						}
-						return FALSE;
-					}
-
-					break;
-				case EAI_FAIL:
-					SPINE_LOG(("WARNING: DNS Server reported permanent error for host %s (%s)", hostname, gai_strerror(rv)));
-					if (hostinfo != NULL) {
-						freeaddrinfo(hostinfo);
-					}
-					return FALSE;
-
-					break;
-				case EAI_MEMORY:
-					SPINE_LOG(("WARNING: Out of memory trying to resolve host %s (%s)", hostname, gai_strerror(rv)));
-					if (hostinfo != NULL) {
-						freeaddrinfo(hostinfo);
-					}
-					return FALSE;
-
-					break;
-				default:
-					SPINE_LOG(("WARNING: Unknown error while resolving host %s (%s)", hostname, gai_strerror(rv)));
-					if (hostinfo != NULL) {
-						freeaddrinfo(hostinfo);
-					}
-					return FALSE;
-
-					break;
-			}
+	for (int attempt = 0; ; attempt++) {
+		int status = getaddrinfo(hostname, NULL, &hints, &hostinfo);
+		if (status == 0) break;
+		if (status == EAI_AGAIN && attempt < 3) {
+			SPINE_LOG(("WARNING: Temporary DNS error for host %s (%s), retrying", hostname, gai_strerror(status)));
+			usleep(50000);
+			continue;
 		}
+		SPINE_LOG(("WARNING: Error resolving host %s (%s)", hostname, gai_strerror(status)));
+		return FALSE;
 	}
-
 	if (hostinfo == NULL) {
 		SPINE_LOG(("WARNING: Unknown host %s", hostname));
 		return FALSE;
-	} else {
-		// Copy socket details
-		name->sin_family = hostinfo->ai_family;
-		name->sin_addr = ((struct sockaddr_in *)hostinfo->ai_addr)->sin_addr;
-		name->sin_port = htons(port);
-
-		// Free results var
-		freeaddrinfo(hostinfo);
-		return TRUE;
 	}
+	name->sin_family = hostinfo->ai_family;
+	name->sin_addr = ((struct sockaddr_in *)hostinfo->ai_addr)->sin_addr;
+	name->sin_port = htons(port);
+	freeaddrinfo(hostinfo);
+	return TRUE;
 }
 
-/*! \fn name_t *get_namebyhost(char *hostname, name_t *name)
- *  \brief splits the hostname into method, name and port
- *
- *  \return name_t containing a trimmed hostname, port, and optional method
- *
- */
-name_t *get_namebyhost(char *hostname, name_t *name) {
+/*! \brief Parse a device hostname with an optional transport and port. */
+name_t *get_namebyhost(const char *hostname, name_t *name) {
 	if (name == NULL) {
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Allocating name_t", hostname));
-
-		if (!(name = (name_t *) malloc(sizeof(name_t)))) {
-			die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
-		}
-
-		memset(name, '\0', sizeof(name_t));
+		name = calloc(1, sizeof(*name));
+		if (name == NULL) die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
 	}
-
-	int tokens = 0;
-	char *stack = NULL;
-	char *token = NULL;
-
-	if (!(stack = (char *) malloc(strlen(hostname)+1))) {
-		die("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
+	/* IPv6 transport addresses are passed intact to the address resolver. */
+	if (strchr(hostname, '[') != NULL || strstr(hostname, "::") != NULL || char_count(hostname, ':') > 2) {
+		strncopy(name->hostname, hostname, sizeof(name->hostname));
+		return name;
 	}
-
-	memset(stack, '\0', strlen(hostname)+1);
-	strncopy(stack, hostname, strlen(stack));
-	token = strtok(stack, ":");
-
-	if (token == NULL) {
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No delimiter, assume full hostname", hostname));
-		strncopy(name->hostname, hostname, SMALL_BUFSIZE);
-	}
-
-	while (token != NULL && tokens <= 3) {
-		tokens++;
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Token #%i - %s", hostname, tokens, token));
-		if (tokens == 1) {
-			if (strlen(token) && token[0] == '[') {
-				SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-				strncpy(name->hostname, hostname, sizeof(name->hostname));
+	char *copy = strdup(hostname);
+	if (copy == NULL) die("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
+	char *saveptr = NULL;
+	const char *token = strtok_r(copy, ":", &saveptr);
+	static const char *const methods[] = {"TCP", "UDP", "TCP6", "UDP6"};
+	if (token != NULL) {
+		for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
+			if (strcasecmp(token, methods[i]) == 0) {
+				name->method = (int)i + 1;
+				token = strtok_r(NULL, ":", &saveptr);
 				break;
-			} else if (strlen(token) == 3) {
-				if (strncasecmp(token, "TCP", 3)) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv4 method", hostname));
-					name->method = 1;
-				} else if (strncasecmp(hostname, "UDP", 3)) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv4 method", hostname));
-					name->method = 2;
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No matching method for 3 chars: %s", hostname, token));
-					// assume we have had a method
-					tokens++;
-				}
-			} else if (strlen(token) == 4) {
-				if (strncasecmp(token, "TCP6", 3)) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-					name->method = 3;
-				} else if (strncasecmp(hostname, "UDP6", 3)) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv6 method", hostname));
-					name->method = 4;
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No matching method for 4 chars: %s", hostname, token));
-
-					// assume we have had a method
-					tokens++;
-				}
-			} else {
-				SPINE_LOG_DEBUG(("DEBUG: get_hostbyname(%s) - No matching method for %li chars: %s", hostname, strlen(token), token));
-
-				// assume we have had a method
-				tokens++;
 			}
 		}
-
-		if (tokens == 2) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s", hostname, token));
-			strncpy(name->hostname, token, sizeof(name->hostname));
-			name->hostname[strlen(token)] = '\0';
-		}
-
-		if (tokens == 3 && strlen(token)) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting port: %s", hostname, token));
-			name->port = atoi(token);
-		}
-
-		if (tokens > 3) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Unexpected token: %i", hostname, tokens));
-		}
-		token = strtok(NULL, ":");
 	}
-
-	if (stack != NULL) {
-		free(stack);
-		stack = NULL;
-	}
-
+	strncopy(name->hostname, token != NULL ? token : hostname, sizeof(name->hostname));
+	token = strtok_r(NULL, ":", &saveptr);
+	if (token != NULL) name->port = atoi(token);
+	free(copy);
 	return name;
 }
 
@@ -1268,75 +1135,32 @@ void update_host_status(int status, host_t *host, ping_t *ping, int availability
 		if ((host->status == HOST_UP) || (host->status == HOST_RECOVERING)) {
 			/* log ping result if we are to use a ping for reachability testing */
 			if (availability_method == AVAIL_SNMP_AND_PING) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG_HIGH(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
 			} else if (availability_method == AVAIL_SNMP_OR_PING) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG_HIGH(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
 			} else if (availability_method == AVAIL_SNMP) {
 				if ((strlen(host->snmp_community) == 0) && (host->snmp_version < 3)) {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] SNMP Result: Device does not require SNMP", host->id));
-					} else {
-						SPINE_LOG_HIGH(("Device[%i] SNMP Result: Device does not require SNMP", host->id));
-					}
+					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: Device does not require SNMP", host->id));
 				} else {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-					} else {
-						SPINE_LOG_HIGH(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-					}
+					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
 				}
 			} else if (availability_method == AVAIL_NONE) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] No Device Availability Method Selected", host->id));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] No Device Availability Method Selected", host->id));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] No Device Availability Method Selected", host->id));
 			} else {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] PING: Result %s", host->id, ping->ping_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] PING: Result %s", host->id, ping->ping_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING: Result %s", host->id, ping->ping_response));
 			}
 		} else {
 			if (availability_method == AVAIL_SNMP_AND_PING) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-					SPINE_LOG_HIGH(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
 			} else if (availability_method == AVAIL_SNMP) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
 			} else if (availability_method == AVAIL_NONE) {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] No Device Availability Method Selected", host->id));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] No Device Availability Method Selected", host->id));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] No Device Availability Method Selected", host->id));
 			} else {
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-				} else {
-					SPINE_LOG_HIGH(("Device[%i] PING Result: %s", host->id, ping->ping_response));
-				}
+				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
 			}
 		}
 	}

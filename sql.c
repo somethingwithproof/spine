@@ -47,60 +47,35 @@
  *
  */
 int db_insert(MYSQL *mysql, int type, const char *query) {
-	int    error;
-	int    error_count = 0;
-	char   query_frag[LRG_BUFSIZE];
-
-	/* save a fragment just in case */
-	memset(query_frag, 0, LRG_BUFSIZE);
-	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
-
-	/* show the sql query */
+	(void)type; /* The supplied connection determines the database. */
+	int error_count = 0;
+	char query_frag[LRG_BUFSIZE];
+	snprintf(query_frag, sizeof(query_frag), "%s", query);
 	SPINE_LOG_DEVDBG(("DEVDBG: SQL:%s", query_frag));
-
-	while(1) {
-		if (set.SQL_readonly == FALSE) {
-			if (mysql_query(mysql, query)) {
-				error = mysql_errno(mysql);
-
-				if (error == 2013 || error == 2006) {
-					if (errno != EINTR) {
-						db_reconnect(mysql, error, "db_insert");
-
-						error_count++;
-
-						if (error_count > 30) {
-							die("FATAL: Too many Reconnect Attempts!");
-						}
-
-						continue;
-					} else {
-						usleep(50000);
-						continue;
-					}
-				}
-
-				if ((error == 1213) || (error == 1205)) {
-					usleep(50000);
-					error_count++;
-
-					if (error_count > 30) {
-						SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
-						return FALSE;
-					}
-
-					continue;
-				} else {
-					SPINE_LOG(("ERROR: SQL Failed! Error:'%i', Message:'%s', SQL Fragment:'%s'", error, mysql_error(mysql), query_frag));
-					return FALSE;
-				}
+	if (set.SQL_readonly != FALSE) return TRUE;
+	while (mysql_query(mysql, query) != 0) {
+		int error = mysql_errno(mysql);
+		if (error == 2013 || error == 2006) {
+			if (errno == EINTR) {
+				usleep(50000);
 			} else {
-				return TRUE;
+				db_reconnect(mysql, error, "db_insert");
+				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
 			}
-		} else {
-			return TRUE;
+			continue;
 		}
+		if (error == 1213 || error == 1205) {
+			usleep(50000);
+			if (++error_count > 30) {
+				SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
+				return FALSE;
+			}
+			continue;
+		}
+		SPINE_LOG(("ERROR: SQL Failed! Error:'%i', Message:'%s', SQL Fragment:'%s'", error, mysql_error(mysql), query_frag));
+		return FALSE;
 	}
+	return TRUE;
 }
 
 int db_reconnect(MYSQL *mysql, int error, char *function) {
@@ -141,64 +116,35 @@ int db_reconnect(MYSQL *mysql, int error, char *function) {
  *
  */
 MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
-	MYSQL_RES  *mysql_res = 0;
-
-	int    error       = 0;
-	int    error_count = 0;
-
-	char   query_frag[LRG_BUFSIZE];
-
-	/* save a fragment just in case */
-	memset(query_frag, 0, LRG_BUFSIZE);
-	snprintf(query_frag, LRG_BUFSIZE, "%s", query);
-
-	/* show the sql query */
+	(void)type; /* The supplied connection determines the database. */
+	int error_count = 0;
+	char query_frag[LRG_BUFSIZE];
+	snprintf(query_frag, sizeof(query_frag), "%s", query);
 	SPINE_LOG_DEVDBG(("DEVDBG: SQL:%s", query_frag));
-
-	while (1) {
-		if (mysql_query(mysql, query)) {
-			error = mysql_errno(mysql);
-
-			if (error == 2013 || error == 2006) {
-				if (errno != EINTR) {
-					db_reconnect(mysql, error, "db_query");
-
-					error_count++;
-
-					if (error_count > 30) {
-						die("FATAL: Too many Reconnect Attempts!");
-					}
-
-					continue;
-				} else {
-					usleep(50000);
-					continue;
-				}
-			}
-
-			if (error == 1213 || error == 1205) {
+	while (mysql_query(mysql, query) != 0) {
+		int error = mysql_errno(mysql);
+		if (error == 2013 || error == 2006) {
+			if (errno == EINTR) {
 				usleep(50000);
-				error_count++;
-
-				if (error_count > 30) {
-					SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
-					exit(1);
-				}
-
-				continue;
 			} else {
-				SPINE_LOG(("FATAL: Database Error:'%i', Message:'%s'", error, mysql_error(mysql)));
-				SPINE_LOG(("ERROR: The Query Was:'%s'", query));
+				db_reconnect(mysql, error, "db_query");
+				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
+			}
+			continue;
+		}
+		if (error == 1213 || error == 1205) {
+			usleep(50000);
+			if (++error_count > 30) {
+				SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
 				exit(1);
 			}
-		} else {
-			mysql_res = mysql_store_result(mysql);
-
-			break;
+			continue;
 		}
+		SPINE_LOG(("FATAL: Database Error:'%i', Message:'%s'", error, mysql_error(mysql)));
+		SPINE_LOG(("ERROR: The Query Was:'%s'", query));
+		exit(1);
 	}
-
-	return mysql_res;
+	return mysql_store_result(mysql);
 }
 
 /*! \fn void db_connect(char *database, MYSQL *mysql)
@@ -211,52 +157,71 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
  *  fails more than 20 times, the function will fail and Spine will terminate.
  *
  */
+void db_address_init(db_address_t *address, const char *value, bool parse_socket) {
+	address->storage = strdup(value);
+	if (address->storage == NULL) die("ERROR: Fatal malloc error: database address!");
+	address->hostname = address->storage;
+	address->socket = NULL;
+	if (!parse_socket) return;
+	struct stat socket_stat;
+	if (stat(address->storage, &socket_stat) == 0) {
+		if (S_ISSOCK(socket_stat.st_mode)) {
+			address->socket = address->storage;
+			address->hostname = NULL;
+		}
+		return;
+	}
+	address->socket = strchr(address->storage, ':');
+	if (address->socket != NULL) *address->socket++ = '\0';
+}
+
+void db_address_release(db_address_t *address) {
+	free(address->storage);
+	address->storage = NULL;
+	address->hostname = NULL;
+	address->socket = NULL;
+}
+
+void db_set_option(MYSQL *mysql, enum mysql_option option, const void *value, const char *description) {
+	if (mysql_options(mysql, option, value) != 0) {
+		set.exit_code = EXIT_FAILURE;
+		die("FATAL: MySQL options unable to set %s option", description);
+	}
+}
+
+#ifdef HAS_MYSQL_OPT_SSL_KEY
+static void db_set_ssl_options(MYSQL *mysql, int type) {
+	#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
+	int ssl_enabled = type == LOCAL ? set.db_ssl : set.rdb_ssl;
+	if (ssl_enabled == 0) {
+		bool ssl_enforce = false;
+		db_set_option(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
+	}
+	#endif
+	const char *key = type == REMOTE ? set.rdb_ssl_key : set.db_ssl_key;
+	const char *ca = type == REMOTE ? set.rdb_ssl_ca : set.db_ssl_ca;
+	const char *cert = type == REMOTE ? set.rdb_ssl_cert : set.db_ssl_cert;
+	if (key[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_KEY, key, "ssl key");
+	if (ca[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_CA, ca, "ssl ca");
+	if (cert[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_CERT, cert, "ssl cert");
+}
+#endif
+
 void db_connect(int type, MYSQL *mysql) {
 	int     tries;
 	int     attempts;
 	int     timeout;
 	int     rtimeout;
 	int     wtimeout;
-	int     options_error;
 	int     success;
 	int     error = 0;
 	bool    reconnect;
 	MYSQL   *connect_error;
-	char    *hostname = NULL;
-	char    *socket = NULL;
-	struct  stat socket_stat;
+	db_address_t address;
 	static int connections = 0;
 
-	/* see if the hostname variable is a file reference.  If so,
-	 * and if it is a socket file, setup mysql to use it.
-	 */
-	if (set.poller_id > 1) {
-		if (type == LOCAL) {
-			STRDUP_OR_DIE(hostname, set.db_host, "db_host")
-
-			if (stat(hostname, &socket_stat) == 0) {
-				if (socket_stat.st_mode & S_IFSOCK) {
-					socket = strdup (set.db_host);
-					hostname = NULL;
-				}
-			} else if ((socket = strstr(hostname,":"))) {
-				*socket++ = 0x0;
-			}
-		} else {
-			STRDUP_OR_DIE(hostname, set.rdb_host, "rdb_host")
-		}
-	} else {
-		STRDUP_OR_DIE(hostname, set.db_host, "db_host")
-
-		if (stat(hostname, &socket_stat) == 0) {
-			if (socket_stat.st_mode & S_IFSOCK) {
-				socket = strdup (set.db_host);
-				hostname = NULL;
-			}
-		} else if ((socket = strstr(hostname,":"))) {
-			*socket++ = 0x0;
-		}
-	}
+	bool local_address = set.poller_id <= 1 || type == LOCAL;
+	db_address_init(&address, local_address ? set.db_host : set.rdb_host, local_address);
 
 	/* initialalize variables */
 	tries     = 2;
@@ -267,60 +232,26 @@ void db_connect(int type, MYSQL *mysql) {
 	reconnect = 1;
 	attempts  = 1;
 
-	mysql_init(mysql);
-
-	if (mysql == NULL) {
+	if (mysql_init(mysql) == NULL) {
+		db_address_release(&address);
 		printf("FATAL: Database unable to allocate memory and therefore can not connect\n");
 		exit(1);
 	}
 
-	MYSQL_SET_OPTION(MYSQL_OPT_READ_TIMEOUT, (int *)&rtimeout, "read timeout");
-	MYSQL_SET_OPTION(MYSQL_OPT_WRITE_TIMEOUT, (int *)&wtimeout, "write timeout");
-	MYSQL_SET_OPTION(MYSQL_OPT_CONNECT_TIMEOUT, (int *)&timeout, "general timeout");
+	db_set_option(mysql, MYSQL_OPT_READ_TIMEOUT, (int *)&rtimeout, "read timeout");
+	db_set_option(mysql, MYSQL_OPT_WRITE_TIMEOUT, (int *)&wtimeout, "write timeout");
+	db_set_option(mysql, MYSQL_OPT_CONNECT_TIMEOUT, (int *)&timeout, "general timeout");
 
 	#if defined(MARIADB_BASE_VERSION) || (MYSQL_VERSION_ID < 80034 && MYSQL_VERSION_ID >= 50013)
-		MYSQL_SET_OPTION(MYSQL_OPT_RECONNECT, &reconnect, "reconnect");
+		db_set_option(mysql, MYSQL_OPT_RECONNECT, &reconnect, "reconnect");
 	#endif
 
 	#ifdef HAS_MYSQL_OPT_RETRY_COUNT
-	MYSQL_SET_OPTION(MYSQL_OPT_RETRY_COUNT, &tries, "retry count");
+	db_set_option(mysql, MYSQL_OPT_RETRY_COUNT, &tries, "retry count");
 	#endif
 
-	/* set SSL options if available */
 	#ifdef HAS_MYSQL_OPT_SSL_KEY
-	char *ssl_key  = NULL;
-	char *ssl_ca   = NULL;
-	char *ssl_cert = NULL;
-
-	/* if the users has explicitly said to disable SSL, do that now */
-	#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
-	if (type == LOCAL) {
-		if (set.db_ssl == 0) {
-			bool ssl_enforce = 0;
-			MYSQL_SET_OPTION(MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
-		}
-	} else {
-		if (set.rdb_ssl == 0) {
-			bool ssl_enforce = 0;
-			MYSQL_SET_OPTION(MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
-		}
-	}
-	#endif
-
-	if (type == REMOTE) {
-		STRDUP_OR_DIE(ssl_key, set.rdb_ssl_key, "rdb_ssl_key");
-		STRDUP_OR_DIE(ssl_ca, set.rdb_ssl_ca, "rdb_ssl_ca");
-		STRDUP_OR_DIE(ssl_cert, set.rdb_ssl_cert, "rdb_ssl_cert");
-	} else {
-		STRDUP_OR_DIE(ssl_key, set.db_ssl_key, "db_ssl_key");
-		STRDUP_OR_DIE(ssl_ca, set.db_ssl_ca, "db_ssl_ca");
-		STRDUP_OR_DIE(ssl_cert, set.db_ssl_cert, "db_ssl_cert");
-	}
-
-	if (strlen(ssl_key)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_KEY, ssl_key,  "ssl key");
-	if (strlen(ssl_ca)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_CA, ssl_ca,   "ssl ca");
-	if (strlen(ssl_cert)) 	MYSQL_SET_OPTION(MYSQL_OPT_SSL_CERT, ssl_cert, "ssl cert");
-
+	db_set_ssl_options(mysql, type);
 	#endif
 
 	while (tries > 0) {
@@ -328,12 +259,12 @@ void db_connect(int type, MYSQL *mysql) {
 
 		if (set.poller_id > 1) {
 			if (type == LOCAL) {
-				connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+				connect_error = mysql_real_connect(mysql, address.hostname, set.db_user, set.db_pass, set.db_db, set.db_port, address.socket, 0);
 			} else {
-				connect_error = mysql_real_connect(mysql, hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, socket, 0);
+				connect_error = mysql_real_connect(mysql, address.hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, address.socket, 0);
 			}
 		} else {
-			connect_error = mysql_real_connect(mysql, hostname, set.db_user, set.db_pass, set.db_db, set.db_port, socket, 0);
+			connect_error = mysql_real_connect(mysql, address.hostname, set.db_user, set.db_pass, set.db_db, set.db_port, address.socket, 0);
 		}
 
 		if (!connect_error) {
@@ -364,23 +295,9 @@ void db_connect(int type, MYSQL *mysql) {
 		attempts++;
 	}
 
-	if (hostname != NULL) {
-		free(hostname);
-	}
+	db_address_release(&address);
 
-    #ifdef HAS_MYSQL_OPT_SSL_KEY
-	if (ssl_key != NULL) {
-		free(ssl_key);
-	}
 
-	if (ssl_ca != NULL) {
-		free(ssl_ca);
-	}
-
-	if (ssl_cert != NULL) {
-		free(ssl_cert);
-	}
-    #endif
 
 	if (!success){
 		printf("FATAL: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error(mysql));
@@ -555,9 +472,9 @@ void db_release_connection(int type, int id) {
  *  \return the number of characters added to the end of the character buffer
  *
  */
-int append_hostrange(char *obuf, const char *colname) {
+int append_hostrange(char *obuf, size_t capacity, const char *colname) {
 	if (HOSTID_DEFINED(set.start_host_id) && HOSTID_DEFINED(set.end_host_id)) {
-		return sprintf(obuf, " AND %s BETWEEN %d AND %d",
+		return spine_snprintf(obuf, capacity, " AND %s BETWEEN %d AND %d",
 			colname,
 			set.start_host_id,
 			set.end_host_id);
@@ -579,18 +496,28 @@ int append_hostrange(char *obuf, const char *colname) {
  *
  */
 void db_escape(MYSQL *mysql, char *output, int max_size, const char *input) {
-	if (input == NULL) return;
+	size_t input_len;
+	size_t max_input;
 
-	char input_trimmed[DBL_BUFSIZE];
-	int  max_escaped_input_size = (strlen(input) * 2) + 1;
+	if (input == NULL || output == NULL) return;
 
-	if (max_escaped_input_size > max_size) {
-		snprintf(input_trimmed, (max_size / 2) - 1, "%s", input);
-	} else {
-		snprintf(input_trimmed, max_size, "%s", input);
+	if (max_size <= 1) {
+		if (max_size == 1) {
+			*output = '\0';
+		}
+		return;
 	}
 
-	mysql_real_escape_string(mysql, output, input_trimmed, strlen(input_trimmed));
+	/* Escaping can double every byte and adds a NUL terminator. Derive the
+	 * input limit from the caller's destination rather than a fixed staging
+	 * buffer, so full RESULTS_BUFFER values survive in a 2N+1 destination. */
+	max_input = ((size_t) max_size - 1) / 2;
+	input_len = strlen(input);
+	if (input_len > max_input) {
+		input_len = max_input;
+	}
+
+	mysql_real_escape_string(mysql, output, input, (unsigned long) input_len);
 }
 
 void db_free_result(MYSQL_RES *result) {
@@ -609,7 +536,7 @@ int db_column_exists(MYSQL *mysql, int type, const char *table, const char *colu
 	/* show the sql query */
 	SPINE_LOG_DEVDBG(("DEVDBG: db_column_exists('%s','%s'): %s", table, column, query_frag));
 
-	result = db_query(mysql, LOCAL, query_frag);
+	result = db_query(mysql, type, query_frag);
 	if (mysql_num_rows(result)) {
 		exists = TRUE;
 	} else {

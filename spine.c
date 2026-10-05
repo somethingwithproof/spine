@@ -192,18 +192,20 @@ void drop_root(uid_t server_uid, gid_t server_gid) {
  */
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
-	double begin_time, end_time, cur_time;
+	double begin_time;
+	double end_time;
+	double cur_time;
 	int num_rows = 0;
 	int device_counter = 0;
 	int valid_conf_file = FALSE;
-	char querybuf[MEGA_BUFSIZE], *qp = querybuf;
+	char querybuf[MEGA_BUFSIZE];
+	char *qp = querybuf;
 	char *host_time = NULL;
 	double host_time_double = 0;
 	int items_per_thread = 0;
 	int device_threads;
 	sem_t thread_init_sem;
 	int a_threads_value;
-	//struct timespec until_spec;
 
 	start_time = get_time_as_double();
 	total_time = 0;
@@ -252,6 +254,7 @@ int main(int argc, char *argv[]) {
 
 	/* create the array of debug devices */
 	debug_devices = calloc(100, sizeof(int));
+	if (debug_devices == NULL) die("ERROR: Fatal malloc error: debug device list!");
 
 	/* initialize icmp_avail */
 	set.icmp_avail = TRUE;
@@ -520,14 +523,7 @@ int main(int argc, char *argv[]) {
 	/* tokenize the debug devices */
 	if (strlen(set.selective_device_debug)) {
 		SPINE_LOG_DEBUG(("DEBUG: Selective Debug Devices %s", set.selective_device_debug));
-		int i = 0;
-		char *token = strtok(set.selective_device_debug, ",");
-		while(token) {
-			debug_devices[i]   = atoi(token);
-			debug_devices[i+1] = '\0';
-			token = strtok(NULL, ",");
-			i++;
-		}
+		parse_debug_devices(set.selective_device_debug, debug_devices, 100);
 	} else {
 		debug_devices[0] = '\0';
 	}
@@ -619,25 +615,28 @@ int main(int argc, char *argv[]) {
 
 	/* initialize the script server */
 	if (set.php_required && !set.ping_only) {
-		php_init(PHP_INIT);
+		if (!php_init(PHP_INIT)) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: PHP Script Server initialization failed");
+		}
 		set.php_initialized    = TRUE;
 		set.php_current_server = 0;
 	}
 
 	/* obtain the list of hosts to poll */
-	qp += sprintf(qp, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
-	qp += sprintf(qp, " WHERE disabled = ''");
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " WHERE disabled = ''");
 
-	qp += sprintf(qp, " AND availability_method != %d", AVAIL_STREAM);
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
 
 	if (!strlen(set.host_id_list)) {
-		qp += append_hostrange(qp, "h.id");	/* AND id BETWEEN a AND b */
+		qp += append_hostrange(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "h.id");	/* AND id BETWEEN a AND b */
 	} else {
-		qp += sprintf(qp, " AND h.id IN(%s)", set.host_id_list);
+		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.id IN(%s)", set.host_id_list);
 	}
 
-	qp += sprintf(qp, " AND h.poller_id = %i", set.poller_id);
-	qp += sprintf(qp, " ORDER BY picount DESC");
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller_id);
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
 
 	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
 	result = db_query(&mysql, LOCAL, querybuf);
@@ -784,10 +783,10 @@ int main(int argc, char *argv[]) {
 
 				db_free_result(tresult);
 
-				sprintf(host_time, "%lu", (unsigned long) time(NULL));
+				spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				host_time_double = get_time_as_double();
 			} else if (host_time_double == 0 || host_time == 0 || host_time == NULL) {
-				sprintf(host_time, "%lu", (unsigned long) time(NULL));
+				spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				host_time_double = get_time_as_double();
 			}
 		} else {
@@ -799,7 +798,7 @@ int main(int argc, char *argv[]) {
 
 			db_free_result(tresult);
 
-			sprintf(host_time, "%lu", (unsigned long) time(NULL));
+			spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 			host_time_double = get_time_as_double();
 		}
 

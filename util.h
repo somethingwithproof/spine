@@ -55,17 +55,23 @@ extern int is_hexadecimal(const char * str, const short ignore_special);
 
 /* determine if a device is a debug device */
 extern int is_debug_device(int device_id);
+extern void parse_debug_devices(char *device_list, int *devices, size_t capacity);
+extern bool spine_should_log_device(int host_id, int verbosity);
 
 /* string and file functions */
-extern char *add_slashes(char *string);
+extern char *add_slashes(const char *string);
 extern int file_exists(const char *filename);
 extern char *strip_alpha(char *string);
 extern char *strncopy(char *dst, const char *src, size_t n);
+extern int spine_snprintf(char *output, size_t capacity, const char *format, ...)
+	__attribute__((format(printf, 3, 4)));
+extern void spine_clear_sensitive(void *buffer, size_t length);
+extern void spine_sanitize_log_message(char *message);
 extern char *trim(char *str);
 extern char *rtrim(char *str);
 extern char *ltrim(char *str);
 extern char *reverse(char *str);
-extern int strpos(char *haystack, char *needle) ;
+extern int strpos(const char *haystack, const char *needle) ;
 extern int char_count(const char *str, int chr);
 
 /* custom hex2dec that returns a string instead of a number */
@@ -74,7 +80,7 @@ unsigned long long hex2dec(char *str);
 /* custom regex replace to return a value if matches */
 #define MAX_MATCHES 5
 #define REGEX_NUMBER "([-+]*)([0-9]*)([.][0-9]+)"
-char *regex_replace(char *exp, char *value);
+char *regex_replace(const char *exp, char *value);
 
 /* macro to copy string to string with an ending null */
 #define STRNCOPY(dst, src)  strncopy((dst), (src), sizeof(dst))

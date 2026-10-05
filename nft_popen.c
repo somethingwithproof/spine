@@ -88,12 +88,13 @@
 #include "spine.h"
 
 /* An instance of this struct is created for each popen() fd. */
-static struct pid
+struct pid
 {
     struct pid *next;
     int		fd;
     pid_t	pid;
-} * PidList;
+};
+static struct pid *PidList;
 
 /* Serialize access to PidList. */
 static pthread_mutex_t ListMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -122,15 +123,32 @@ static void	close_cleanup(void *);
  *
  *------------------------------------------------------------------------------
  */
+static pid_t fork_script(void) {
+	for (int attempt = 0; ; attempt++) {
+		pid_t pid = fork();
+		if (pid >= 0) return pid;
+		int failure = errno;
+		if (attempt < 3 && (failure == EAGAIN || failure == ENOMEM)) {
+			#ifndef SOLAR_THREAD
+			usleep(50000);
+			#endif
+			continue;
+		}
+		SPINE_LOG(("ERROR: SCRIPT Could not fork: %s", strerror(failure)));
+		errno = failure;
+		return -1;
+	}
+}
+
 int nft_popen(const char * command, const char * type) {
 	struct pid *cur;
-	struct pid *p;
 	int    pdes[2];
-	int    fd, pid, twoway;
+	int fd;
+	pid_t pid;
+	int twoway;
 	char   *argv[4];
 	int    cancel_state;
 	extern char **environ;
-	int    retry_count = 0;
 
 	/* On platforms where pipe() is bidirectional,
 	 * "r+" gives two-way communication.
@@ -159,9 +177,18 @@ int nft_popen(const char * command, const char * type) {
 		return -1;
 	}
 
+	char *command_copy = strdup(command);
+	if (command_copy == NULL) {
+		close(pdes[0]);
+		close(pdes[1]);
+		free(cur);
+		pthread_setcancelstate(cancel_state, NULL);
+		return -1;
+	}
+
 	argv[0] = "sh";
 	argv[1] = "-c";
-	argv[2] = (char *)command;
+	argv[2] = command_copy;
 	argv[3] = NULL;
 
 	/* Lock the list mutex prior to forking, to ensure that
@@ -170,40 +197,15 @@ int nft_popen(const char * command, const char * type) {
 	pthread_mutex_lock(&ListMutex);
 
 	/* Fork. */
-	retry:
-	switch (pid = vfork()) {
-	case -1:		/* Error. */
-		switch (errno) {
-		case EAGAIN:
-			if (retry_count < 3) {
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				usleep(50000);
-				#endif
-				goto retry;
-			}else{
-				SPINE_LOG(("ERROR: SCRIPT: Could not fork. Out of Resources nft_popen.c"));
-			}
-		case ENOMEM:
-			if (retry_count < 3) {
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				usleep(50000);
-				#endif
-				goto retry;
-			}else{
-				SPINE_LOG(("ERROR: SCRIPT Could not fork. Out of Memory nft_popen.c"));
-			}
-		default:
-			SPINE_LOG(("ERROR: SCRIPT Could not fork. Unknown Reason nft_popen.c"));
-		}
+	switch (pid = fork_script()) {
+	case -1:
 
 		(void)close(pdes[0]);
 		(void)close(pdes[1]);
 		pthread_mutex_unlock(&ListMutex);
 		pthread_setcancelstate(cancel_state, NULL);
+		free(cur);
+		free(command_copy);
 
 		return -1;
 		/* NOTREACHED */
@@ -235,7 +237,7 @@ int nft_popen(const char * command, const char * type) {
 		/* Close all the other pipes in the child process.
 		 * Posix.2 requires this, tho I don't know why.
 		 */
-		for (p = PidList; p; p = p->next)
+		for (struct pid *p = PidList; p; p = p->next)
 			(void)close(p->fd);
 
 		/* Execute the command. */
@@ -249,10 +251,12 @@ int nft_popen(const char * command, const char * type) {
 		execve("/bin/sh", argv, environ);
 		#endif
 		_exit(127);
-		/* NOTREACHED */
+	default:
+		break;
 	}
 
 	/* Parent. */
+	free(command_copy);
 	if (*type == 'r') {
 		fd = pdes[0];
 		(void)close(pdes[1]);
@@ -335,8 +339,9 @@ nft_pclose(int fd)
 	/* Find the appropriate file descriptor. */
 	pthread_mutex_lock(&ListMutex);
 
-	for (cur = PidList; cur; cur = cur->next)
-	if (cur->fd == fd) break;
+	for (cur = PidList; cur; cur = cur->next) {
+		if (cur->fd == fd) break;
+	}
 
 	pthread_mutex_unlock(&ListMutex);
 
@@ -385,10 +390,11 @@ close_cleanup(void * arg)
 	if (PidList == cur) {
 		PidList =  cur->next;
 	}else{
-		for (prev = PidList; prev; prev = prev->next)
-		if (prev->next == cur) {
-			prev->next =  cur->next;
-			break;
+		for (prev = PidList; prev; prev = prev->next) {
+			if (prev->next == cur) {
+				prev->next = cur->next;
+				break;
+			}
 		}
 
 		assert(prev != NULL);	/* Search should not fail */
@@ -398,4 +404,3 @@ close_cleanup(void * arg)
 
 	free(cur);
 }
-

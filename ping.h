@@ -137,9 +137,9 @@ struct icmp
 extern int ping_host(host_t *host, ping_t *ping);
 extern int ping_snmp(host_t *host, ping_t *ping);
 extern int ping_icmp(host_t *host, ping_t *ping);
-extern int ping_udp(host_t *host, ping_t *ping);
-extern int ping_tcp(host_t *host, ping_t *ping);
-extern name_t *get_namebyhost(char *hostname, name_t *name);
+extern int ping_udp(const host_t *host, ping_t *ping);
+extern int ping_tcp(const host_t *host, ping_t *ping);
+extern name_t *get_namebyhost(const char *hostname, name_t *name);
 extern void update_host_status(int status, host_t *host, ping_t *ping, int availability_method);
 extern int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port);
 extern int get_address_type(host_t *host);

@@ -47,82 +47,58 @@
  *  \return pointer to the string results.  Must be freed by the parent.
  *
  */
+static char *php_undefined_result(void) {
+	char *result = strdup("U");
+	if (result == NULL) die("ERROR: Fatal malloc error: PHP undefined result!");
+	return result;
+}
+
+static bool php_write_command(int fd, const char *command) {
+	size_t sent = 0;
+	size_t length = strlen(command);
+	while (sent < length) {
+		ssize_t bytes = write(fd, command + sent, length - sent);
+		if (bytes < 0 && errno == EINTR) continue;
+		if (bytes <= 0) return false;
+		sent += (size_t)bytes;
+	}
+	return true;
+}
+
 char *php_cmd(const char *php_command, int php_process) {
-	char *result_string;
+	static const int process_locks[MAX_PHP_SERVERS] = {
+		LOCK_PHP_PROC_0, LOCK_PHP_PROC_1, LOCK_PHP_PROC_2, LOCK_PHP_PROC_3,
+		LOCK_PHP_PROC_4, LOCK_PHP_PROC_5, LOCK_PHP_PROC_6, LOCK_PHP_PROC_7,
+		LOCK_PHP_PROC_8, LOCK_PHP_PROC_9, LOCK_PHP_PROC_10, LOCK_PHP_PROC_11,
+		LOCK_PHP_PROC_12, LOCK_PHP_PROC_13, LOCK_PHP_PROC_14
+	};
+	assert(php_command != NULL);
 	char command[BUFSIZE];
-	ssize_t bytes;
-	int retries = 0;
-
-	assert(php_command != 0);
-
-	/* pad command with CR-LF */
-	snprintf(command, BUFSIZE, "%s\r\n", php_command);
-
-	/* place lock around mutex */
-	switch (php_process) {
-	case 0:  thread_mutex_lock(LOCK_PHP_PROC_0);  break;
-	case 1:  thread_mutex_lock(LOCK_PHP_PROC_1);  break;
-	case 2:  thread_mutex_lock(LOCK_PHP_PROC_2);  break;
-	case 3:  thread_mutex_lock(LOCK_PHP_PROC_3);  break;
-	case 4:  thread_mutex_lock(LOCK_PHP_PROC_4);  break;
-	case 5:  thread_mutex_lock(LOCK_PHP_PROC_5);  break;
-	case 6:  thread_mutex_lock(LOCK_PHP_PROC_6);  break;
-	case 7:  thread_mutex_lock(LOCK_PHP_PROC_7);  break;
-	case 8:  thread_mutex_lock(LOCK_PHP_PROC_8);  break;
-	case 9:  thread_mutex_lock(LOCK_PHP_PROC_9);  break;
-	case 10: thread_mutex_lock(LOCK_PHP_PROC_10); break;
-	case 11: thread_mutex_lock(LOCK_PHP_PROC_11); break;
-	case 12: thread_mutex_lock(LOCK_PHP_PROC_12); break;
-	case 13: thread_mutex_lock(LOCK_PHP_PROC_13); break;
-	case 14: thread_mutex_lock(LOCK_PHP_PROC_14); break;
+	/* A request occupies one protocol line, including CR-LF and its NUL. */
+	if (strlen(php_command) > sizeof(command) - 3 || strpbrk(php_command, "\r\n") != NULL) {
+		SPINE_LOG(("ERROR: SS[%i] Invalid PHP Script Server command framing or length", php_process));
+		return php_undefined_result();
 	}
-
-	/* send command to the script server */
-	retry:
-	bytes = write(php_processes[php_process].php_write_fd, command, strlen(command));
-
-	/* if write status is <= 0 then the script server may be hung */
-	if (bytes <= 0) {
-		result_string = strdup("U");
-		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server", php_process, command));
-
+	if (php_process < 0 || php_process >= set.php_servers || php_process >= MAX_PHP_SERVERS || php_processes == NULL) {
+		SPINE_LOG(("ERROR: SS[%i] Invalid PHP Script Server process", php_process));
+		return php_undefined_result();
+	}
+	spine_snprintf(command, sizeof(command), "%s\r\n", php_command);
+	int lock = process_locks[php_process];
+	thread_mutex_lock(lock);
+	char *result = NULL;
+	for (int retry = 0; retry < 3; retry++) {
+		if (php_write_command(php_processes[php_process].php_write_fd, command)) {
+			result = php_readpipe(php_process, command);
+			if (result[0] == '\0') SET_UNDEFINED(result);
+			break;
+		}
+		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending command. Restarting PHP Script Server", php_process));
 		php_close(php_process);
-		php_init(php_process);
-		/* increment and retry a few times on the next item */
-		retries++;
-		if (retries < 3) {
-			goto retry;
-		}
-	} else {
-		/* read the result from the php_command */
-		result_string = php_readpipe(php_process, command);
-
-		/* check for a null */
-		if (!strlen(result_string)) {
-			SET_UNDEFINED(result_string);
-		}
+		if (!php_init(php_process)) break;
 	}
-
-	/* unlock around php process */
-	switch (php_process) {
-	case 0:  thread_mutex_unlock(LOCK_PHP_PROC_0);  break;
-	case 1:  thread_mutex_unlock(LOCK_PHP_PROC_1);  break;
-	case 2:  thread_mutex_unlock(LOCK_PHP_PROC_2);  break;
-	case 3:  thread_mutex_unlock(LOCK_PHP_PROC_3);  break;
-	case 4:  thread_mutex_unlock(LOCK_PHP_PROC_4);  break;
-	case 5:  thread_mutex_unlock(LOCK_PHP_PROC_5);  break;
-	case 6:  thread_mutex_unlock(LOCK_PHP_PROC_6);  break;
-	case 7:  thread_mutex_unlock(LOCK_PHP_PROC_7);  break;
-	case 8:  thread_mutex_unlock(LOCK_PHP_PROC_8);  break;
-	case 9:  thread_mutex_unlock(LOCK_PHP_PROC_9);  break;
-	case 10: thread_mutex_unlock(LOCK_PHP_PROC_10); break;
-	case 11: thread_mutex_unlock(LOCK_PHP_PROC_11); break;
-	case 12: thread_mutex_unlock(LOCK_PHP_PROC_12); break;
-	case 13: thread_mutex_unlock(LOCK_PHP_PROC_13); break;
-	case 14: thread_mutex_unlock(LOCK_PHP_PROC_14); break;
-	}
-
-	return result_string;
+	thread_mutex_unlock(lock);
+	return result != NULL ? result : php_undefined_result();
 }
 
 /*!  \fn in php_get_process()
@@ -159,7 +135,10 @@ int php_get_process(void) {
  *
  *  \return a string pointer to the PHP Script Server response
  */
-char *php_readpipe(int php_process, char *command) {
+char *php_readpipe(int php_process, const char *command) {
+	if (php_processes == NULL || php_process < 0 || php_process >= set.php_servers || php_process >= MAX_PHP_SERVERS) {
+		return php_undefined_result();
+	}
 	fd_set fds;
 	struct timeval timeout;
 	double begin_time = 0;
@@ -167,8 +146,7 @@ char *php_readpipe(int php_process, char *command) {
 	double remaining_usec = 0;
 	char *result_string;
 
-	int  i;
-	char *cp;
+	ssize_t i;
 	char *bptr;
 
 	if (!(result_string = (char *)malloc(RESULTS_BUFFER))) {
@@ -238,7 +216,7 @@ char *php_readpipe(int php_process, char *command) {
 
 		/* kill script server because it is misbehaving */
 		php_close(php_process);
-		php_init(php_process);
+		if (strcmp(command, "INIT") != 0) php_init(php_process);
 		break;
 	case 0:
 		/* record end time */
@@ -248,14 +226,14 @@ char *php_readpipe(int php_process, char *command) {
 
 		/* kill script server because it is misbehaving */
 		php_close(php_process);
-		php_init(php_process);
+		if (strcmp(command, "INIT") != 0) php_init(php_process);
 		break;
 	default:
 		if (FD_ISSET(php_processes[php_process].php_read_fd, &fds)) {
 			bptr = result_string;
 
 			while (1) {
-				i = read(php_processes[php_process].php_read_fd, bptr, RESULTS_BUFFER-(bptr-result_string));
+				i = read(php_processes[php_process].php_read_fd, bptr, RESULTS_BUFFER - 1 - (bptr - result_string));
 
 				if (i <= 0) {
 					SET_UNDEFINED(result_string);
@@ -265,13 +243,14 @@ char *php_readpipe(int php_process, char *command) {
 				bptr += i;
 				*bptr = '\0';	/* make what we've got into a string */
 
-				if ((cp = strstr(result_string,"\n")) != 0) {
+				if (strchr(result_string, '\n') != NULL) {
 					break;
 				}
 
-				if (bptr >= result_string+BUFSIZE) {
+				if (bptr >= result_string + RESULTS_BUFFER - 1) {
 					SPINE_LOG(("ERROR: SS[%i] The Script Server result was longer than the acceptable range", php_process));
 					SET_UNDEFINED(result_string);
+					break;
 				}
 			}
 		} else {
@@ -296,200 +275,106 @@ char *php_readpipe(int php_process, char *command) {
  *
  *  \return TRUE if the PHP Script Server is know running or FALSE otherwise
  */
-int php_init(int php_process) {
-	int  cacti2php_pdes[2];
-	int  php2cacti_pdes[2];
-	pid_t  pid;
+static void php_build_arguments(char **argv, char *poller_id, size_t capacity) {
+	argv[0] = set.path_php;
+	argv[1] = "-q";
+	argv[2] = set.path_php_server;
+	if (set.cacti_version <= 1222) {
+		argv[3] = "spine";
+		spine_snprintf(poller_id, capacity, "%d", set.poller_id);
+		argv[4] = poller_id;
+		argv[5] = NULL;
+		return;
+	}
+	argv[3] = "--environ=spine";
+	spine_snprintf(poller_id, capacity, "--poller=%d", set.poller_id);
+	argv[4] = poller_id;
+	argv[5] = NULL;
+	if (set.poller_id > 1) {
+		argv[5] = set.mode == REMOTE_ONLINE ? "--mode=online" : "--mode=offline";
+		argv[6] = NULL;
+	}
+}
+
+static pid_t php_fork_server(int process) {
+	for (int attempt = 0; attempt < 4; attempt++) {
+		pid_t pid = fork();
+		if (pid >= 0) return pid;
+		if (errno != EAGAIN && errno != ENOMEM) break;
+		#ifndef SOLAR_THREAD
+		usleep(50000);
+		#endif
+	}
+	SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server: %s", process, strerror(errno)));
+	return -1;
+}
+
+static bool php_start_process(int process) {
+	int requests[2];
+	int responses[2];
 	char poller_id[TINY_BUFSIZE];
-	char mode[TINY_BUFSIZE];
 	char *argv[7];
-	int  cancel_state;
-	char *result_string = 0;
-	int num_processes;
-	int i;
-	int retry_count = 0;
-	char *command = strdup("INIT");
-
-	/* special code to start all PHP Servers */
-	if (php_process == PHP_INIT) {
-		num_processes = set.php_servers;
-	} else {
-		num_processes = 1;
+	int cancel_state;
+	php_build_arguments(argv, poller_id, sizeof(poller_id));
+	if (pipe(requests) < 0) {
+		SPINE_LOG(("ERROR: SS[%i] Could not allocate PHP request pipe", process));
+		return FALSE;
 	}
-
-	for (i=0; i < num_processes; i++) {
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Routine Starting", i));
-
-		/* create the output pipes from Spine to php*/
-		if (pipe(cacti2php_pdes) < 0) {
-			SPINE_LOG(("ERROR: SS[%i] Could not allocate php server pipes", i));
-			return FALSE;
+	if (pipe(responses) < 0) {
+		close(requests[0]);
+		close(requests[1]);
+		SPINE_LOG(("ERROR: SS[%i] Could not allocate PHP response pipe", process));
+		return FALSE;
+	}
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
+	pid_t pid = php_fork_server(process);
+	if (pid == 0) {
+		if (dup2(requests[0], STDIN_FILENO) < 0 || dup2(responses[1], STDOUT_FILENO) < 0) _exit(127);
+		int descriptors[] = {requests[0], requests[1], responses[0], responses[1]};
+		for (size_t i = 0; i < sizeof(descriptors) / sizeof(descriptors[0]); i++) {
+			if (descriptors[i] != STDIN_FILENO && descriptors[i] != STDOUT_FILENO) close(descriptors[i]);
 		}
-
-		/* create the input pipes from php to Spine */
-		if (pipe(php2cacti_pdes) < 0) {
-			SPINE_LOG(("ERROR: SS[%i] Could not allocate php server pipes", i));
-			return FALSE;
-		}
-
-		/* disable thread cancellation from this point forward. */
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
-
-		/* establish arguments for script server execution */
-		if (set.cacti_version <= 1222) {
-			argv[0] = set.path_php;
-			argv[1] = "-q";
-			argv[2] = set.path_php_server;
-			argv[3] = "spine";
-			snprintf(poller_id, TINY_BUFSIZE, "%d", set.poller_id);
-			argv[4] = poller_id;
-			argv[5] = NULL;
-		} else if (set.poller_id > 1) {
-			argv[0] = set.path_php;
-			argv[1] = "-q";
-			argv[2] = set.path_php_server;
-			argv[3] = "--environ=spine";
-
-			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
-			argv[4] = poller_id;
-
-			if (set.mode == REMOTE_ONLINE) {
-				snprintf(mode, TINY_BUFSIZE, "--mode=online");
-			} else {
-				snprintf(mode, TINY_BUFSIZE, "--mode=offline");
-			}
-			argv[5] = mode;
-
-			argv[6] = NULL;
-		} else {
-			argv[0] = set.path_php;
-			argv[1] = "-q";
-			argv[2] = set.path_php_server;
-			argv[3] = "--environ=spine";
-			snprintf(poller_id, TINY_BUFSIZE, "--poller=%d", set.poller_id);
-			argv[4] = poller_id;
-
-			argv[5] = NULL;
-		}
-
-		/* fork a child process */
-		SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server About to FORK Child Process", i));
-
-		retry:
-
-		pid = vfork();
-
-		/* check the pid status and process as required */
-		switch (pid) {
-			case -1: /* ERROR: Could not fork() */
-				switch (errno) {
-				case EAGAIN:
-					if (retry_count < 3) {
-						retry_count++;
-						#ifndef SOLAR_THREAD
-						/* take a moment */
-						usleep(50000);
-						#endif
-						goto retry;
-					} else {
-						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Resources", i));
-					}
-				case ENOMEM:
-					if (retry_count < 3) {
-						retry_count++;
-						#ifndef SOLAR_THREAD
-						/* take a moment */
-						usleep(50000);
-						#endif
-						goto retry;
-					} else {
-						SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Out of Memory", i));
-					}
-				default:
-					SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server Unknown Reason", i));
-				}
-
-				close(php2cacti_pdes[0]);
-				close(php2cacti_pdes[1]);
-				close(cacti2php_pdes[0]);
-				close(cacti2php_pdes[1]);
-
-				SPINE_LOG(("ERROR: SS[%i] Could not fork PHP Script Server", i));
-				pthread_setcancelstate(cancel_state, NULL);
-
-				return FALSE;
-				/* NOTREACHED */
-			case 0:	/* SUCCESS: I am now the child */
-				/* set the standard input/output channels of the new process.  */
-				dup2(cacti2php_pdes[0], STDIN_FILENO);
-				dup2(php2cacti_pdes[1], STDOUT_FILENO);
-
-				/* close unneeded Pipes */
-				(void)close(php2cacti_pdes[0]);
-				(void)close(php2cacti_pdes[1]);
-				(void)close(cacti2php_pdes[0]);
-				(void)close(cacti2php_pdes[1]);
-
-				/* start the php script server process */
-				execv(argv[0], argv);
-				_exit(127);
-				/* NOTREACHED */
-			default: /* I am the parent process */
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] PHP Script Server Child FORK Success", i));
-		}
-
-		/* Parent */
-		/* close unneeded pipes */
-		close(cacti2php_pdes[0]);
-		close(php2cacti_pdes[1]);
-
-		if (php_process == PHP_INIT) {
-			php_processes[i].php_pid = pid;
-			php_processes[i].php_write_fd = cacti2php_pdes[1];
-			php_processes[i].php_read_fd = php2cacti_pdes[0];
-		} else {
-			php_processes[php_process].php_pid = pid;
-			php_processes[php_process].php_write_fd = cacti2php_pdes[1];
-			php_processes[php_process].php_read_fd = php2cacti_pdes[0];
-		}
-
-		/* restore caller's cancellation state. */
+		execv(argv[0], argv);
+		_exit(127);
+	}
+	close(requests[0]);
+	close(responses[1]);
+	if (pid < 0) {
+		close(requests[1]);
+		close(responses[0]);
 		pthread_setcancelstate(cancel_state, NULL);
-
-		/* check pipe to insure startup took place */
-		if (php_process == PHP_INIT) {
-			result_string = php_readpipe(i, command);
-		} else {
-			result_string = php_readpipe(php_process, command);
-		}
-
-		if (strstr(result_string, "Started")) {
-			if (php_process == PHP_INIT) {
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]", i, php2cacti_pdes[0], cacti2php_pdes[1]));
-
-				php_processes[i].php_state = PHP_READY;
-			} else {
-				SPINE_LOG_DEBUG(("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]", php_process, php2cacti_pdes[0], cacti2php_pdes[1]));
-
-				php_processes[php_process].php_state = PHP_READY;
-			}
-		} else {
-			if (php_process == PHP_INIT) {
-				SPINE_LOG(("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", i, result_string));
-
-				php_processes[i].php_state = PHP_BUSY;
-			} else {
-				SPINE_LOG(("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", php_process, result_string));
-
-				php_processes[php_process].php_state = PHP_BUSY;
-			}
-		}
-
-		free(result_string);
+		return FALSE;
 	}
+	php_t *server = &php_processes[process];
+	server->php_pid = pid;
+	server->php_write_fd = requests[1];
+	server->php_read_fd = responses[0];
+	server->php_state = PHP_BUSY;
+	pthread_setcancelstate(cancel_state, NULL);
+	char *result = php_readpipe(process, "INIT");
+	bool started = strstr(result, "Started") != NULL;
+	if (started) {
+		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Confirmed PHP Script Server running using readfd[%i], writefd[%i]",
+			process, server->php_read_fd, server->php_write_fd));
+		server->php_state = PHP_READY;
+	} else {
+		SPINE_LOG(("ERROR: SS[%i] Script Server did not start properly return message was: '%s'", process, result));
+		server->php_state = PHP_BUSY;
+		php_close(process);
+	}
+	free(result);
+	return started;
+}
 
-	free(command);
-
+int php_init(int php_process) {
+	if (php_processes == NULL || set.php_servers < 0 || set.php_servers > MAX_PHP_SERVERS) return FALSE;
+	if (php_process != PHP_INIT) {
+		if (php_process < 0 || php_process >= set.php_servers) return FALSE;
+		return php_start_process(php_process);
+	}
+	for (int process = 0; process < set.php_servers; process++) {
+		if (!php_start_process(process)) return FALSE;
+	}
 	return TRUE;
 }
 
@@ -509,7 +394,7 @@ int php_init(int php_process) {
 void php_close(int php_process) {
 	int i;
 	int num_processes;
-	int len;
+	ssize_t len;
 
 	if (php_process == PHP_INIT) {
 		num_processes = set.php_servers;
