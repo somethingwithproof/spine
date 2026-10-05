@@ -714,40 +714,28 @@ int append_hostrange(char *obuf, const char *colname) {
  *
  */
 void db_escape(MYSQL *mysql, char *output, int max_size, const char *input) {
-	char   *input_trimmed;
-	size_t max_escaped_input_size;
-	size_t trim_len;
+	size_t input_len;
+	size_t max_input;
 
-	if (input == NULL) return;
-	if (max_size <= 0) return;
+	if (input == NULL || output == NULL) return;
 
-	/* input_trimmed only ever needs to hold what can fit escaped into
-	 * output, so size it to the caller's max_size instead of a fixed
-	 * DBL_BUFSIZE. The previous fixed cap meant a larger max_size never
-	 * actually admitted a longer input, silently truncating it anyway. */
-	if (!(input_trimmed = (char *) malloc((size_t) max_size))) {
-		die("ERROR: Fatal malloc error: sql.c db_escape!");
+	if (max_size <= 1) {
+		if (max_size == 1) {
+			*output = '\0';
+		}
+		return;
 	}
 
-	max_escaped_input_size = (strlen(input) * 2) + 1;
-
-	/* Escaping can double every byte, so input_trimmed may hold at most
-	 * (max_size - 1) / 2 characters and the escaped result still fits within
-	 * max_size, including the terminator. This is always >= 1 for any
-	 * max_size >= 1, so the terminator is always reserved: max_size of 1-3
-	 * previously drove this to 0 (an unterminated output) or -1 (converted
-	 * to a huge size_t that let snprintf overflow the allocation). */
-	trim_len = ((size_t) max_size - 1) / 2 + 1;
-
-	if (max_escaped_input_size > (size_t) max_size) {
-		snprintf(input_trimmed, trim_len, "%s", input);
-	} else {
-		snprintf(input_trimmed, (size_t) max_size, "%s", input);
+	/* Escaping can double every byte and adds a NUL terminator. Derive the
+	 * input limit from the caller's destination rather than a fixed staging
+	 * buffer, so full RESULTS_BUFFER values survive in a 2N+1 destination. */
+	max_input = ((size_t) max_size - 1) / 2;
+	input_len = strlen(input);
+	if (input_len > max_input) {
+		input_len = max_input;
 	}
 
-	mysql_real_escape_string(mysql, output, input_trimmed, strlen(input_trimmed));
-
-	free(input_trimmed);
+	mysql_real_escape_string(mysql, output, input, (unsigned long) input_len);
 }
 
 void db_free_result(MYSQL_RES *result) {
