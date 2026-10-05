@@ -396,6 +396,67 @@ static void test_log_sanitization(void) {
 	set.log_destination = 0;
 }
 
+static void *test_log_writer(void *argument) {
+	const char *message = argument;
+	for (int count = 0; count < 5; count++) assert(spine_log("%s", message));
+	return NULL;
+}
+
+static void test_log_append_and_failures(void) {
+	config_t previous = set;
+	char path[] = "spine-log-append-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	static const char retained[] = "retained record\n";
+	assert(write(fd, retained, sizeof(retained) - 1) == (ssize_t)(sizeof(retained) - 1));
+	assert(close(fd) == 0);
+	set.log_destination = LOGDEST_FILE;
+	set.log_level = POLLER_VERBOSITY_LOW;
+	set.logfile_processed = TRUE;
+	set.stdout_notty = TRUE;
+	set.stderr_notty = TRUE;
+	strncopy(set.path_logfile, path, sizeof(set.path_logfile));
+	char first[20001], second[20001];
+	memset(first, 'a', sizeof(first) - 1);
+	memset(second, 'b', sizeof(second) - 1);
+	first[sizeof(first) - 1] = '\0';
+	second[sizeof(second) - 1] = '\0';
+	pthread_t threads[2];
+	assert(pthread_create(&threads[0], NULL, test_log_writer, first) == 0);
+	assert(pthread_create(&threads[1], NULL, test_log_writer, second) == 0);
+	assert(pthread_join(threads[0], NULL) == 0);
+	assert(pthread_join(threads[1], NULL) == 0);
+	FILE *file = fopen(path, "r");
+	assert(file != NULL);
+	char *line = NULL;
+	size_t capacity = 0;
+	assert(getline(&line, &capacity, file) == (ssize_t)(sizeof(retained) - 1));
+	assert(strcmp(line, retained) == 0);
+	int first_count = 0, second_count = 0;
+	while (getline(&line, &capacity, file) >= 0) {
+		char *body = strstr(line, first);
+		if (body != NULL) first_count++;
+		else { body = strstr(line, second); second_count++; }
+		assert(body != NULL && strcmp(body + 20000, "\n") == 0);
+	}
+	assert(!ferror(file) && first_count == 5 && second_count == 5);
+	free(line);
+	assert(fclose(file) == 0 && unlink(path) == 0);
+	/* Append mode must also create a missing file. */
+	assert(spine_log("created record"));
+	assert(file_exists(path) && unlink(path) == 0);
+	char directory[] = "spine-log-directory-XXXXXX";
+	assert(mkdtemp(directory) != NULL);
+	strncopy(set.path_logfile, directory, sizeof(set.path_logfile));
+	assert(!spine_log("must fail to open directory"));
+	assert(rmdir(directory) == 0);
+	#ifdef __linux__
+	STRNCOPY(set.path_logfile, "/dev/full");
+	assert(!spine_log("must detect buffered write/close failure"));
+	#endif
+	set = previous;
+}
+
 static void test_config_directives(void) {
 	char path[] = "spine-config-test-XXXXXX";
 	int fd = mkstemp(path);
@@ -1165,6 +1226,7 @@ int main(int argc, char **argv) {
 	test_secret_clear();
 	test_log_boundary();
 	test_log_sanitization();
+	test_log_append_and_failures();
 	test_config_directives();
 	test_date_formats();
 	test_device_logging();

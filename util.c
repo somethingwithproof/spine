@@ -1395,172 +1395,101 @@ bool spine_should_log_device(int host_id, int verbosity) {
 	return is_debug_device(host_id) || set.log_level >= verbosity;
 }
 
+static FILE *log_error_stream(void) {
+	#ifdef DISABLE_STDERR
+	return stdout;
+	#else
+	return stderr;
+	#endif
+}
+
+static bool log_stream_available(FILE *stream) {
+	return (stream == stdout && !set.stdout_notty) || (stream == stderr && !set.stderr_notty);
+}
+
+static void log_format_error(const char *message) {
+	FILE *stream = log_error_stream();
+	if (log_stream_available(stream)) fprintf(stream, "%s\n", message);
+}
+
+static bool log_format_message(char *output, const char *message) {
+	char prefix[LOGSIZE];
+	snprintf(prefix, sizeof(prefix), "SPINE: Poller[%i] PID[%i] PT[%ld] ", set.poller_id, getpid(), (unsigned long int)pthread_self());
+	time_t now = time(NULL);
+	struct tm local;
+	char *date_format = get_date_format();
+	size_t date_length = 0;
+	if (localtime_r(&now, &local) != NULL) date_length = strftime(output, 50, date_format, &local);
+	free(date_format);
+	if (date_length == 0) {
+		output[0] = '\0';
+		log_format_error("ERROR: Could not get string from strftime()");
+	}
+	int prefix_length = spine_count_to_int(strlen(prefix));
+	int message_length = spine_count_to_int(strlen(message));
+	int available = LOGSIZE - spine_count_to_int(date_length) - 2;
+	if (prefix_length > available) prefix_length = available;
+	if (message_length > available - prefix_length) message_length = available - prefix_length;
+	snprintf(output + date_length, LOGSIZE - date_length, "%.*s%.*s", prefix_length, prefix, message_length, message);
+	return date_length != 0;
+}
+
+static void log_to_syslog(const char *message) {
+	if (!IS_LOGGING_TO_SYSLOG()) return;
+	openlog("Cacti", LOG_NDELAY | LOG_PID, LOG_SYSLOG);
+	if ((strstr(message, "ERROR") || strstr(message, "FATAL")) && set.log_perror) syslog(LOG_CRIT, "%s\n", message);
+	if (strstr(message, "WARNING") && set.log_pwarn) syslog(LOG_WARNING, "%s\n", message);
+	if (strstr(message, "STATS") && set.log_pstats) syslog(LOG_NOTICE, "%s\n", message);
+	closelog();
+}
+
+static bool log_to_file(const char *message) {
+	if (!IS_LOGGING_TO_FILE() || set.log_level == POLLER_VERBOSITY_NONE || !set.path_logfile[0] || !set.logfile_processed) return TRUE;
+	/* Serialize complete records and the once-only diagnostic. Append mode
+	 * creates missing files without a stat/open race that can truncate them. */
+	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+	static bool reported_error = FALSE;
+	if (pthread_mutex_lock(&mutex) != 0) return FALSE;
+	FILE *file = fopen(set.path_logfile, "a");
+	bool success = FALSE;
+	if (file != NULL) {
+		success = fputs(message, file) != EOF;
+		if (fclose(file) != 0) success = FALSE;
+	}
+	if (!success && !reported_error) {
+		printf("ERROR: Spine Log File Could Not Be Opened/Created or Written\n");
+		reported_error = TRUE;
+	}
+	if (pthread_mutex_unlock(&mutex) != 0) return FALSE;
+	return success;
+}
+
 int spine_log(const char *format, ...) {
-	va_list	args;
-
-	FILE *log_file = NULL;
-	FILE *fp = NULL;
-
-	/* variables for time display */
-	time_t nowbin;
-	struct tm now_time;
-	const struct tm *now_ptr;
-
-	/* keep track of an errored log file */
-	static int log_error = FALSE;
-
-	int  of = 20;
-	char logprefix[LOGSIZE];        /* Formatted Log Prefix */
-	char ulogmessage[LOGSIZE];      /* Un-Formatted Log Message */
-	char flogmessage[LOGSIZE];      /* Formatted Log Message */
-	char stdoutmessage[LOGSIZE+of]; /* Message for stdout */
-
-	double cur_time;
-
+	char message[LOGSIZE];
+	va_list args;
 	va_start(args, format);
-	vsnprintf(ulogmessage, LOGSIZE - 1, format, args);
+	vsnprintf(message, LOGSIZE - 1, format, args);
 	va_end(args);
-	spine_sanitize_log_message(ulogmessage);
-
-	/* default for "console" messages to go to stdout */
-	fp = stdout;
-
-	/* log message prefix */
-
-	snprintf(logprefix, LOGSIZE, "SPINE: Poller[%i] PID[%i] PT[%ld] ", set.poller_id, getpid(), (unsigned long int)pthread_self());
-
-	/* get time for poller_output table */
-	nowbin = time(&nowbin);
-
-	localtime_r(&nowbin,&now_time);
-	now_ptr = &now_time;
-
+	spine_sanitize_log_message(message);
 	if (IS_LOGGING_TO_STDOUT()) {
-		cur_time = get_time_as_double();
-		snprintf(stdoutmessage, LOGSIZE + of, "Total[%3.4f] %s", cur_time - start_time, ulogmessage);
-		puts(stdoutmessage);
-		return TRUE;
+		char console[LOGSIZE + 20];
+		snprintf(console, sizeof(console), "Total[%3.4f] %s", get_time_as_double() - start_time, message);
+		return puts(console) == EOF ? FALSE : TRUE;
 	}
-
-	char * log_fmt = get_date_format();
-
-	if (strlen(log_fmt) == 0) {
-		#ifdef DISABLE_STDERR
-		fp = stdout;
-		#else
-		fp = stderr;
-		#endif
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "ERROR: Could not get format from get_date_format()\n");
-		}
+	char formatted[LOGSIZE];
+	bool date_valid = log_format_message(formatted, message);
+	log_to_syslog(formatted);
+	if (strchr(formatted, '\n') == NULL) {
+		size_t used = strlen(formatted);
+		snprintf(formatted + used, sizeof(formatted) - used, "\n");
 	}
-
-	int prefix_len = spine_count_to_int(strlen(logprefix));
-	int ulog_len   = spine_count_to_int(strlen(ulogmessage));
-	int flog_len = spine_count_to_int(strftime(flogmessage, 50, log_fmt, now_ptr));
-
-	if (flog_len == 0) {
-		flogmessage[0] = '\0';
-		#ifdef DISABLE_STDERR
-		fp = stdout;
-		#else
-		fp = stderr;
-		#endif
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "ERROR: Could not get string from strftime()\n");
-		}
-	}
-
-	/* determine how many characters to append */
-	if (prefix_len > LOGSIZE - flog_len - 2) {
-		prefix_len = LOGSIZE - flog_len - 2;
-	}
-
-	if (ulog_len + prefix_len > LOGSIZE - flog_len - 2) {
-		ulog_len = LOGSIZE - flog_len - prefix_len - 2;
-	}
-
-	snprintf(flogmessage + flog_len, sizeof(flogmessage) - (size_t) flog_len,
-		"%.*s%.*s", prefix_len, logprefix, ulog_len, ulogmessage);
-
-	/* output to syslog/eventlog */
-	if (IS_LOGGING_TO_SYSLOG()) {
-		openlog("Cacti", LOG_NDELAY | LOG_PID, LOG_SYSLOG);
-
-		if ((strstr(flogmessage,"ERROR") || (strstr(flogmessage, "FATAL"))) && (set.log_perror)) {
-			syslog(LOG_CRIT,"%s\n", flogmessage);
-		}
-
-		if ((strstr(flogmessage,"WARNING")) && (set.log_pwarn)){
-			syslog(LOG_WARNING,"%s\n", flogmessage);
-		}
-
-		if ((strstr(flogmessage,"STATS")) && (set.log_pstats)){
-			syslog(LOG_NOTICE,"%s\n", flogmessage);
-		}
-
-		closelog();
-	}
-
-	/* append a line feed to the log message if needed */
-	if (!strstr(flogmessage, "\n")) {
-		size_t used = strlen(flogmessage);
-		snprintf(flogmessage + used, sizeof(flogmessage) - used, "\n");
-	}
-
-	if ((IS_LOGGING_TO_FILE() &&
-		(set.log_level != POLLER_VERBOSITY_NONE) &&
-		(strlen(set.path_logfile) != 0)) && (set.logfile_processed)) {
-		if (!file_exists(set.path_logfile)) {
-			log_file = fopen(set.path_logfile, "w");
-		} else {
-			log_file = fopen(set.path_logfile, "a");
-		}
-
-		if (log_file) {
-			fputs(flogmessage, log_file);
-			fclose(log_file);
-		} else {
-			if (!log_error) {
-				printf("ERROR: Spine Log File Could Not Be Opened/Created\n");
-				log_error = TRUE;
-			}
-		}
-	}
-
+	bool success = log_to_file(formatted);
 	if (set.log_level >= POLLER_VERBOSITY_NONE) {
-		if ((strstr(flogmessage,"ERROR"))   ||
-			(strstr(flogmessage,"WARNING")) ||
-			(strstr(flogmessage,"FATAL"))) {
-			#ifdef DISABLE_STDERR
-			fp = stdout;
-			#else
-			fp = stderr;
-			#endif
-		}
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "%s", flogmessage);
-		}
+		FILE *stream = stdout;
+		if (!date_valid || strstr(formatted, "ERROR") || strstr(formatted, "WARNING") || strstr(formatted, "FATAL")) stream = log_error_stream();
+		if (log_stream_available(stream) && fprintf(stream, "%s", formatted) < 0) success = FALSE;
 	}
-
-	free(log_fmt);
-
-	return TRUE;
+	return success;
 }
 
 /*! \fn int file_exists(const char *filename)
