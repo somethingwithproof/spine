@@ -735,6 +735,45 @@ static void test_udp_deadline(void) {
 	assert(ping_udp(&host, &ping) == HOST_DOWN);
 }
 
+static void test_tcp_loopback(void) {
+	int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	assert(server >= 0);
+	struct sockaddr_in address = {0};
+	assert(init_sockaddr(&address, "127.0.0.1", 0));
+	assert(bind(server, (struct sockaddr *)&address, sizeof(address)) == 0);
+	socklen_t length = sizeof(address);
+	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "127.0.0.1");
+	host.ping_port = ntohs(address.sin_port);
+	host.ping_timeout = 100;
+	host.ping_retries = 0;
+	host.ping_method = PING_TCP;
+	ping_t ping = {0};
+	/* Close the reservation so both Darwin and Linux return a refusal. */
+	assert(close(server) == 0);
+	assert(ping_tcp(&host, &ping) == HOST_DOWN);
+	host.ping_method = PING_TCP_CLOSED;
+	assert(ping_tcp(&host, &ping) == HOST_UP);
+	assert(strcmp(ping.ping_response, "TCP: Device is Alive") == 0);
+	server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	assert(server >= 0);
+	address.sin_port = 0;
+	assert(bind(server, (struct sockaddr *)&address, sizeof(address)) == 0);
+	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
+	host.ping_port = ntohs(address.sin_port);
+	assert(listen(server, 1) == 0);
+	host.ping_method = PING_TCP;
+	assert(ping_tcp(&host, &ping) == HOST_UP);
+	int client = accept(server, NULL, NULL);
+	assert(client >= 0);
+	char byte;
+	assert(read(client, &byte, 1) == 0);
+	assert(close(client) == 0 && close(server) == 0);
+	host.ping_timeout = 0;
+	assert(ping_tcp(&host, &ping) == HOST_DOWN);
+}
+
 int main(int argc, char **argv) {
 	if (argc > 1 && strcmp(argv[1], "-q") == 0) return run_test_script_server(argc, argv);
 	extern int *debug_devices;
@@ -760,6 +799,7 @@ int main(int argc, char **argv) {
 	test_poll_result_formats();
 	test_hostnames();
 	test_udp_deadline();
+	test_tcp_loopback();
 	test_snmp_initialization_failure();
 	test_child_process();
 	test_php_response(4, true);

@@ -619,100 +619,57 @@ int ping_udp(const host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
+/* Each retry owns a new nonblocking socket; a failed connect socket must not
+ * be reused. SO_ERROR distinguishes completion from refused/timed-out peers. */
+static int ping_tcp_complete(int fd, double deadline) {
+	int ready = spine_wait_writable(fd, deadline);
+	if (ready <= 0) return ready == 0 ? ETIMEDOUT : errno;
+	int error = 0;
+	socklen_t length = sizeof(error);
+	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length) < 0) return errno;
+	return error;
+}
+
+static int ping_tcp_attempt(int fd, const struct sockaddr_in *address, double deadline) {
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return errno;
+	if (connect(fd, (const struct sockaddr *)address, sizeof(*address)) == 0) return 0;
+	int error = errno;
+	if (error != EINPROGRESS && error != EINTR) return error;
+	return ping_tcp_complete(fd, deadline);
+}
+
+static int ping_tcp_connect(const struct sockaddr_in *address, double deadline) {
+	int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (fd < 0) return errno;
+	int error = ping_tcp_attempt(fd, address, deadline);
+	close(fd);
+	return error;
+}
+
 int ping_tcp(const host_t *host, ping_t *ping) {
-	double begin_time;
-	double end_time;
-	double total_time;
-	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
-	int    tcp_socket;
-	struct sockaddr_in servername;
-	int    retry_count;
-	int    return_code;
-
-	if (is_debug_device(host->id)) {
-		SPINE_LOG(("Device[%i] DEBUG: Entering TCP Ping", host->id));
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering TCP Ping", host->id));
-	}
-
-	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
-
-	/* initialize the socket */
-	tcp_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-	/* initialize total time */
-	total_time = 0;
-
-	/* initialize begin time */
-	begin_time = get_time_as_double();
-
-	/* hostname must be nonblank */
-	if ((strlen(host->hostname) != 0) && (tcp_socket != -1)) {
-		/* initialize variables */
-		snprintf(ping->ping_status, 50, "down");
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "default");
-
-		/* get address of hostname */
-		if (init_sockaddr(&servername, host->hostname, host->ping_port)) {
-			/* first attempt a connect */
-			retry_count = 0;
-
-			while (1) {
-				/* establish timeout value */
-				timeout.tv_sec  = rint(host_timeout / 1000);
-				timeout.tv_usec = ((int) host_timeout % 1000) * 1000;
-
-				/* set the socket send and receive timeout */
-				setsockopt(tcp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-				setsockopt(tcp_socket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
-
-				/* make the connection */
-				return_code = connect(tcp_socket, (struct sockaddr *) &servername, sizeof(servername));
-
-				/* record end time */
-				end_time = get_time_as_double();
-
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
-
-				if ((return_code == -1 && errno == ECONNREFUSED && host->ping_method == PING_TCP_CLOSED) || return_code == 0) {
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Device is Alive");
-					snprintf(ping->ping_status, 50, "%.5f", total_time);
-					close(tcp_socket);
-					return HOST_UP;
-				} else {
-					#if defined(__CYGWIN__)
-					snprintf(ping->ping_status, 50, "down");
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Cannot connect to host");
-					close(tcp_socket);
-					return HOST_DOWN;
-					#else
-					if (retry_count > host->ping_retries) {
-						snprintf(ping->ping_status, 50, "down");
-						snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Cannot connect to host");
-						close(tcp_socket);
-						return HOST_DOWN;
-					} else {
-						retry_count++;
-					}
-					#endif
-				}
-			}
-		} else {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			close(tcp_socket);
-			return HOST_DOWN;
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering TCP Ping", host->id));
+	if (host->hostname[0] == '\0') return ping_down(ping, "TCP: Destination address invalid or unable to create socket");
+	struct sockaddr_in address = {0};
+	if (!init_sockaddr(&address, host->hostname, host->ping_port)) return ping_down(ping, "TCP: Destination hostname invalid");
+	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "TCP: Cannot connect to host");
+	double begin = spine_monotonic_time();
+	for (unsigned int attempt = 0; ; attempt++) {
+		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		int error = ping_tcp_connect(&address, deadline);
+		if (error == 0 || (error == ECONNREFUSED && host->ping_method == PING_TCP_CLOSED)) {
+			double elapsed = (spine_monotonic_time() - begin) * 1000;
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: TCP Device Alive, Try Count:%u, Time:%.4f ms", host->id, attempt + 1, elapsed));
+			strncopy(ping->ping_response, "TCP: Device is Alive", SMALL_BUFSIZE);
+			snprintf(ping->ping_status, 50, "%.5f", elapsed);
+			return HOST_UP;
 		}
-	} else {
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Destination address invalid or unable to create socket");
-		snprintf(ping->ping_status, 50, "down");
-		if (tcp_socket != -1) close(tcp_socket);
-		return HOST_DOWN;
+		/* Cygwin historically makes one attempt only. */
+		#if defined(__CYGWIN__)
+		return ping_down(ping, "TCP: Cannot connect to host");
+		#else
+		if (attempt >= (unsigned int)host->ping_retries) return ping_down(ping, "TCP: Cannot connect to host");
+		#endif
 	}
 }
 

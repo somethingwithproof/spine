@@ -83,7 +83,7 @@ double spine_monotonic_time(void) {
 	return (double)now.tv_sec + (double)now.tv_nsec / 1000000000;
 }
 
-int spine_wait_readable(int fd, double deadline) {
+static int spine_wait_fd(int fd, double deadline, bool writable) {
 	if (fd < 0 || fd >= FD_SETSIZE) {
 		errno = EBADF;
 		return -1;
@@ -105,10 +105,18 @@ int spine_wait_readable(int fd, double deadline) {
 		fd_set fds;
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
-		int status = select(fd + 1, &fds, NULL, NULL, &timeout);
+		int status = select(fd + 1, writable ? NULL : &fds, writable ? &fds : NULL, NULL, &timeout);
 		if (status < 0 && errno == EINTR) continue;
 		return status;
 	}
+}
+
+int spine_wait_readable(int fd, double deadline) {
+	return spine_wait_fd(fd, deadline, FALSE);
+}
+
+int spine_wait_writable(int fd, double deadline) {
+	return spine_wait_fd(fd, deadline, TRUE);
 }
 
 
