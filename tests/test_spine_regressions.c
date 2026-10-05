@@ -1463,29 +1463,50 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	assert(db_pool_local != NULL);
 	db_create_connection_pool(LOCAL);
 	assert(spine_permits_init(&available_scripts, 2) == 0);
-	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item"));
-	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
-	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
-	assert(db_insert(mysql, LOCAL, "DELETE FROM host_errors"));
-	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES (601,0,1,1,'/usr/bin/printf 123','valid'),(602,0,1,1,'/usr/bin/printf invalid','invalid')"));
-	test_poll_work_t work = {0};
-	work.thread.host_id = 0;
-	work.thread.host_thread = 1;
-	work.thread.host_threads = 1;
-	work.thread.host_data_ids = 2;
-	work.thread.host_time_double = get_time_as_double();
-	STRNCOPY(work.thread.host_time, "1791158400");
-	poller_thread_t *device = &work.thread;
-	details = &device;
-	pthread_t worker;
-	assert(pthread_create(&worker, NULL, test_poll_worker, &work) == 0);
-	assert(pthread_join(worker, NULL) == 0);
-	assert(work.thread.complete && work.thread.threads_complete == 1 && work.errors == 1);
-	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
-	test_poll_missing_connection(&work.thread);
-	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
-	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
-	assert(database_count(mysql, "SELECT errors FROM host_errors WHERE host_id=0") == 1);
+	set.mibs = FALSE;
+	set.ping_recovery_count = 1;
+	set.ping_failure_count = 1;
+	const int hosts[] = {0, 42, 43};
+	for (size_t index = 0; index < sizeof(hosts) / sizeof(hosts[0]); index++) {
+		int host_id = hosts[index];
+		assert(db_insert(mysql, LOCAL, "DELETE FROM host"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM host_errors"));
+		assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES (601,0,1,1,'/usr/bin/printf 123','valid'),(602,0,1,1,'/usr/bin/printf invalid','invalid')"));
+		char host_query[BUFSIZE];
+		spine_snprintf(host_query, sizeof(host_query), "UPDATE poller_item SET host_id=%d", host_id);
+		assert(db_insert(mysql, LOCAL, host_query));
+		if (host_id != 0) {
+			spine_snprintf(host_query, sizeof(host_query), "INSERT INTO host (id,hostname,availability_method,status_fail_date,status_rec_date,max_oids,ping_method,ping_port,status_last_error,min_time,total_polls) VALUES (%d,'127.0.0.1',%d,'2026-10-05 00:00:00','2026-10-05 00:00:00',%d,NULL,NULL,NULL,NULL,NULL)", host_id, host_id == 42 ? AVAIL_STREAM : AVAIL_NONE, host_id == 42 ? 0 : 101);
+			assert(db_insert(mysql, LOCAL, host_query));
+		}
+		test_poll_work_t work = {0};
+		work.thread.host_id = host_id;
+		work.thread.host_thread = 1;
+		work.thread.host_threads = 1;
+		work.thread.host_data_ids = 2;
+		work.thread.host_time_double = get_time_as_double();
+		STRNCOPY(work.thread.host_time, "1791158400");
+		poller_thread_t *device = &work.thread;
+		details = &device;
+		pthread_t worker;
+		assert(pthread_create(&worker, NULL, test_poll_worker, &work) == 0);
+		assert(pthread_join(worker, NULL) == 0);
+		assert(work.thread.complete && work.thread.threads_complete == 1 && work.errors == 1);
+		assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+		if (host_id == 0) test_poll_missing_connection(&work.thread);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+		char query[256];
+		spine_snprintf(query, sizeof(query), "SELECT errors FROM host_errors WHERE host_id=%d", host_id);
+		assert(database_count(mysql, query) == 1);
+		if (host_id != 0) {
+			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
+			assert(database_count(mysql, query) == 1);
+		}
+	}
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);
 	db_pool_local = previous_pool;

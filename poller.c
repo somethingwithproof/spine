@@ -215,6 +215,113 @@ void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thr
 	strncopy(queries->suffix, set.poller_id != 0 || set.dbonupdate == 0 ? " ON DUPLICATE KEY UPDATE output=VALUES(output)" : " AS rs ON DUPLICATE KEY UPDATE output=rs.output", sizeof(queries->suffix));
 }
 
+static void host_metadata_defaults(host_t *host) {
+	/* initialize variables first */
+	host->id                      = 0;                 // 0
+	host->hostname[0]             = '\0';              // 1
+	host->snmp_session            = NULL;              // -
+	host->snmp_community[0]       = '\0';              // 2
+	host->snmp_version            = 1;                 // 3
+	host->snmp_username[0]        = '\0';              // 4
+	host->snmp_password[0]        = '\0';              // 5
+	host->snmp_auth_protocol[0]   = '\0';              // 6
+	host->snmp_priv_passphrase[0] = '\0';              // 7
+	host->snmp_priv_protocol[0]   = '\0';              // 8
+	host->snmp_context[0]         = '\0';              // 9
+	host->snmp_engine_id[0]       = '\0';              // 10
+	host->snmp_port               = 161;               // 11
+	host->snmp_timeout            = 500;               // 12
+	host->snmp_retries            = set.snmp_retries;  // -
+	host->max_oids                = 10;                // 13
+	host->availability_method     = 0;                 // 14
+	host->ping_method             = 0;                 // 15
+	host->ping_port               = 23;                // 16
+	host->ping_timeout            = 500;               // 17
+	host->ping_retries            = 2;                 // 18
+	host->status                  = HOST_UP;           // 19
+	host->status_event_count      = 0;                 // 20
+	host->status_fail_date[0]     = '\0';              // 21
+	host->status_rec_date[0]      = '\0';              // 22
+	host->status_last_error[0]    = '\0';              // 23
+	host->min_time                = 0;                 // 24
+	host->max_time                = 0;                 // 25
+	host->cur_time                = 0;                 // 26
+	host->avg_time                = 0;                 // 27
+	host->total_polls             = 0;                 // 28
+	host->failed_polls            = 0;                 // 29
+	host->availability            = 100;               // 30
+	host->snmp_sysUpTimeInstance  = 0;                 // 31
+	host->snmp_sysDescr[0]        = '\0';              // 32
+	host->snmp_sysObjectID[0]     = '\0';              // 33
+	host->snmp_sysContact[0]      = '\0';              // 34
+	host->snmp_sysName[0]         = '\0';              // 35
+	host->snmp_sysLocation[0]     = '\0';              // 36
+}
+
+static void host_metadata_connection(host_t *host, MYSQL_ROW row) {
+	/* populate host structure */
+	host->ignore_host = FALSE;
+	if (row[0]  != NULL) host->id = atoi(row[0]);
+
+	if (row[1]  != NULL) {
+		name_t *name = get_namebyhost(row[1], NULL);
+		STRNCOPY(host->hostname, name->hostname);
+		host->ping_port = name->port;
+		SPINE_FREE(name);
+	}
+
+	if (row[2]  != NULL) STRNCOPY(host->snmp_community,       row[2]);
+
+	if (row[3]  != NULL) host->snmp_version = atoi(row[3]);
+
+	if (row[4]  != NULL) STRNCOPY(host->snmp_username,        row[4]);
+	if (row[5]  != NULL) STRNCOPY(host->snmp_password,        row[5]);
+	if (row[6]  != NULL) STRNCOPY(host->snmp_auth_protocol,   row[6]);
+	if (row[7]  != NULL) STRNCOPY(host->snmp_priv_passphrase, row[7]);
+	if (row[8]  != NULL) STRNCOPY(host->snmp_priv_protocol,   row[8]);
+	if (row[9]  != NULL) STRNCOPY(host->snmp_context,         row[9]);
+	if (row[10]  != NULL) STRNCOPY(host->snmp_engine_id,       row[10]);
+
+	if (row[11] != NULL) host->snmp_port           = atoi(row[11]);
+	if (row[12] != NULL) host->snmp_timeout        = atoi(row[12]);
+	if (row[13] != NULL) host->max_oids            = atoi(row[13]);
+}
+
+static void host_metadata_status(host_t *host, MYSQL_ROW row) {
+	if (row[14] != NULL) host->availability_method = atoi(row[14]);
+	if (row[15] != NULL) host->ping_method         = atoi(row[15]);
+	if (row[16] != NULL) host->ping_port           = atoi(row[16]);
+	if (row[17] != NULL) host->ping_timeout        = atoi(row[17]);
+	if (row[18] != NULL) host->ping_retries        = atoi(row[18]);
+
+	if (row[19] != NULL) host->status              = atoi(row[19]);
+	if (row[20] != NULL) host->status_event_count  = atoi(row[20]);
+
+	if (row[21] != NULL) STRNCOPY(host->status_fail_date, row[21]);
+	if (row[22] != NULL) STRNCOPY(host->status_rec_date,  row[22]);
+
+	if (row[23] != NULL) STRNCOPY(host->status_last_error, row[23]);
+}
+
+static void host_metadata_statistics(host_t *host, MYSQL_ROW row) {
+	if (row[24] != NULL) host->min_time     = atof(row[24]);
+	if (row[25] != NULL) host->max_time     = atof(row[25]);
+	if (row[26] != NULL) host->cur_time     = atof(row[26]);
+	if (row[27] != NULL) host->avg_time     = atof(row[27]);
+	if (row[28] != NULL) host->total_polls  = atoi(row[28]);
+	if (row[29] != NULL) host->failed_polls = atoi(row[29]);
+	if (row[30] != NULL) host->availability = atof(row[30]);
+}
+
+static void host_metadata_system(host_t *host, MYSQL_ROW row, MYSQL *mysql) {
+	if (row[31] != NULL) host->snmp_sysUpTimeInstance=atoll(row[31]);
+	if (row[32] != NULL) db_escape(mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), row[32]);
+	if (row[33] != NULL) db_escape(mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), row[33]);
+	if (row[34] != NULL) db_escape(mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), row[34]);
+	if (row[35] != NULL) db_escape(mysql, host->snmp_sysName, sizeof(host->snmp_sysName), row[35]);
+	if (row[36] != NULL) db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), row[36]);
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -389,102 +496,11 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 			row = mysql_fetch_row(result);
 
 			if (row) {
-				/* initialize variables first */
-				host->id                      = 0;                 // 0
-				host->hostname[0]             = '\0';              // 1
-				host->snmp_session            = NULL;              // -
-				host->snmp_community[0]       = '\0';              // 2
-				host->snmp_version            = 1;                 // 3
-				host->snmp_username[0]        = '\0';              // 4
-				host->snmp_password[0]        = '\0';              // 5
-				host->snmp_auth_protocol[0]   = '\0';              // 6
-				host->snmp_priv_passphrase[0] = '\0';              // 7
-				host->snmp_priv_protocol[0]   = '\0';              // 8
-				host->snmp_context[0]         = '\0';              // 9
-				host->snmp_engine_id[0]       = '\0';              // 10
-				host->snmp_port               = 161;               // 11
-				host->snmp_timeout            = 500;               // 12
-				host->snmp_retries            = set.snmp_retries;  // -
-				host->max_oids                = 10;                // 13
-				host->availability_method     = 0;                 // 14
-				host->ping_method             = 0;                 // 15
-				host->ping_port               = 23;                // 16
-				host->ping_timeout            = 500;               // 17
-				host->ping_retries            = 2;                 // 18
-				host->status                  = HOST_UP;           // 19
-				host->status_event_count      = 0;                 // 20
-				host->status_fail_date[0]     = '\0';              // 21
-				host->status_rec_date[0]      = '\0';              // 22
-				host->status_last_error[0]    = '\0';              // 23
-				host->min_time                = 0;                 // 24
-				host->max_time                = 0;                 // 25
-				host->cur_time                = 0;                 // 26
-				host->avg_time                = 0;                 // 27
-				host->total_polls             = 0;                 // 28
-				host->failed_polls            = 0;                 // 29
-				host->availability            = 100;               // 30
-				host->snmp_sysUpTimeInstance  = 0;                 // 31
-				host->snmp_sysDescr[0]        = '\0';              // 32
-				host->snmp_sysObjectID[0]     = '\0';              // 33
-				host->snmp_sysContact[0]      = '\0';              // 34
-				host->snmp_sysName[0]         = '\0';              // 35
-				host->snmp_sysLocation[0]     = '\0';              // 36
-
-				/* populate host structure */
-				host->ignore_host = FALSE;
-				if (row[0]  != NULL) host->id = atoi(row[0]);
-
-				if (row[1]  != NULL) {
-					name = get_namebyhost(row[1], NULL);
-					STRNCOPY(host->hostname, name->hostname);
-					host->ping_port = name->port;
-					SPINE_FREE(name);
-				}
-
-				if (row[2]  != NULL) STRNCOPY(host->snmp_community,       row[2]);
-
-				if (row[3]  != NULL) host->snmp_version = atoi(row[3]);
-
-				if (row[4]  != NULL) STRNCOPY(host->snmp_username,        row[4]);
-				if (row[5]  != NULL) STRNCOPY(host->snmp_password,        row[5]);
-				if (row[6]  != NULL) STRNCOPY(host->snmp_auth_protocol,   row[6]);
-				if (row[7]  != NULL) STRNCOPY(host->snmp_priv_passphrase, row[7]);
-				if (row[8]  != NULL) STRNCOPY(host->snmp_priv_protocol,   row[8]);
-				if (row[9]  != NULL) STRNCOPY(host->snmp_context,         row[9]);
-				if (row[10]  != NULL) STRNCOPY(host->snmp_engine_id,       row[10]);
-
-				if (row[11] != NULL) host->snmp_port           = atoi(row[11]);
-				if (row[12] != NULL) host->snmp_timeout        = atoi(row[12]);
-				if (row[13] != NULL) host->max_oids            = atoi(row[13]);
-
-				if (row[14] != NULL) host->availability_method = atoi(row[14]);
-				if (row[15] != NULL) host->ping_method         = atoi(row[15]);
-				if (row[16] != NULL) host->ping_port           = atoi(row[16]);
-				if (row[17] != NULL) host->ping_timeout        = atoi(row[17]);
-				if (row[18] != NULL) host->ping_retries        = atoi(row[18]);
-
-				if (row[19] != NULL) host->status              = atoi(row[19]);
-				if (row[20] != NULL) host->status_event_count  = atoi(row[20]);
-
-				if (row[21] != NULL) STRNCOPY(host->status_fail_date, row[21]);
-				if (row[22] != NULL) STRNCOPY(host->status_rec_date,  row[22]);
-
-				if (row[23] != NULL) STRNCOPY(host->status_last_error, row[23]);
-
-				if (row[24] != NULL) host->min_time     = atof(row[24]);
-				if (row[25] != NULL) host->max_time     = atof(row[25]);
-				if (row[26] != NULL) host->cur_time     = atof(row[26]);
-				if (row[27] != NULL) host->avg_time     = atof(row[27]);
-				if (row[28] != NULL) host->total_polls  = atoi(row[28]);
-				if (row[29] != NULL) host->failed_polls = atoi(row[29]);
-				if (row[30] != NULL) host->availability = atof(row[30]);
-
-				if (row[31] != NULL) host->snmp_sysUpTimeInstance=atoll(row[31]);
-				if (row[32] != NULL) db_escape(mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), row[32]);
-				if (row[33] != NULL) db_escape(mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), row[33]);
-				if (row[34] != NULL) db_escape(mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), row[34]);
-				if (row[35] != NULL) db_escape(mysql, host->snmp_sysName, sizeof(host->snmp_sysName), row[35]);
-				if (row[36] != NULL) db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), row[36]);
+				host_metadata_defaults(host);
+				host_metadata_connection(host, row);
+				host_metadata_status(host, row);
+				host_metadata_statistics(host, row);
+				host_metadata_system(host, row, mysql);
 
 				/* correct max_oid bounds issues */
 				if ((host->max_oids == 0) || (host->max_oids > 100)) {
