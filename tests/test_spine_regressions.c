@@ -1074,6 +1074,38 @@ static void test_database_configuration(void) {
 	db_disconnect(&mysql);
 }
 
+static void test_snmp_scalar_responses(host_t *host) {
+	char *result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
+	assert(strstr(result, "isolated-regression-agent") != NULL && !host->ignore_host);
+	free(result);
+	/* A malformed configured OID must not poison later requests or leak a PDU. */
+	for (int count = 0; count < 50; count++) {
+		result = snmp_get(host, "invalid-regression-oid");
+		assert(strcmp(result, "U") == 0 && host->snmp_status == STAT_ERROR && !host->ignore_host);
+		free(result);
+		result = snmp_getnext(host, "invalid-regression-oid");
+		assert(strcmp(result, "U") == 0 && host->snmp_status == STAT_ERROR && !host->ignore_host);
+		free(result);
+	}
+	result = snmp_get_base(host, ".1.3.6.1.2.1.1.1.999", FALSE);
+	assert(!host->ignore_host);
+	if (host->snmp_version == 2) assert(strcmp(result, "U") == 0);
+	else assert(strcmp(result, "") == 0);
+	free(result);
+	result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
+	assert(strstr(result, "isolated-regression-agent") != NULL && !host->ignore_host);
+	free(result);
+	if (host->snmp_version == 2) {
+		result = snmp_get(host, ".1.3.6.1.2.1.1.1.999");
+		assert(strcmp(result, "U") == 0 && host->ignore_host);
+		free(result);
+		result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
+		assert(strcmp(result, "U") == 0);
+		free(result);
+		host->ignore_host = FALSE;
+	}
+}
+
 static void test_snmp_agent(void) {
 	const char *address = getenv("SPINE_TEST_SNMP_HOST");
 	assert(address != NULL && address[0] != '\0');
@@ -1088,6 +1120,7 @@ static void test_snmp_agent(void) {
 		host.snmp_version = version;
 		host.snmp_session = snmp_host_init(1, host.hostname, version, host.snmp_community, "", "", "SHA", "", "[None]", "", "", 1161, 500);
 		assert(host.snmp_session != NULL);
+		test_snmp_scalar_responses(&host);
 		for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 			host.availability_method = methods[index];
 			assert(ping_host(&host, &ping) == HOST_UP);

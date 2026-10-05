@@ -394,6 +394,113 @@ void snmp_host_cleanup(void *snmp_session) {
 	}
 }
 
+typedef struct {
+	struct snmp_pdu *response;
+	int status;
+	bool valid_oid;
+} snmp_reply_t;
+
+static snmp_reply_t snmp_single_request(host_t *host, char *text_oid, int command) {
+	snmp_reply_t reply = {NULL, STAT_DESCRIP_ERROR, TRUE};
+	if (host->snmp_session == NULL) return reply;
+	oid parsed[MAX_OID_LEN];
+	size_t length = MAX_OID_LEN;
+	if (!snmp_parse_oid(text_oid, parsed, &length)) {
+		SPINE_LOG(("Device[%i] ERROR: Problems parsing SNMP OID %s", host->id, text_oid));
+		reply.status = STAT_ERROR;
+		reply.valid_oid = FALSE;
+		host->snmp_status = reply.status;
+		return reply;
+	}
+	struct snmp_pdu *request = snmp_pdu_create(command);
+	if (request == NULL) {
+		SPINE_LOG(("ERROR: Unable to create SNMP PDU"));
+		host->snmp_status = reply.status;
+		return reply;
+	}
+	if (snmp_add_null_var(request, parsed, length) == NULL) {
+		snmp_free_pdu(request);
+		reply.status = STAT_ERROR;
+		host->snmp_status = reply.status;
+		return reply;
+	}
+	/* Net-SNMP owns and frees request after the synchronous call, including
+	 * a failed send; the caller owns only the returned response. */
+	reply.status = snmp_sess_synch_response(host->snmp_session, request, &reply.response);
+	host->snmp_status = reply.status;
+	return reply;
+}
+
+static int snmp_format_scalar(char *output, const struct variable_list *variable, bool ascii) {
+	char temporary[RESULTS_BUFFER] = {0};
+	if (variable->name == NULL || snprint_value(temporary, sizeof(temporary), variable->name, variable->name_length, variable) < 0) {
+		SET_UNDEFINED(output);
+		return STAT_ERROR;
+	}
+	if (ascii) {
+		if (snprint_asciistring(output, RESULTS_BUFFER, (unsigned char *)temporary, strlen(temporary)) < 0) {
+			SET_UNDEFINED(output);
+			return STAT_ERROR;
+		}
+	} else {
+		strncopy(output, trim(temporary), RESULTS_BUFFER);
+	}
+	return STAT_SUCCESS;
+}
+
+static int snmp_get_variable(host_t *host, const char *text_oid, const struct variable_list *variable, char *output) {
+	switch (variable->type) {
+		case SNMP_NOSUCHOBJECT:
+			if (strstr(text_oid, ".1.3.6.1.2.1.1.1.0") || strstr(text_oid, ".1.3.6.1.2.1.1.3.0")) {
+				SPINE_LOG_HIGH(("DEBUG: OID '%s' for Device[%i], SNMP_NOSUCHOBJECT for sysDesc or sysUptime", text_oid, host->id));
+				return snmp_format_scalar(output, variable, FALSE);
+			}
+			SPINE_LOG_DEBUG(("DEBUG: OID '%s' for Device[%i], SNMP_NOSUCHOBJECT not sysDesc or sysUptime", text_oid, host->id));
+			break;
+		case SNMP_NOSUCHINSTANCE:
+			if (strstr(text_oid, ".1.3.6.1.6.3.10.2.1.3.0")) {
+				SPINE_LOG_DEBUG(("NOTE: Legacy SNMP agent found! No per second Uptime oid '%s' for Device[%i]", text_oid, host->id));
+			} else {
+				SPINE_LOG_HIGH(("WARNING: No such Instance for oid '%s' for Device[%i]", text_oid, host->id));
+			}
+			break;
+		case SNMP_ENDOFMIBVIEW:
+			SPINE_LOG_HIGH(("ERROR: End of Mib for oid '%s' for Device[%i]", text_oid, host->id));
+			break;
+		default: return snmp_format_scalar(output, variable, FALSE);
+	}
+	SET_UNDEFINED(output);
+	return STAT_ERROR;
+}
+
+static int snmp_get_response(host_t *host, const char *text_oid, const snmp_reply_t *reply, char *output) {
+	if (reply->status == STAT_DESCRIP_ERROR) {
+		SET_UNDEFINED(output);
+		return STAT_ERROR;
+	}
+	if (reply->status == STAT_SUCCESS) {
+		if (reply->response == NULL) {
+			SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get"));
+			SET_UNDEFINED(output);
+			return STAT_ERROR;
+		}
+		if (reply->response->errstat == SNMP_ERR_NOERROR && reply->response->variables != NULL && reply->response->variables->name != NULL) {
+			return snmp_get_variable(host, text_oid, reply->response->variables, output);
+		}
+		/* Preserve the legacy transport-success outcome for an agent error:
+		 * availability observes host->snmp_status, while data remains empty. */
+		SPINE_LOG_HIGH(("ERROR: Failed to get oid '%s' for Device[%i] with Response[%ld]", text_oid, host->id, reply->response->errstat));
+		return STAT_SUCCESS;
+	}
+	if (reply->response != NULL && reply->response->variables != NULL) {
+		SET_UNDEFINED(output);
+		SPINE_LOG_HIGH(("ERROR: Agent error getting oid '%s' for Device[%i] with Status[%d]", text_oid, host->id, reply->status));
+		return STAT_ERROR;
+	}
+	SPINE_LOG_HIGH(("ERROR: %s getting oid '%s' for Device[%i] with Status[%d]", reply->status == STAT_TIMEOUT ? "Timeout" : "Unknown error", text_oid, host->id, reply->status));
+	return reply->status;
+}
+
 /*! \fn char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fail)
  *  \brief performs a single snmp_get for a specific snmp OID
  *
@@ -404,245 +511,56 @@ void snmp_host_cleanup(void *snmp_session) {
  *  unsuccessful.
  *
  */
-char *snmp_get_base(host_t *current_host, char *snmp_oid, bool should_fail) {
-	struct snmp_pdu *pdu       = NULL;
-	struct snmp_pdu *response  = NULL;
-	const struct variable_list *vars = NULL;
-	size_t anOID_len           = MAX_OID_LEN;
-	oid    anOID[MAX_OID_LEN];
-	int    status;
-	char   *result_string;
-	char   temp_result[RESULTS_BUFFER];
-
-	if (!(result_string = (char *) malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: snmp.c snmp_get!");
+char *snmp_get_base(host_t *host, char *text_oid, bool should_fail) {
+	char *output = calloc(RESULTS_BUFFER, 1);
+	if (output == NULL) die("ERROR: Fatal malloc error: snmp.c snmp_get!");
+	if (host->ignore_host) {
+		SPINE_LOG_HIGH(("WARNING: Skipped oid '%s' for Device[%i] as host ignore flag is active", text_oid, host->id));
+		SET_UNDEFINED(output);
+		return output;
 	}
-	result_string[0] = '\0';
-
-	if (current_host->ignore_host) {
-		SPINE_LOG_HIGH(("WARNING: Skipped oid '%s' for Device[%i] as host ignore flag is active", snmp_oid, current_host->id));
-		SET_UNDEFINED(result_string);
-		return result_string;
+	snmp_reply_t reply = snmp_single_request(host, text_oid, SNMP_MSG_GET);
+	if (!reply.valid_oid) {
+		SET_UNDEFINED(output);
+		return output;
 	}
-
-	status = STAT_DESCRIP_ERROR;
-
-	if (current_host->snmp_session != NULL) {
-		anOID_len = MAX_OID_LEN;
-
-		SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_pdu_create(%s)", current_host->id, snmp_oid));
-		pdu = snmp_pdu_create(SNMP_MSG_GET);
-		SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_pdu_create(%s) [complete]", current_host->id, snmp_oid));
-
-		if (pdu != NULL) {
-			SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_parse_oid(%s)", current_host->id, snmp_oid));
-
-			if (!snmp_parse_oid(snmp_oid, anOID, &anOID_len)) {
-				SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_parse_oid(%s) [complete]", current_host->id, snmp_oid));
-				SPINE_LOG(("Device[%i] ERROR: SNMP Get Problems parsing SNMP OID %s", current_host->id, snmp_oid));
-				SET_UNDEFINED(result_string);
-				return result_string;
-			} else {
-				SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_parse_oid(%s) [complete]", current_host->id, snmp_oid));
-				SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_add_null_var(%s)", current_host->id, snmp_oid));
-				snmp_add_null_var(pdu, anOID, anOID_len);
-				SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_add_null_var(%s) [complete]", current_host->id, snmp_oid));
-			}
-
-			/* poll host */
-			SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_sess_sync_response(%s)", current_host->id, snmp_oid));
-			status = snmp_sess_synch_response(current_host->snmp_session, pdu, &response);
-			SPINE_LOG_DEVDBG(("Device[%i] DEBUG: snmp_sess_sync_response(%s) [complete]", current_host->id, snmp_oid));
-		}
-
-		/* add status to host structure */
-		current_host->snmp_status = status;
-
-		/* liftoff, successful poll, process it!! */
-		if (status == STAT_DESCRIP_ERROR) {
-			SPINE_LOG(("ERROR: Unable to create SNMP PDU"));
-
-			SET_UNDEFINED(result_string);
-			status = STAT_ERROR;
-			response = NULL;
-		} else if (status == STAT_SUCCESS) {
-			if (response == NULL) {
-				SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get"));
-
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-			} else if (response->errstat == SNMP_ERR_NOERROR &&
-				response->variables != NULL &&
-				response->variables->name != NULL) {
-
-				vars = response->variables;
-
-				if (vars->type == SNMP_NOSUCHOBJECT) {
-					if (!strstr(snmp_oid, ".1.3.6.1.2.1.1.1.0") && !strstr(snmp_oid, ".1.3.6.1.2.1.1.3.0")) {
-						SET_UNDEFINED(result_string);
-						status = STAT_ERROR;
-						SPINE_LOG_DEBUG(("DEBUG: OID '%s' for Device[%i], SNMP_NOSUCHOBJECT not sysDesc or sysUptime", snmp_oid, current_host->id));
-					} else {
-						SPINE_LOG_HIGH(("DEBUG: OID '%s' for Device[%i], SNMP_NOSUCHOBJECT for sysDesc or sysUptime", snmp_oid, current_host->id));
-						snprint_value(temp_result, RESULTS_BUFFER, vars->name, vars->name_length, vars);
-						snprintf(result_string, RESULTS_BUFFER, "%s", trim(temp_result));
-					}
-				} else if (vars->type == SNMP_NOSUCHINSTANCE) {
-					SET_UNDEFINED(result_string);
-					status = STAT_ERROR;
-
-					// We will ignore the new OID error
-					if (!strstr(snmp_oid, ".1.3.6.1.6.3.10.2.1.3.0")) {
-						SPINE_LOG_HIGH(("WARNING: No such Instance for oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-					} else {
-						SPINE_LOG_DEBUG(("NOTE: Legacy SNMP agent found!  No per second Uptime oid found '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-					}
-				} else if (vars->type == SNMP_ENDOFMIBVIEW) {
-					SET_UNDEFINED(result_string);
-					status = STAT_ERROR;
-					SPINE_LOG_HIGH(("ERROR: End of Mib for oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-				} else {
-					snprint_value(temp_result, RESULTS_BUFFER, vars->name, vars->name_length, vars);
-
-					snprintf(result_string, RESULTS_BUFFER, "%s", trim(temp_result));
-				}
-			} else {
-				SPINE_LOG_HIGH(("ERROR: Failed to get oid '%s' for Device[%i] with Response[%ld]",  snmp_oid, current_host->id, response->errstat));
-			}
-		} else if (response != NULL && response->variables != NULL) {
-			vars = response->variables;
-
-			if (vars->type == SNMP_NOSUCHOBJECT) {
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-				SPINE_LOG_HIGH(("ERROR: No such Object for oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-			} else if (vars->type == SNMP_NOSUCHINSTANCE) {
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-
-				// We will ignore the new OID error
-				if (!strstr(snmp_oid, ".1.3.6.1.6.3.10.2.1.3.0")) {
-					SPINE_LOG_HIGH(("WARNING: No such Instance for oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-				} else {
-					SPINE_LOG_DEBUG(("NOTE: Per second level uptime oid missing oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-				}
-			} else if (vars->type == SNMP_ENDOFMIBVIEW) {
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-				SPINE_LOG_HIGH(("ERROR: End of Mib for oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-			} else {
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-				SPINE_LOG_HIGH(("ERROR: Unknown error getting oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-			}
-		} else if (status == STAT_TIMEOUT) {
-			SPINE_LOG_HIGH(("ERROR: Timeout getting oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-		} else {
-			SPINE_LOG_HIGH(("ERROR: Unknown error getting oid '%s' for Device[%i] with Status[%d]",  snmp_oid, current_host->id, status));
-		}
-
-		if (response != NULL && status != STAT_DESCRIP_ERROR) {
-			snmp_free_pdu(response);
-			response = NULL;
-		}
-	}
-
+	int status = reply.status;
+	if (host->snmp_session != NULL) status = snmp_get_response(host, text_oid, &reply, output);
+	if (reply.response != NULL) snmp_free_pdu(reply.response);
 	if (status != STAT_SUCCESS && should_fail) {
-		current_host->ignore_host = TRUE;
-
-		SET_UNDEFINED(result_string);
+		host->ignore_host = TRUE;
+		SET_UNDEFINED(output);
 	}
-
-	return result_string;
+	return output;
 }
 
-char *snmp_get(host_t *current_host, char *snmp_oid) {
-	return snmp_get_base(current_host, snmp_oid, true);
+char *snmp_get(host_t *host, char *text_oid) {
+	return snmp_get_base(host, text_oid, TRUE);
 }
 
-/*! \fn char *snmp_getnext(host_t *current_host, char *snmp_oid)
- *  \brief performs a single snmp_getnext for a specific snmp OID
- *
- *	This function will poll a specific snmp OID for a host.  The host snmp
- *  session must already be established.
- *
- *  \return returns the character representaton of the snmp OID, or "U" if
- *  unsuccessful.
- *
- */
-char *snmp_getnext(host_t *current_host, char *snmp_oid) {
-	struct snmp_pdu *pdu       = NULL;
-	struct snmp_pdu *response  = NULL;
-	const struct variable_list *vars = NULL;
-	size_t anOID_len           = MAX_OID_LEN;
-	oid    anOID[MAX_OID_LEN];
-	int    status;
-	char   *result_string;
-	char   temp_result[RESULTS_BUFFER];
-
-	if (!(result_string = (char *) malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: snmp.c snmp_get!");
+char *snmp_getnext(host_t *host, char *text_oid) {
+	char *output = calloc(RESULTS_BUFFER, 1);
+	if (output == NULL) die("ERROR: Fatal malloc error: snmp.c snmp_getnext!");
+	snmp_reply_t reply = snmp_single_request(host, text_oid, SNMP_MSG_GETNEXT);
+	if (!reply.valid_oid) {
+		SET_UNDEFINED(output);
+		return output;
 	}
-	result_string[0] = '\0';
-
-	status = STAT_DESCRIP_ERROR;
-
-	if (current_host->snmp_session != NULL) {
-		anOID_len = MAX_OID_LEN;
-		pdu       = snmp_pdu_create(SNMP_MSG_GETNEXT);
-
-		if (!snmp_parse_oid(snmp_oid, anOID, &anOID_len)) {
-			SPINE_LOG(("Device[%i] ERROR: SNMP Getnext Problems parsing SNMP OID %s", current_host->id, snmp_oid));
-			SET_UNDEFINED(result_string);
-			return result_string;
-		} else {
-			snmp_add_null_var(pdu, anOID, anOID_len);
+	int status = reply.status;
+	if (status == STAT_SUCCESS) {
+		if (reply.response == NULL) {
+			SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_getnext"));
+			status = STAT_ERROR;
+		} else if (reply.response->errstat == SNMP_ERR_NOERROR) {
+			status = reply.response->variables == NULL ? STAT_ERROR : snmp_format_scalar(output, reply.response->variables, TRUE);
 		}
-
-		/* poll host */
-		status = snmp_sess_synch_response(current_host->snmp_session, pdu, &response);
-
-		/* add status to host structure */
-		current_host->snmp_status = status;
-
-		/* liftoff, successful poll, process it!! */
-		if (status == STAT_SUCCESS) {
-			if (response == NULL) {
-				SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get"));
-
-				SET_UNDEFINED(result_string);
-				status = STAT_ERROR;
-			} else {
-				if (response->errstat == SNMP_ERR_NOERROR) {
-					vars = response->variables;
-
-					if (vars != NULL) {
-						snprint_value(temp_result, RESULTS_BUFFER, vars->name, vars->name_length, vars);
-
-						snprint_asciistring(result_string, RESULTS_BUFFER, (unsigned char *)temp_result, strlen(temp_result));
-					} else {
-						SET_UNDEFINED(result_string);
-						status = STAT_ERROR;
-					}
-				}
-			}
-		}
-
-		if (response) {
-			snmp_free_pdu(response);
-			response = NULL;
-		}
-	} else {
-		status = STAT_DESCRIP_ERROR;
 	}
-
+	if (reply.response != NULL) snmp_free_pdu(reply.response);
 	if (status != STAT_SUCCESS) {
-		current_host->ignore_host = TRUE;
-
-		SET_UNDEFINED(result_string);
+		host->ignore_host = TRUE;
+		SET_UNDEFINED(output);
 	}
-
-	return result_string;
+	return output;
 }
 
 /*! \fn char *snmp_count(host_t *current_host, char *snmp_oid)
