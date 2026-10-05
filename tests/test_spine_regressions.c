@@ -20,6 +20,8 @@
 #undef main
 #endif
 
+extern int spine_program_main(int argc, char **argv);
+
 static void test_copy_bounds(void) {
 	struct { char text[8]; unsigned char guard; } output;
 	memset(&output, 0xa5, sizeof output);
@@ -88,7 +90,6 @@ static void test_result_count_range(void) {
 }
 
 static void test_cli_case(const char *flag, const char *input, int expected, const char *error) {
-	extern int spine_program_main(int argc, char **argv);
 	int errors[2];
 	assert(pipe(errors) == 0);
 	pid_t child = fork();
@@ -110,7 +111,7 @@ static void test_cli_case(const char *flag, const char *input, int expected, con
 	assert(close(errors[1]) == 0);
 	char message[512];
 	ssize_t received = read(errors[0], message, sizeof(message) - 1);
-	assert(received >= 0);
+	if (received < 0 || received >= (ssize_t)sizeof(message)) abort();
 	message[received] = '\0';
 	assert(close(errors[0]) == 0);
 	int status;
@@ -144,7 +145,7 @@ static void test_cli_option_shape(void) {
 	assert(close(errors[1]) == 0);
 	char message[512];
 	ssize_t received = read(errors[0], message, sizeof(message) - 1);
-	assert(received >= 0);
+	if (received < 0 || received >= (ssize_t)sizeof(message)) abort();
 	message[received] = '\0';
 	assert(close(errors[0]) == 0);
 	int status;
