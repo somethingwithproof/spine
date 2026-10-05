@@ -1704,6 +1704,58 @@ static int acquire_script_permit(const host_t *host) {
 	return error;
 }
 
+typedef struct {
+	const host_t *host;
+	const char *command;
+	int id;
+	const char *type;
+} script_result_context_t;
+
+/* Return whether the legacy popen backend may close without blocking on a
+ * timed-out command; nft_popen owns and reaps its registered child instead. */
+static bool read_script_result(const script_result_context_t *context, int fd, double deadline, char *result) {
+	int ready = spine_wait_readable(fd, deadline);
+	if (ready < 0) {
+		switch (errno) {
+			case EBADF:
+				SPINE_LOG(("Device[%i] ERROR: One or more of the file descriptor sets specified a file descriptor that is not a valid open file descriptor.", context->host->id));
+				break;
+			case EINVAL:
+				SPINE_LOG(("Device[%i] ERROR: Possible invalid timeout specified in select() statement.", context->host->id));
+				break;
+			default:
+				SPINE_LOG(("Device[%i] ERROR: The script/command select() failed", context->host->id));
+				break;
+		}
+		SET_UNDEFINED(result);
+		return FALSE;
+	}
+	if (ready == 0) {
+		#ifdef USING_TPOPEN
+		SPINE_LOG_MEDIUM(("Device[%i] ERROR: The POPEN timed out", context->host->id));
+		#else
+		SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", context->host->id));
+		int pid = nft_pchild(fd);
+		if (pid > 1) kill(pid, SIGKILL);
+		#endif
+		SET_UNDEFINED(result);
+		return FALSE;
+	}
+	/* Preserve the single-read response contract; later output is ignored. */
+	ssize_t bytes = read(fd, result, RESULTS_BUFFER - 1);
+	if (bytes > 0 && bytes < RESULTS_BUFFER) {
+		result[bytes] = '\0';
+	} else {
+		if (STRIMATCH(context->type, "DS")) {
+			SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, context->command));
+		} else {
+			SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, context->command));
+		}
+		SET_UNDEFINED(result);
+	}
+	return TRUE;
+}
+
 /*! \fn char *exec_poll(host_t *current_host, char *command, int id, char *type)
  *  \brief polls a host using a script
  *  \param current_host a pointer to the current host structure
@@ -1718,16 +1770,11 @@ static int acquire_script_permit(const host_t *host) {
  */
 char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 	int cmd_fd;
-	#ifndef USING_TPOPEN
-	int pid;
-	#endif
 
 	#ifdef USING_TPOPEN
 	FILE *fd;
-	int close_fd = TRUE;
 	#endif
 
-	ssize_t bytes_read;
 	double deadline;
 	char *proc_command;
 	char *result_string;
@@ -1797,64 +1844,12 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 			#endif
 
 			if (cmd_fd >= 0) {
-				/* Interrupted waits share the original response deadline. */
-				switch (spine_wait_readable(cmd_fd, deadline)) {
-					case -1:
-						switch (errno) {
-							case EBADF:
-								SPINE_LOG(("Device[%i] ERROR: One or more of the file descriptor sets specified a file descriptor that is not a valid open file descriptor.", current_host->id));
-								SET_UNDEFINED(result_string);
-
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
-
-								break;
-							case EINVAL:
-								SPINE_LOG(("Device[%i] ERROR: Possible invalid timeout specified in select() statement.", current_host->id));
-								SET_UNDEFINED(result_string);
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
-								break;
-							default:
-								SPINE_LOG(("Device[%i] ERROR: The script/command select() failed", current_host->id));
-								SET_UNDEFINED(result_string);
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
-								break;
-						}
-
-						break;
-				case 0:
-					#ifdef USING_TPOPEN
-					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The POPEN timed out", current_host->id));
-
-					close_fd = FALSE;
-					#else
-					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", current_host->id));
-
-					pid = nft_pchild(cmd_fd);
-					if (pid > 1) kill(pid, SIGKILL);
-					#endif
-
-					SET_UNDEFINED(result_string);
-					break;
-				default:
-					/* get only one line of output, we will ignore the rest */
-					bytes_read = read(cmd_fd, result_string, RESULTS_BUFFER-1);
-					if (bytes_read > 0 && bytes_read < RESULTS_BUFFER) {
-						result_string[bytes_read] = '\0';
-					} else {
-						if (STRIMATCH(type,"DS")) {
-							SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
-						} else {
-							SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", current_host->id, id, current_host->hostname, command));
-						}
-						SET_UNDEFINED(result_string);
-					}
-				}
+				const script_result_context_t context = {current_host, command, id, type};
+				#ifdef USING_TPOPEN
+				bool close_fd = read_script_result(&context, cmd_fd, deadline, result_string);
+				#else
+				(void)read_script_result(&context, cmd_fd, deadline, result_string);
+				#endif
 
 				/* close pipe */
 				#ifdef USING_TPOPEN
