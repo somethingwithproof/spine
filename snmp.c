@@ -400,6 +400,28 @@ typedef struct {
 	bool valid_oid;
 } snmp_reply_t;
 
+static snmp_reply_t snmp_request_parsed(host_t *host, const oid *name, size_t length, int command) {
+	snmp_reply_t reply = {NULL, STAT_DESCRIP_ERROR, TRUE};
+	if (host->snmp_session == NULL) return reply;
+	struct snmp_pdu *request = snmp_pdu_create(command);
+	if (request == NULL) {
+		SPINE_LOG(("ERROR: Unable to create SNMP PDU"));
+		host->snmp_status = reply.status;
+		return reply;
+	}
+	if (snmp_add_null_var(request, name, length) == NULL) {
+		snmp_free_pdu(request);
+		reply.status = STAT_ERROR;
+		host->snmp_status = reply.status;
+		return reply;
+	}
+	/* Net-SNMP owns and frees request after the synchronous call, including
+	 * a failed send; the caller owns only the returned response. */
+	reply.status = snmp_sess_synch_response(host->snmp_session, request, &reply.response);
+	host->snmp_status = reply.status;
+	return reply;
+}
+
 static snmp_reply_t snmp_single_request(host_t *host, char *text_oid, int command) {
 	snmp_reply_t reply = {NULL, STAT_DESCRIP_ERROR, TRUE};
 	if (host->snmp_session == NULL) return reply;
@@ -412,23 +434,7 @@ static snmp_reply_t snmp_single_request(host_t *host, char *text_oid, int comman
 		host->snmp_status = reply.status;
 		return reply;
 	}
-	struct snmp_pdu *request = snmp_pdu_create(command);
-	if (request == NULL) {
-		SPINE_LOG(("ERROR: Unable to create SNMP PDU"));
-		host->snmp_status = reply.status;
-		return reply;
-	}
-	if (snmp_add_null_var(request, parsed, length) == NULL) {
-		snmp_free_pdu(request);
-		reply.status = STAT_ERROR;
-		host->snmp_status = reply.status;
-		return reply;
-	}
-	/* Net-SNMP owns and frees request after the synchronous call, including
-	 * a failed send; the caller owns only the returned response. */
-	reply.status = snmp_sess_synch_response(host->snmp_session, request, &reply.response);
-	host->snmp_status = reply.status;
-	return reply;
+	return snmp_request_parsed(host, parsed, length, command);
 }
 
 static int snmp_format_scalar(char *output, const struct variable_list *variable, bool ascii) {
@@ -563,6 +569,51 @@ char *snmp_getnext(host_t *host, char *text_oid) {
 	return output;
 }
 
+typedef struct {
+	oid root[MAX_OID_LEN];
+	size_t root_length;
+	oid current[MAX_OID_LEN];
+	size_t current_length;
+	int count;
+	bool failed;
+} snmp_walk_t;
+
+static bool snmp_count_advance(snmp_walk_t *walk, const struct variable_list *variable) {
+	if (variable->name == NULL || variable->name_length > MAX_OID_LEN) {
+		walk->failed = TRUE;
+		return FALSE;
+	}
+	if (variable->name_length < walk->root_length || memcmp(walk->root, variable->name, walk->root_length * sizeof(oid)) != 0) return FALSE;
+	if (walk->count == INT_MAX) {
+		SPINE_LOG(("ERROR: SNMP table count exceeds supported integer range"));
+		walk->failed = TRUE;
+		return FALSE;
+	}
+	walk->count++;
+	/* Preserve the legacy count for an exception returned inside the root. */
+	if (variable->type == SNMP_ENDOFMIBVIEW || variable->type == SNMP_NOSUCHOBJECT || variable->type == SNMP_NOSUCHINSTANCE) return FALSE;
+	if (snmp_oid_compare(walk->current, walk->current_length, variable->name, variable->name_length) >= 0) {
+		SPINE_LOG(("ERROR: OID not increasing"));
+		walk->failed = TRUE;
+		return FALSE;
+	}
+	memcpy(walk->current, variable->name, variable->name_length * sizeof(oid));
+	walk->current_length = variable->name_length;
+	return TRUE;
+}
+
+static bool snmp_count_response(snmp_walk_t *walk, const snmp_reply_t *reply) {
+	if (reply->status != STAT_SUCCESS || reply->response == NULL || reply->response->errstat != SNMP_ERR_NOERROR || reply->response->variables == NULL) {
+		SPINE_LOG(("ERROR: %s detected in Cacti snmp_count", reply->status == STAT_TIMEOUT ? "Timeout" : "Invalid SNMP response"));
+		walk->failed = TRUE;
+		return FALSE;
+	}
+	for (const struct variable_list *variable = reply->response->variables; variable != NULL; variable = variable->next_variable) {
+		if (!snmp_count_advance(walk, variable)) return FALSE;
+	}
+	return TRUE;
+}
+
 /*! \fn char *snmp_count(host_t *current_host, char *snmp_oid)
  *  \brief counts entries of snmp table specified by a specific snmp OID
  *
@@ -572,101 +623,31 @@ char *snmp_getnext(host_t *host, char *text_oid) {
  *  \return returns count of table entries
  *
  */
-int snmp_count(host_t *current_host, char *snmp_oid) {
-	struct snmp_pdu *pdu       = NULL;
-	struct snmp_pdu *response  = NULL;
-	const struct variable_list *vars = NULL;
-	size_t anOID_len           = MAX_OID_LEN;
-	size_t rootlen             = MAX_OID_LEN;
-	oid    anOID[MAX_OID_LEN];
-	oid    root[MAX_OID_LEN];
-	int    status;
-	int    ok = 1;
-	int    error_occurred = 0;
-	int    count = 0;
-
-	status = STAT_DESCRIP_ERROR;
-
-	SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: walk starts at OID %s", snmp_oid));
-
-	if (current_host->snmp_session != NULL) {
-		rootlen = MAX_OID_LEN;
-		/* parse input parm to an array for use with snmp functions */
-		if (!snmp_parse_oid(snmp_oid, root, &rootlen)) {
-			SPINE_LOG(("Device[%i] ERROR: SNMP Count Problems parsing SNMP OID %s", current_host->id, snmp_oid));
-			return count;
-		}
-		memmove(anOID, root, rootlen * sizeof(oid));
-		anOID_len = rootlen;
-
-		while (ok && !error_occurred) {
-			/* create PDU for GETNEXT request */
-			pdu = snmp_pdu_create(SNMP_MSG_GETNEXT);
-			snmp_add_null_var(pdu, anOID, anOID_len);
-
-			/* do the request, use thread safe call */
-			status = snmp_sess_synch_response(current_host->snmp_session, pdu, &response);
-
-			/* add status to host structure */
-			current_host->snmp_status = status;
-
-			//SPINE_LOG_DEBUG(("TRACE: Status %i Response %i", status, response->errstat));
-
-			if (status == STAT_SUCCESS) {
-				if (response->errstat == SNMP_ERR_NOERROR) {
-					/* check resulting variables */
-					for (vars = response->variables; vars; vars	= vars->next_variable) {
-						if ((vars->name_length < rootlen) || (memcmp(root, vars->name, rootlen * sizeof(oid)) != 0)) {
-							/* next OID is not part of snmptable */
-							ok = 0;
-							continue;
-						}
-						count++;
-
-						/* END OF MIB or NO SUCH OBJECT or NO SUCH INSTANCE */
-						if ((vars->type != SNMP_ENDOFMIBVIEW) &&
-							(vars->type	!= SNMP_NOSUCHOBJECT) &&
-							(vars->type	!= SNMP_NOSUCHINSTANCE)) {
-							/* valid data, so perform a compare  */
-							if (snmp_oid_compare(anOID, anOID_len, vars->name, vars->name_length) >= 0) {
-								SPINE_LOG(("ERROR: OID not increasing"));
-								ok = 0;
-								error_occurred = 1;
-							}
-							/* prepare next turn */
-							memmove((char *) anOID, (char *) vars->name, vars->name_length * sizeof(oid));
-							anOID_len = vars->name_length;
-						} else {
-							/* abnormal end of loop */
-							ok = 0;
-						}
-					}
-				} else {
-					SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_count"));
-				}
-			} else if (status == STAT_TIMEOUT) {
-				SPINE_LOG(("ERROR: Timeout detected in Cacti snmp_count"));
-				ok = 0;
-				error_occurred = 1;
-			} else { /* status == STAT_ERROR */
-				SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_count (STAT_ERROR)"));
-				ok = 0;
-				error_occurred = 1;
-			}
-
-			if (response) {
-				snmp_free_pdu(response);
-			}
-		}
-	} else {
-		status = STAT_DESCRIP_ERROR;
+int snmp_count(host_t *host, char *text_oid) {
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: walk starts at OID %s", text_oid));
+	if (host->snmp_session == NULL) {
+		host->ignore_host = TRUE;
+		return 0;
 	}
-
-	if (status != STAT_SUCCESS) {
-		current_host->ignore_host = TRUE;
+	snmp_walk_t walk = {0};
+	walk.root_length = MAX_OID_LEN;
+	if (!snmp_parse_oid(text_oid, walk.root, &walk.root_length)) {
+		SPINE_LOG(("Device[%i] ERROR: SNMP Count Problems parsing SNMP OID %s", host->id, text_oid));
+		return 0;
 	}
-
-	return count;
+	memcpy(walk.current, walk.root, walk.root_length * sizeof(oid));
+	walk.current_length = walk.root_length;
+	bool more = TRUE;
+	while (more) {
+		snmp_reply_t reply = snmp_request_parsed(host, walk.current, walk.current_length, SNMP_MSG_GETNEXT);
+		more = snmp_count_response(&walk, &reply);
+		if (reply.response != NULL) snmp_free_pdu(reply.response);
+	}
+	if (walk.failed) {
+		host->ignore_host = TRUE;
+		if (host->snmp_status == STAT_SUCCESS) host->snmp_status = STAT_ERROR;
+	}
+	return walk.count;
 }
 
 /*! \fn void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, const struct variable_list *variable)

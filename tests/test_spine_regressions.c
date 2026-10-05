@@ -1121,6 +1121,17 @@ static void test_snmp_agent(void) {
 		host.snmp_session = snmp_host_init(1, host.hostname, version, host.snmp_community, "", "", "SHA", "", "[None]", "", "", 1161, 500);
 		assert(host.snmp_session != NULL);
 		test_snmp_scalar_responses(&host);
+		assert(snmp_count(&host, ".1.3.6.1.2.1.1.6") == 1 && !host.ignore_host);
+		assert(snmp_count(&host, ".1.3.6.1.2.1.1.9999") == 0 && !host.ignore_host);
+		/* At the end of the entire MIB, v1 sends an agent error. The old
+		 * walker repeated that same request forever. */
+		alarm(5);
+		double begin = spine_monotonic_time();
+		int terminal_count = snmp_count(&host, ".2.999");
+		alarm(0);
+		assert(terminal_count >= 0 && terminal_count <= 1);
+		assert(spine_monotonic_time() - begin < 2.0);
+		host.ignore_host = FALSE;
 		for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 			host.availability_method = methods[index];
 			assert(ping_host(&host, &ping) == HOST_UP);
