@@ -247,6 +247,7 @@ int main(int argc, char *argv[]) {
 
 	/* establish php processes and initialize space */
 	php_processes = (php_t*) calloc(MAX_PHP_SERVERS, sizeof(php_t));
+	if (php_processes == NULL) die("ERROR: Fatal malloc error: PHP process list!");
 	for (i = 0; i < MAX_PHP_SERVERS; i++) {
 		php_processes[i].php_state = PHP_BUSY;
 	}
@@ -376,14 +377,15 @@ int main(int argc, char *argv[]) {
 		}
 
 		else if (STRMATCH(arg, "-N") || STRIMATCH(arg, "--mode")) {
-			if (STRIMATCH(getarg(opt, &argv), "online")) {
+			const char *requested_mode = getarg(opt, &argv);
+			if (STRIMATCH(requested_mode, "online")) {
 				set.mode = REMOTE_ONLINE;
-			} else if (STRIMATCH(getarg(opt, &argv), "offline")) {
+			} else if (STRIMATCH(requested_mode, "offline")) {
 				set.mode = REMOTE_OFFLINE;
-			} else if (STRIMATCH(getarg(opt, &argv), "recovery")) {
+			} else if (STRIMATCH(requested_mode, "recovery")) {
 				set.mode = REMOTE_RECOVERY;
 			} else {
-				die("ERROR: invalid polling mode '%s' specified", opt);
+				die("ERROR: invalid polling mode '%s' specified", requested_mode);
 			}
 		}
 
@@ -411,7 +413,7 @@ int main(int argc, char *argv[]) {
 			const char *setting = getarg(opt, &argv);
 			char *value   = strchr(setting, ':');
 
-			if (*value) {
+			if (value != NULL && value != setting) {
 				*value++ = '\0';
 			} else {
 				die("ERROR: -O requires setting:value");

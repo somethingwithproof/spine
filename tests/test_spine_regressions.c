@@ -87,6 +87,72 @@ static void test_result_count_range(void) {
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
 }
 
+static void test_cli_case(const char *flag, const char *input, int expected, const char *error) {
+	extern int spine_program_main(int argc, char **argv);
+	int errors[2];
+	assert(pipe(errors) == 0);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		assert(close(errors[0]) == 0);
+		assert(dup2(errors[1], STDERR_FILENO) == STDERR_FILENO);
+		assert(close(errors[1]) == 0);
+		char program[] = "spine";
+		char option[32];
+		strncopy(option, flag, sizeof(option));
+		char version[] = "--version";
+		char value[64];
+		strncopy(value, input, sizeof(value));
+		char *args[] = {program, option, value, version, NULL};
+		spine_program_main(4, args);
+		_exit(99);
+	}
+	assert(close(errors[1]) == 0);
+	char message[512];
+	ssize_t received = read(errors[0], message, sizeof(message) - 1);
+	assert(received >= 0);
+	message[received] = '\0';
+	assert(close(errors[0]) == 0);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+	if (expected == EXIT_FAILURE) assert(strstr(message, error) != NULL);
+	else assert(message[0] == '\0');
+}
+
+static void test_cli_option_shape(void) {
+	test_cli_case("--option", "missing-colon", EXIT_FAILURE, "ERROR: -O requires setting:value");
+	test_cli_case("--option", ":value", EXIT_FAILURE, "ERROR: -O requires setting:value");
+	test_cli_case("--option", "regression:", EXIT_SUCCESS, NULL);
+	test_cli_case("--option", "regression:value:colon", EXIT_SUCCESS, NULL);
+	test_cli_case("--mode", "online", EXIT_SUCCESS, NULL);
+	test_cli_case("--mode", "offline", EXIT_SUCCESS, NULL);
+	test_cli_case("--mode", "recovery", EXIT_SUCCESS, NULL);
+	test_cli_case("--mode", "invalid", EXIT_FAILURE, "ERROR: invalid polling mode 'invalid' specified");
+	int errors[2];
+	assert(pipe(errors) == 0);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		assert(close(errors[0]) == 0);
+		assert(dup2(errors[1], STDERR_FILENO) == STDERR_FILENO);
+		assert(close(errors[1]) == 0);
+		set.exit_code = EXIT_SUCCESS;
+		for (int i = 0; i < 257; i++) set_option("regression", "value");
+		_exit(99);
+	}
+	assert(close(errors[1]) == 0);
+	char message[512];
+	ssize_t received = read(errors[0], message, sizeof(message) - 1);
+	assert(received >= 0);
+	message[received] = '\0';
+	assert(close(errors[0]) == 0);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+	assert(strstr(message, "Invalid or excessive command-line setting overrides") != NULL);
+}
+
 static spine_permits_t test_permits;
 static pthread_mutex_t permit_test_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int active_permit_workers;
@@ -905,6 +971,7 @@ int main(int argc, char **argv) {
 	}
 	test_string_conversions();
 	test_result_count_range();
+	test_cli_option_shape();
 	test_concurrent_permits();
 	test_copy_bounds();
 	test_database_escape();

@@ -224,6 +224,9 @@ static struct {
  *
  */
 void set_option(const char *option, const char *value) {
+	if (option == NULL || value == NULL || nopts >= (int)(sizeof(opttable) / sizeof(opttable[0]))) {
+		die("ERROR: Invalid or excessive command-line setting overrides");
+	}
 	opttable[nopts  ].opt = option;
 	opttable[nopts++].val = value;
 }
@@ -1357,7 +1360,7 @@ void die(const char *format, ...) {
 		php_close(PHP_INIT);
 	}
 
-	exit(set.exit_code);
+	exit(set.exit_code == EXIT_SUCCESS ? EXIT_FAILURE : set.exit_code);
 }
 
 char *get_date_format(void) {
