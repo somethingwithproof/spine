@@ -1532,12 +1532,12 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	set = previous;
 }
 
-static void run_cli_transfer(const char *config, int expected) {
+static void run_cli_poll(const char *config, const char *poller, const char *threads, int expected) {
 	pid_t child = fork();
 	assert(child >= 0);
 	if (child == 0) {
 		alarm(15);
-		execl("./spine", "spine", "-C", config, "-p", "2", "-t", "1", "--mode=online", "-O", "poller_interval:5", "-S", "-V", "2", NULL);
+		execl("./spine", "spine", "-C", config, "-p", poller, "-t", threads, "--mode=online", "-O", "poller_interval:5", "-O", "active_profiles:1", "-S", "-V", "2", NULL);
 		_exit(127);
 	}
 	int status;
@@ -1545,6 +1545,18 @@ static void run_cli_transfer(const char *config, int expected) {
 	printf("Spine executable exit: expected=%d raw_status=%d\n", expected, status);
 	fflush(stdout);
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+}
+
+static void test_cli_workers(MYSQL *source, const char *config) {
+	assert(db_insert(source, LOCAL, "REPLACE INTO poller(id,threads) VALUES (1,2)"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item"));
+	char query[BUFSIZE];
+	spine_snprintf(query, sizeof(query), "UPDATE host SET hostname='127.0.0.1',poller_id=1,disabled='',device_threads=2,availability_method=%i,status_fail_date='2026-10-05 00:00:00',status_rec_date='2026-10-05 00:00:00' WHERE id=42", AVAIL_NONE);
+	assert(db_insert(source, LOCAL, query));
+	assert(db_insert(source, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES (701,42,1,1,'/usr/bin/printf 123','first'),(702,42,1,1,'/usr/bin/printf 456','second')"));
+	run_cli_poll(config, "1", "2", EXIT_SUCCESS);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
 }
 
 static void test_cli_transfer_exit(MYSQL *source) {
@@ -1585,12 +1597,13 @@ static void test_cli_transfer_exit(MYSQL *source) {
 	assert(file != NULL);
 	assert(fprintf(file, "DB_Host %s\nDB_Database spine_regressions\nDB_User %s\nDB_Pass regression-only\nDB_Port 3306\nRDB_Host %s\nRDB_Database %s\nRDB_User %s\nRDB_Pass regression-only\nRDB_Port 3306\nCacti_Log %s.log\n", set.db_host, username, set.db_host, database, username, config) > 0);
 	assert(fclose(file) == 0);
-	run_cli_transfer(config, EXIT_FAILURE);
+	run_cli_poll(config, "2", "1", EXIT_FAILURE);
 	assert(database_count(&destination, "SELECT COUNT(*) FROM host") == 0);
 	assert(database_count(source, "SELECT COUNT(*) FROM host") == 1);
 	assert(db_insert(&destination, REMOTE, "DROP TRIGGER reject_cli_transfer"));
-	run_cli_transfer(config, EXIT_SUCCESS);
+	run_cli_poll(config, "2", "1", EXIT_SUCCESS);
 	assert(database_count(&destination, "SELECT COUNT(*) FROM host WHERE id=42") == 1);
+	test_cli_workers(source, config);
 	assert(unlink(config) == 0);
 	spine_snprintf(query, sizeof(query), "%s.log", config);
 	if (file_exists(query)) assert(unlink(query) == 0);
@@ -1616,6 +1629,8 @@ static void test_database_configuration(void) {
 	set.parent_fork = SPINE_PARENT;
 	MYSQL mysql;
 	db_connect(LOCAL, &mysql);
+	/* Restore the fixture input before testing configuration, including after a failed CLI run. */
+	assert(db_insert(&mysql, LOCAL, "REPLACE INTO poller (id,threads) VALUES (1,7)"));
 	test_database_version(&mysql);
 	assert(db_insert(&mysql, LOCAL, "DELETE FROM settings") == TRUE);
 	assert(db_insert(&mysql, LOCAL, "INSERT INTO settings (name,value) VALUES ('path_webroot','/srv/cacti'),('path_cactilog',''),('ping_timeout','650'),('script_timeout','2'),('php_servers','100'),('max_get_size','200'),('default_datechar','99')") == TRUE);

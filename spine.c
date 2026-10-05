@@ -664,7 +664,7 @@ int main(int argc, char *argv[]) {
 			die("ERROR: Fatal malloc error: spine.c threads!");
 		}
 
-		if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
+		if (!(details = (poller_thread_t **)calloc((size_t)num_rows, sizeof(poller_thread_t*)))) {
 			die("ERROR: Fatal malloc error: spine.c details!");
 		}
 
@@ -807,39 +807,45 @@ int main(int argc, char *argv[]) {
 			host_time_double = get_time_as_double();
 		}
 
-		/* populate the thread structure */
-		if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
-			die("ERROR: Fatal malloc error: spine.c poller_details!");
+		if (current_thread == 1) {
+			/* populate the thread structure */
+			if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
+				die("ERROR: Fatal malloc error: spine.c poller_details!");
+			}
+
+			poller_details->device_counter   = device_counter;
+			poller_details->host_id          = host_id;
+			poller_details->host_thread      = device_threads;
+			poller_details->host_threads     = device_threads;
+			poller_details->host_data_ids    = items_per_thread;
+
+			snprintf(poller_details->host_time, 40, "%s", host_time);
+
+			poller_details->host_time_double = host_time_double;
+			poller_details->thread_init_sem  = &thread_init_sem;
+			poller_details->complete         = FALSE;
+			poller_details->threads_complete = 0;
+
+			thread_mutex_lock(LOCK_THDET);
+			details[device_counter] = poller_details;
+			thread_mutex_unlock(LOCK_THDET);
+		} else {
+			poller_details = details[device_counter];
 		}
-
-		poller_details->device_counter   = device_counter;
-		poller_details->host_id          = host_id;
-		poller_details->host_thread      = current_thread;
-		poller_details->host_threads     = device_threads;
-		poller_details->host_data_ids    = items_per_thread;
-
-		snprintf(poller_details->host_time, 40, "%s", host_time);
-
-		poller_details->host_time_double = host_time_double;
-		poller_details->thread_init_sem  = &thread_init_sem;
-		poller_details->complete         = FALSE;
-		poller_details->threads_complete = 0;
-
-		thread_mutex_lock(LOCK_THDET);
-		details[device_counter] = poller_details;
-		thread_mutex_unlock(LOCK_THDET);
 
 		/* dev note - errno was never primed at this point in previous version of code */
 		int loop_count = 0;
 		double progress_time = 0;
 		unsigned int sem_err = 0;
 		int spine_timeout = FALSE;
+		bool available_acquired = FALSE;
 
 		while (TRUE) {
 			sem_err = spine_permits_try_acquire(&available_threads);
 
 			if (sem_err == 0) {
 				// Acquired a thread
+				available_acquired = TRUE;
 				break;
 			} else if (sem_err == EINTR) {
 				// Interrupted by signal handler
@@ -893,6 +899,7 @@ int main(int argc, char *argv[]) {
 				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring Thread Initialization Lock", host_id, current_thread, sem_err));
 			}
 
+			loop_count++;
 			if (loop_count == 10) {
 				progress_time = get_time_as_double() - start_time;
 
@@ -918,12 +925,17 @@ int main(int argc, char *argv[]) {
 		}
 
 		if (!spine_timeout) {
-			/* create child process */
-			thread_retry:
-
-			thread_mutex_lock(LOCK_HOST_TIME);
-
-			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);
+			/* Each worker owns immutable instructions; details owns device completion. */
+			poller_thread_t *worker_details = malloc(sizeof(*worker_details));
+			if (worker_details == NULL) die("ERROR: Fatal malloc error: polling worker instructions");
+			thread_mutex_lock(LOCK_THDET);
+			*worker_details = *poller_details;
+			thread_mutex_unlock(LOCK_THDET);
+			worker_details->host_thread = current_thread;
+			do {
+				thread_status = pthread_create(&threads[device_counter], &attr, child, worker_details);
+				if (thread_status == EAGAIN) spine_sleep_usec(10000);
+			} while (thread_status == EAGAIN && get_time_as_double() - start_time < set.poller_interval);
 
 			if (thread_status == 0) {
 				SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", poller_details->host_id, (unsigned long int)threads[device_counter]));
@@ -935,8 +947,7 @@ int main(int argc, char *argv[]) {
 				a_threads_value = spine_permits_available(&available_threads);
 				SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", poller_details->host_id, a_threads_value, set.threads - a_threads_value));
 
-				spine_permits_release(&thread_init_sem);
-
+				thread_mutex_lock(LOCK_THDET);
 				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
 					" host_threads = %d, host_data_ids = %d, complete = %d",
 					device_counter-1,
@@ -945,17 +956,22 @@ int main(int argc, char *argv[]) {
 					poller_details->host_threads,
 					poller_details->host_data_ids,
 					poller_details->complete));
-			} else if (thread_status == EAGAIN) {
-				spine_sleep_usec(10000);
-				goto thread_retry;
-			} else if (thread_status == EINVAL) {
-				SPINE_LOG(("ERROR: The Thread Attribute is Not Initialized"));
+				thread_mutex_unlock(LOCK_THDET);
 			}
 
 			/* Restore thread initialization semaphore if thread creation failed */
 			if (thread_status) {
+				SPINE_LOG(("ERROR: Device[%i] HT[%i] unable to create polling thread (error %d)", host_id, current_thread, thread_status));
+				free(worker_details);
 				spine_permits_release(&thread_init_sem);
+				spine_permits_release(&available_threads);
+				set.exit_code = EXIT_FAILURE;
+				canexit = TRUE;
 			}
+		} else {
+			if (available_acquired) spine_permits_release(&available_threads);
+			set.exit_code = EXIT_FAILURE;
+			canexit = TRUE;
 		}
 	}
 

@@ -39,17 +39,18 @@ void child_cleanup(void *arg) {
 
 	SPINE_LOG_DEVDBG(("DEBUG: Device[%i] HT[%i] The Device Thread has cleaned up.", poller_details.host_id, poller_details.host_thread));
 
-	child_cleanup_thread(arg);
+	free(arg);
+	child_cleanup_thread(NULL);
 }
 
 void child_cleanup_thread(void *arg) {
 	(void)arg;
-	spine_permits_release(&available_threads);
-
 	int a_threads_value;
-	a_threads_value = spine_permits_available(&available_threads);
+	a_threads_value = spine_permits_available(&available_threads) + 1;
 
 	SPINE_LOG_DEVDBG(("DEBUG: Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
+	/* Releasing the permit publishes completion: no shared state is used after it. */
+	spine_permits_release(&available_threads);
 }
 
 void child_cleanup_script(void *arg) {
@@ -76,10 +77,10 @@ void *child(void *arg) {
 
 	int host_errors = 0;
 	poller_thread_t poller_details = *(poller_thread_t*)arg;
-	thread_mutex_unlock(LOCK_HOST_TIME);
 	/* Allows main thread to proceed with creation of other threads. */
 	spine_permits_release(poller_details.thread_init_sem);
 	SPINE_LOG_DEVICE(poller_details.host_id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", poller_details.host_id, poller_details.host_thread));
+	if (mysql_thread_init() != 0) die("ERROR: Unable to initialize polling thread database state");
 	poll_host(&poller_details, &host_errors);
 
 	pthread_cleanup_pop(1);
@@ -395,7 +396,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	reindex_t   *reindex = NULL;
 	host_t      *host = NULL;
 	ping_t      *ping = NULL;
-	name_t      *name = NULL;
 	target_t    *poller_items = NULL;
 	snmp_oids_t *snmp_oids = NULL;
 
