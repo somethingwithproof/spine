@@ -1360,6 +1360,88 @@ static void test_database_version(MYSQL *mysql) {
 	assert(db_insert(mysql, LOCAL, "INSERT INTO version(cacti) VALUES ('1.2.32')"));
 }
 
+typedef struct {
+	poller_thread_t thread;
+	int errors;
+} test_poll_work_t;
+
+static void *test_poll_worker(void *argument) {
+	test_poll_work_t *work = argument;
+	assert(mysql_thread_init() == 0);
+	poll_host(&work->thread, &work->errors);
+	return NULL;
+}
+
+static void test_poll_missing_connection(const poller_thread_t *work) {
+	for (int remote = 0; remote <= 1; remote++) {
+		pid_t child = fork();
+		assert(child >= 0);
+		if (child == 0) {
+			pool_t unavailable = {0};
+			if (remote) {
+				set.poller_id = 2;
+				set.mode = REMOTE_ONLINE;
+				db_pool_remote = &unavailable;
+			} else db_pool_local[0].free = FALSE;
+			int errors = 0;
+			poll_host(work, &errors);
+			_exit(0);
+		}
+		int status;
+		assert(waitpid(child, &status, 0) == child);
+		assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+	}
+}
+
+static void test_poll_pipeline(MYSQL *mysql) {
+	extern poller_thread_t **details;
+	config_t previous = set;
+	pool_t *previous_pool = db_pool_local;
+	poller_thread_t **previous_details = details;
+	set.threads = 1;
+	set.poller_id = 1;
+	set.poller_interval = 0;
+	set.active_profiles = 1;
+	set.boost_enabled = TRUE;
+	set.boost_redirect = TRUE;
+	set.ping_only = FALSE;
+	set.script_timeout = 2;
+	set.spine_log_level = 0;
+	set.log_destination = 0;
+	db_pool_local = calloc(1, sizeof(*db_pool_local));
+	assert(db_pool_local != NULL);
+	db_create_connection_pool(LOCAL);
+	assert(spine_permits_init(&available_scripts, 2) == 0);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host_errors"));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES (601,0,1,1,'/usr/bin/printf 123','valid'),(602,0,1,1,'/usr/bin/printf invalid','invalid')"));
+	test_poll_work_t work = {0};
+	work.thread.host_id = 0;
+	work.thread.host_thread = 1;
+	work.thread.host_threads = 1;
+	work.thread.host_data_ids = 2;
+	work.thread.host_time_double = get_time_as_double();
+	STRNCOPY(work.thread.host_time, "1791158400");
+	poller_thread_t *device = &work.thread;
+	details = &device;
+	pthread_t worker;
+	assert(pthread_create(&worker, NULL, test_poll_worker, &work) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	assert(work.thread.complete && work.thread.threads_complete == 1 && work.errors == 1);
+	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+	test_poll_missing_connection(&work.thread);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+	assert(database_count(mysql, "SELECT errors FROM host_errors WHERE host_id=0") == 1);
+	assert(spine_permits_destroy(&available_scripts) == 0);
+	db_close_connection_pool(LOCAL);
+	db_pool_local = previous_pool;
+	details = previous_details;
+	set = previous;
+}
+
 static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
@@ -1412,6 +1494,7 @@ static void test_database_configuration(void) {
 	db_connect(LOCAL, &mysql);
 	test_poller_queries(&mysql);
 	test_collector_transfer(&mysql);
+	test_poll_pipeline(&mysql);
 	db_disconnect(&mysql);
 }
 

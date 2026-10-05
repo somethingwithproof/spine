@@ -122,3 +122,22 @@ CREATE TABLE `poller_output_boost` (
   KEY `last_updated` (`last_updated`),
   KEY `time` (`time`)
 ) ENGINE=InnoDB ROW_FORMAT=Dynamic;
+
+CREATE TABLE `host_errors` (
+  `host_id` mediumint(8) unsigned NOT NULL default 0,
+  `poller_id` int(10) unsigned NOT NULL default 1,
+  `errors` mediumint(8) unsigned NOT NULL default 0,
+  `local_data_ids` text default NULL,
+  PRIMARY KEY (`host_id`),
+  KEY `poller_id` (`poller_id`)
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC COMMENT='Holds Device Error buffer for Spine';
+
+CREATE TABLE `poller_command` (
+  poller_id smallint(5) unsigned NOT NULL default '1',
+  time timestamp NOT NULL default '0000-00-00 00:00:00',
+  action tinyint(3) unsigned NOT NULL default '0',
+  command varchar(191) NOT NULL default '',
+  last_updated timestamp default CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (poller_id, action, command),
+  KEY poller_id_last_updated (poller_id, last_updated)
+) ENGINE=InnoDB ROW_FORMAT=Dynamic;

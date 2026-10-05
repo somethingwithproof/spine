@@ -74,36 +74,13 @@ void child_cleanup_script(void *arg) {
 void *child(void *arg) {
 	pthread_cleanup_push(child_cleanup, arg);
 
-	int device_counter;
-	int host_id;
-	int host_thread;
-	int host_threads;
-	int host_data_ids;
-	int host_errors;
-	double host_time_double;
-	char host_time[SMALL_BUFSIZE];
-
-	host_errors = 0;
-
-	poller_thread_t poller_details = *(poller_thread_t*) arg;
-
-	device_counter   = poller_details.device_counter;
-	host_id          = poller_details.host_id;
-	host_thread      = poller_details.host_thread;
-	host_threads     = poller_details.host_threads;
-	host_data_ids    = poller_details.host_data_ids;
-	host_time_double = poller_details.host_time_double;
-
-	snprintf(host_time, SMALL_BUFSIZE, "%s", poller_details.host_time);
-
+	int host_errors = 0;
+	poller_thread_t poller_details = *(poller_thread_t*)arg;
 	thread_mutex_unlock(LOCK_HOST_TIME);
-
-	/* Allows main thread to proceed with creation of other threads */
+	/* Allows main thread to proceed with creation of other threads. */
 	spine_permits_release(poller_details.thread_init_sem);
-
-	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", host_id, host_thread));
-
-	poll_host(device_counter, host_id, host_thread, host_threads, host_data_ids, host_time, &host_errors, host_time_double);
+	SPINE_LOG_DEVICE(poller_details.host_id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", poller_details.host_id, poller_details.host_thread));
+	poll_host(&poller_details, &host_errors);
 
 	pthread_cleanup_pop(1);
 
@@ -111,9 +88,10 @@ void *child(void *arg) {
 	pthread_exit(0);
 }
 
-/*! \fn void poll_host(int device_counter, int host_id, int host_thread, int host_threads, int host_data_ids, char *host_time, int *host_errors, double host_time_double)
+/*! \fn void poll_host(const poller_thread_t *work, int *host_errors)
  *  \brief core Spine function that polls a host
- *  \param host_id integer value for the host_id from the hosts table in Cacti
+ *  \param work borrowed polling instructions, valid until the synchronous call returns
+ *  \param host_errors receives the count of invalid polling results
  *
  *	This function is core to Spine.  It will take a host_id and then poll it.
  *
@@ -237,7 +215,15 @@ void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thr
 	strncopy(queries->suffix, set.poller_id != 0 || set.dbonupdate == 0 ? " ON DUPLICATE KEY UPDATE output=VALUES(output)" : " AS rs ON DUPLICATE KEY UPDATE output=rs.output", sizeof(queries->suffix));
 }
 
-void poll_host(int device_counter, int host_id, int host_thread, int host_threads, int host_data_ids, char *host_time, int *host_errors, double host_time_double) {
+void poll_host(const poller_thread_t *work, int *host_errors) {
+	assert(work != NULL && host_errors != NULL);
+	int device_counter = work->device_counter;
+	int host_id = work->host_id;
+	int host_thread = work->host_thread;
+	int host_threads = work->host_threads;
+	int host_data_ids = work->host_data_ids;
+	const char *host_time = work->host_time;
+	double host_time_double = work->host_time_double;
 	poller_queries_t queries;
 	char *query3 = NULL;
 	char *query12 = NULL;
@@ -296,8 +282,8 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 	extern poller_thread_t** details;
 
-	const pool_t *local_cnn = NULL;
-	const pool_t *remote_cnn = NULL;
+	pool_t *local_cnn = NULL;
+	pool_t *remote_cnn = NULL;
 
 	reindex_t   *reindex = NULL;
 	host_t      *host = NULL;
@@ -319,18 +305,20 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 		error_string, buf_size, buf_errors, &errors, host_id, host_thread
 	};
 
-	MYSQL     mysql;
-	MYSQL     mysqlr;
-	MYSQL     mysqlt;
+	MYSQL     *mysql;
+	MYSQL     *mysqlr = NULL;
+	MYSQL     *mysqlt;
 	MYSQL_RES *result;
 	MYSQL_ROW row;
 
 	local_cnn = db_get_connection(LOCAL);
-	mysql = local_cnn->mysql;
+	if (local_cnn == NULL) die("ERROR: No local database connection available for polling");
+	mysql = &local_cnn->mysql;
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
 		remote_cnn = db_get_connection(REMOTE);
-		mysqlr = remote_cnn->mysql;
+		if (remote_cnn == NULL) die("ERROR: No remote database connection available for polling");
+		mysqlr = &remote_cnn->mysql;
 	}
 
 	/* allocate host and ping structures with appropriate values */
@@ -367,7 +355,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	/* if the host is a real host.  Note host_id=0 is not host based data source */
 	if (host_id) {
 		/* get data about this host */
-		if ((result = db_query(&mysql, LOCAL, queries.host)) != 0) {
+		if ((result = db_query(mysql, LOCAL, queries.host)) != 0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result));
 
 			if (num_rows != 1) {
@@ -492,11 +480,11 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				if (row[30] != NULL) host->availability = atof(row[30]);
 
 				if (row[31] != NULL) host->snmp_sysUpTimeInstance=atoll(row[31]);
-				if (row[32] != NULL) db_escape(&mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), row[32]);
-				if (row[33] != NULL) db_escape(&mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), row[33]);
-				if (row[34] != NULL) db_escape(&mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), row[34]);
-				if (row[35] != NULL) db_escape(&mysql, host->snmp_sysName, sizeof(host->snmp_sysName), row[35]);
-				if (row[36] != NULL) db_escape(&mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), row[36]);
+				if (row[32] != NULL) db_escape(mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), row[32]);
+				if (row[33] != NULL) db_escape(mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), row[33]);
+				if (row[34] != NULL) db_escape(mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), row[34]);
+				if (row[35] != NULL) db_escape(mysql, host->snmp_sysName, sizeof(host->snmp_sysName), row[35]);
+				if (row[36] != NULL) db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), row[36]);
 
 				/* correct max_oid bounds issues */
 				if ((host->max_oids == 0) || (host->max_oids > 100)) {
@@ -548,7 +536,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 							update_host_status(HOST_UP, host, ping, host->availability_method);
 
 							if (((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE)) && (host->snmp_session != NULL && set.mibs)) {
-								get_system_information(host, &mysql, 1);
+								get_system_information(host, mysql, 1);
 								ignore_sysinfo = FALSE;
 							}
 						}
@@ -634,7 +622,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 							host->id);
 					}
 
-					db_insert(&mysql, LOCAL, update_sql);
+					db_insert(mysql, LOCAL, update_sql);
 				}
 			} else {
 				SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, host_thread));
@@ -679,7 +667,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 
 	/* do the reindex check for this host if not script based */
 	if ((!host->ignore_host) && host_id) {
-		if ((result = db_query(&mysql, LOCAL, queries.reindex)) != 0) {
+		if ((result = db_query(mysql, LOCAL, queries.reindex)) != 0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result));
 
 			if (num_rows > 0) {
@@ -869,9 +857,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action,command) values (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
 
 									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(&mysqlr, REMOTE, query3);
+										db_insert(mysqlr, REMOTE, query3);
 									} else {
-										db_insert(&mysql, LOCAL, query3);
+										db_insert(mysql, LOCAL, query3);
 									}
 
 									/* set zeros */
@@ -895,9 +883,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action, command) ValueS (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
 
 									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(&mysqlr, REMOTE, query3);
+										db_insert(mysqlr, REMOTE, query3);
 									} else {
-										db_insert(&mysql, LOCAL, query3);
+										db_insert(mysql, LOCAL, query3);
 									}
 
 									/* set zeros */
@@ -922,9 +910,9 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
 
 									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(&mysqlr, REMOTE, query3);
+										db_insert(mysqlr, REMOTE, query3);
 									} else {
-										db_insert(&mysql, LOCAL, query3);
+										db_insert(mysql, LOCAL, query3);
 									}
 
 									/* set zeros */
@@ -941,12 +929,12 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 							 *     the assert to fail */
 							if (assert_fail || (!strcmp(reindex->op, ">")) || (!strcmp(reindex->op, "<"))) {
 								if (host_thread == 1) {
-									db_escape(&mysql, temp_poll_result, sizeof(temp_poll_result), poll_result);
-									db_escape(&mysql, temp_arg1, sizeof(temp_arg1), reindex->arg1);
+									db_escape(mysql, temp_poll_result, sizeof(temp_poll_result), poll_result);
+									db_escape(mysql, temp_arg1, sizeof(temp_arg1), reindex->arg1);
 
 									snprintf(query3, LRG_BUFSIZE, "UPDATE poller_reindex SET assert_value='%s' WHERE host_id='%i' AND data_query_id='%i' AND arg1='%s'", temp_poll_result, host_id, reindex->data_query_id, temp_arg1);
 
-									db_insert(&mysql, LOCAL, query3);
+									db_insert(mysql, LOCAL, query3);
 
 									/* set zeros */
 									memset(query3, 0, buf_length);
@@ -994,14 +982,14 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	num_rows = 0;
 	if (set.poller_interval == 0) {
 		/* get the poller items */
-		if ((result = db_query(&mysql, LOCAL, queries.items)) != 0) {
+		if ((result = db_query(mysql, LOCAL, queries.items)) != 0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result));
 		} else {
 			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
 		}
 	} else {
 		/* get the poller items */
-		if ((result = db_query(&mysql, LOCAL, queries.due_items)) != 0) {
+		if ((result = db_query(mysql, LOCAL, queries.due_items)) != 0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result));
 		} else {
 			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
@@ -1401,7 +1389,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 				strncat(query3, queries.suffix, posuffix_len);
 
 				/* insert the record */
-				db_insert(&mysqlt, mode, query3);
+				db_insert(mysqlt, mode, query3);
 
 				/* re-initialize the query buffer */
 				memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
@@ -1413,7 +1401,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 					/* append the suffix */
 					strncat(query12, queries.suffix, posuffix_len);
 
-					db_insert(&mysqlt, mode, query12);
+					db_insert(mysqlt, mode, query12);
 
 					memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
 
@@ -1451,14 +1439,14 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 			strncat(query3, queries.suffix, posuffix_len);
 
 			/* insert records into database */
-			db_insert(&mysqlt, mode, query3);
+			db_insert(mysqlt, mode, query3);
 
 			/* insert the record for boost */
 			if (query12 != NULL) {
 				/* append the suffix */
 				strncat(query12, queries.suffix, posuffix_len);
 
-				db_insert(&mysqlt, mode, query12);
+				db_insert(mysqlt, mode, query12);
 			}
 		}
 
@@ -1488,7 +1476,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 	if (host_thread == host_threads && set.active_profiles != 1) {
 		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
 
-		db_query(&mysql, LOCAL, queries.schedule);
+		db_query(mysql, LOCAL, queries.schedule);
 	}
 
 	/* record the polling time for the device */
@@ -1504,7 +1492,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 		poll_time = get_time_as_double();
 		queries.items[0] = '\0';
 		snprintf(queries.items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-		db_query(&mysql, LOCAL, queries.items);
+		db_query(mysql, LOCAL, queries.items);
 
 	}
 
@@ -1519,7 +1507,7 @@ void poll_host(int device_counter, int host_id, int host_thread, int host_thread
 			" local_data_ids = CONCAT(local_data_ids, \", \", VALUES(local_data_ids))",
 			host_id, set.poller_id, errors, error_string);
 
-		db_query(&mysql, LOCAL, error_query);
+		db_query(mysql, LOCAL, error_query);
 
 		free(error_query);
 	}
