@@ -863,6 +863,24 @@ static void test_script_execution(void) {
 	free(result);
 	assert(spine_permits_available(&available_scripts) == 0);
 	assert(spine_permits_release(&available_scripts) == 0);
+	char output_command[128];
+	for (int excess = 0; excess <= 1; excess++) {
+		spine_snprintf(output_command, sizeof(output_command), "/usr/bin/printf '%%%ds' x", RESULTS_BUFFER - 1 + excess);
+		result = exec_poll(&host, output_command, 1, "DS");
+		assert(strlen(result) == RESULTS_BUFFER - 1);
+		assert(result[RESULTS_BUFFER - 1] == '\0');
+		free(result);
+		assert(spine_permits_available(&available_scripts) == 1);
+	}
+	char empty[] = "/usr/bin/printf ''";
+	result = exec_poll(&host, empty, 1, "DQ");
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	char missing[] = "/spine-regression/nonexistent-executable";
+	result = exec_poll(&host, missing, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	assert(spine_permits_available(&available_scripts) == 1);
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	set.script_timeout = previous_timeout;
 }
