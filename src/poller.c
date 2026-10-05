@@ -287,7 +287,7 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	MYSQL mysqlt;
 	char *query3 = NULL;
 	char *query12 = NULL;
-	char result_string[(DBL_BUFSIZE * 2) + SMALL_BUFSIZE];
+	char result_string[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
 	size_t out_buffer;
 	int result_length;
 	int mode;
@@ -361,7 +361,8 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 		}
 
 		for (i = 0; i < pipeline_data->rows_processed; i++) {
-			char escaped_result[DBL_BUFSIZE];
+			/* Escaping can double each source byte, plus the terminator. */
+			char escaped_result[(RESULTS_BUFFER * 2) + 1];
 			char escaped_rrd_name[DBL_BUFSIZE];
 
 			db_escape(&mysqlt, escaped_result, sizeof(escaped_result), pipeline_data->poller_items[i].result);
@@ -543,12 +544,9 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	int posuffix_len = 0;
 
 	char sysUptime[BUFSIZE];
-	/* result_string holds " (%i, '<escaped_result>', FROM_UNIXTIME(%s), '<escaped_rrd_name>')".
-	 * db_escape can double the length of the input on worst-case input (e.g. all quotes),
-	 * so a RESULTS_BUFFER-sized result can expand to 2*RESULTS_BUFFER = DBL_BUFSIZE*2.
-	 * SMALL_BUFSIZE covers the fixed SQL scaffolding and rrd_name. 4352 bytes on stack
-	 * is safe for spine's worker threads (default 2MB stack, worst case 256KB ulimit). */
-	char result_string[(DBL_BUFSIZE * 2) + SMALL_BUFSIZE];
+	/* Reserve the escaped result, escaped rrd_name, and fixed SQL scaffolding.
+	 * RESULTS_BUFFER is configurable and need not equal DBL_BUFSIZE. */
+	char result_string[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
 	int  result_length;
 	char temp_result[RESULTS_BUFFER];
 	int  errors = 0;
@@ -2282,7 +2280,8 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 				i = 0;
 				while (i < rows_processed) {
-					char escaped_result[DBL_BUFSIZE];
+					/* Escaping can double each source byte, plus the terminator. */
+					char escaped_result[(RESULTS_BUFFER * 2) + 1];
 					char escaped_rrd_name[DBL_BUFSIZE];
 
 					db_escape(&mysqlt, escaped_result, sizeof(escaped_result), poller_items[i].result);
