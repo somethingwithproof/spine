@@ -59,11 +59,9 @@ int ping_host(host_t *host, ping_t *ping) {
 		(host->availability_method == AVAIL_PING) ||
 		(host->availability_method == AVAIL_SNMP_OR_PING)) {
 
-		if (host->ping_method == PING_ICMP) {
-			if (set.icmp_avail == FALSE) {
-				SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
-				host->ping_method = PING_UDP;
-			}
+		if ((host->ping_method == PING_ICMP) && (set.icmp_avail == FALSE)) {
+			SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
+			host->ping_method = PING_UDP;
 		}
 
 		if (!strstr(host->hostname, "localhost")) {
@@ -264,7 +262,7 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	struct sockaddr_in fromname;
 	char   socket_reply[BUFSIZE];
 	int    retry_count;
-	char   *cacti_msg = "cacti-monitoring-system\0";
+	const char *cacti_msg = "cacti-monitoring-system\0";
 	int    packet_len;
 	socklen_t    fromlen;
 	ssize_t    return_code;
@@ -272,8 +270,8 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 	static   unsigned int seq = 0;
 	struct   icmp  *icmp;
-	struct   ip    *ip;
-	struct   icmp  *pkt;
+	const struct ip *ip;
+	const struct icmp *pkt;
 	unsigned char  *packet;
 
 	if (is_debug_device(host->id)) {

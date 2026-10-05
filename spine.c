@@ -236,7 +236,6 @@ int main(int argc, char *argv[]) {
 	int current_thread;
 	int threads_final = 0;
 	int threads_missing = -1;
-	int threads_count;
 
 	/* we must initialize snmp in the main thread */
 	struct snmp_session session;
@@ -342,7 +341,8 @@ int main(int argc, char *argv[]) {
 				die("ERROR: %s can only be used once", arg);
 			}
 
-			set.start_host_id = atoi(opt = getarg(opt, &argv));
+			opt = getarg(opt, &argv);
+			set.start_host_id = atoi(opt);
 
 			if (!HOSTID_DEFINED(set.start_host_id)) {
 				die("ERROR: '%s=%s' is invalid first-host ID", arg, opt);
@@ -354,7 +354,8 @@ int main(int argc, char *argv[]) {
 				die("ERROR: %s can only be used once", arg);
 			}
 
-			set.end_host_id = atoi(opt = getarg(opt, &argv));
+			opt = getarg(opt, &argv);
+			set.end_host_id = atoi(opt);
 
 			if (!HOSTID_DEFINED(set.end_host_id)) {
 				die("ERROR: '%s=%s' is invalid last-host ID", arg, opt);
@@ -407,7 +408,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		else if (STRIMATCH(arg, "-O") || STRIMATCH(arg, "--option")) {
-			char *setting = getarg(opt, &argv);
+			const char *setting = getarg(opt, &argv);
 			char *value   = strchr(setting, ':');
 
 			if (*value) {
@@ -636,7 +637,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller_id);
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
+	spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
 
 	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
 	result = db_query(&mysql, LOCAL, querybuf);
@@ -699,8 +700,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* specify the point of timeout for timedwait semaphores */
-	//until_spec.tv_sec = (time_t)(set.poller_interval + begin_time - 0.2);
-	//until_spec.tv_nsec = 0;
 
 	a_threads_value = spine_permits_available(&available_threads);
 	SPINE_LOG_HIGH(("DEBUG: Initial Value of Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
@@ -978,14 +977,14 @@ int main(int argc, char *argv[]) {
 	if (!set.ping_only) {
 		thread_mutex_lock(LOCK_THDET);
 
-		for (threads_count = 0; threads_count < num_rows; threads_count++) {
-			poller_thread_t* det = details[threads_count];
+		for (int threads_count = 0; threads_count < num_rows; threads_count++) {
+			const poller_thread_t *det = details[threads_count];
 
 			if (threads_missing == -1 && det == NULL) {
 				threads_missing = threads_count;
 			}
 
-			if (det != NULL) { // && !det->complete) {
+			if (det != NULL) {
 				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
 					det->host_id,
 					det->complete ? "":"in",

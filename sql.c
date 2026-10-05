@@ -216,7 +216,7 @@ void db_connect(int type, MYSQL *mysql) {
 	int     success;
 	int     error = 0;
 	bool    reconnect;
-	MYSQL   *connect_error;
+	const MYSQL *connect_error;
 	db_address_t address;
 	static int connections = 0;
 
@@ -238,9 +238,9 @@ void db_connect(int type, MYSQL *mysql) {
 		exit(1);
 	}
 
-	db_set_option(mysql, MYSQL_OPT_READ_TIMEOUT, (int *)&rtimeout, "read timeout");
-	db_set_option(mysql, MYSQL_OPT_WRITE_TIMEOUT, (int *)&wtimeout, "write timeout");
-	db_set_option(mysql, MYSQL_OPT_CONNECT_TIMEOUT, (int *)&timeout, "general timeout");
+	db_set_option(mysql, MYSQL_OPT_READ_TIMEOUT, &rtimeout, "read timeout");
+	db_set_option(mysql, MYSQL_OPT_WRITE_TIMEOUT, &wtimeout, "write timeout");
+	db_set_option(mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout, "general timeout");
 
 	#if defined(MARIADB_BASE_VERSION) || (MYSQL_VERSION_ID < 80034 && MYSQL_VERSION_ID >= 50013)
 		db_set_option(mysql, MYSQL_OPT_RECONNECT, &reconnect, "reconnect");
@@ -287,7 +287,6 @@ void db_connect(int type, MYSQL *mysql) {
 				success = FALSE;
 			}
 		} else {
-			tries   = 0;
 			success = TRUE;
 			break;
 		}

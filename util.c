@@ -183,12 +183,10 @@ void spine_sanitize_log_message(char *message) {
 		} else if (p[0] == 0xc2 && p[1] == 0x85) {
 			p[0] = ' ';
 			p[1] = ' ';
-			p++;
 		} else if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
 			p[0] = ' ';
 			p[1] = ' ';
 			p[2] = ' ';
-			p += 2;
 		}
 	}
 }
@@ -240,13 +238,12 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
 			retval = strdup(opttable[i].val);
@@ -318,13 +315,12 @@ static char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
 			retval = strdup(opttable[i].val);
@@ -399,13 +395,12 @@ static char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
 			return strdup(opttable[i].val);
@@ -446,7 +441,7 @@ void parse_debug_devices(char *device_list, int *devices, size_t capacity) {
 	if (capacity == 0) return;
 	devices[0] = 0;
 	char *saveptr = NULL;
-	char *token = strtok_r(device_list, ",", &saveptr);
+	const char *token = strtok_r(device_list, ",", &saveptr);
 	for (size_t i = 0; token != NULL && i < capacity - 1; i++) {
 		devices[i] = atoi(token);
 		devices[i + 1] = 0;
@@ -685,13 +680,11 @@ void read_config_options() {
 	SPINE_LOG_DEBUG(("DEBUG: The log_pstats variable is %i", set.log_pstats));
 
 	/* get Cacti defined max threads override spine.conf */
-	if (set.threads_set == FALSE) {
-		if ((res = getpsetting(&mysql, mode, "threads")) != 0) {
-			set.threads = atoi(res);
-			free(res);
-			if (set.threads > MAX_THREADS) {
-				set.threads = MAX_THREADS;
-			}
+	if ((set.threads_set == FALSE) && ((res = getpsetting(&mysql, mode, "threads")) != 0)) {
+		set.threads = atoi(res);
+		free(res);
+		if (set.threads > MAX_THREADS) {
+			set.threads = MAX_THREADS;
 		}
 	}
 
@@ -1172,7 +1165,7 @@ void poller_push_data_to_main() {
 	db_disconnect(&mysqlr);
 }
 
-/*! \fn int read_spine_config(char *file)
+/*! \fn int read_spine_config(const char *file)
  *  \brief obtain default startup variables from the spine.conf file.
  *  \param file the spine config file
  *
@@ -1225,7 +1218,7 @@ static int apply_config_directive(const char *name, const char *value) {
 	return TRUE;
 }
 
-int read_spine_config(char *file) {
+int read_spine_config(const char *file) {
 	FILE *fp = fopen(file, "rb");
 	char buff[BUFSIZE];
 	char name[BUFSIZE];
@@ -1325,10 +1318,8 @@ void die(const char *format, ...) {
 
 	fprintf(stderr, "%s", flogmessage);
 
-	if (set.parent_fork == SPINE_PARENT) {
-		if (set.php_initialized) {
-			php_close(PHP_INIT);
-		}
+	if ((set.parent_fork == SPINE_PARENT) && (set.php_initialized)) {
+		php_close(PHP_INIT);
 	}
 
 	exit(set.exit_code);
@@ -1490,22 +1481,20 @@ int spine_log(const char *format, ...) {
 
 	if ((IS_LOGGING_TO_FILE() &&
 		(set.log_level != POLLER_VERBOSITY_NONE) &&
-		(strlen(set.path_logfile) != 0))) {
-		if (set.logfile_processed) {
-			if (!file_exists(set.path_logfile)) {
-				log_file = fopen(set.path_logfile, "w");
-			} else {
-				log_file = fopen(set.path_logfile, "a");
-			}
+		(strlen(set.path_logfile) != 0)) && (set.logfile_processed)) {
+		if (!file_exists(set.path_logfile)) {
+			log_file = fopen(set.path_logfile, "w");
+		} else {
+			log_file = fopen(set.path_logfile, "a");
+		}
 
-			if (log_file) {
-				fputs(flogmessage, log_file);
-				fclose(log_file);
-			} else {
-				if (!log_error) {
-					printf("ERROR: Spine Log File Could Not Be Opened/Created\n");
-					log_error = TRUE;
-				}
+		if (log_file) {
+			fputs(flogmessage, log_file);
+			fclose(log_file);
+		} else {
+			if (!log_error) {
+				printf("ERROR: Spine Log File Could Not Be Opened/Created\n");
+				log_error = TRUE;
 			}
 		}
 	}
@@ -1625,13 +1614,11 @@ int is_numeric(char *string) {
 	if (errno != ERANGE) {
 		if (end_ptr_long == string + length) { /* integer string */
 			return TRUE;
-		} else if (end_ptr_long == string) {
-			if (*end_ptr_long != '\0' &&
+		} else if ((end_ptr_long == string) && (*end_ptr_long != '\0' &&
 				*end_ptr_long != '.' &&
 				*end_ptr_long != '-' &&
-				*end_ptr_long != '+') { /* ignore partial string matches but doubles can begin with '+', '-', '.' */
-				return FALSE;
-			}
+				*end_ptr_long != '+')) { /* ignore partial string matches but doubles can begin with '+', '-', '.' */
+			return FALSE;
 		}
 	} else {
 		end_ptr_long = NULL;
@@ -1847,7 +1834,9 @@ char *ltrim(char *str) {
 char *reverse(char* str) {
 	size_t start = 0;
 	size_t end = strlen(str);
-	while (start < end && start < --end) {
+	while (start < end) {
+		end--;
+		if (start >= end) break;
 		char byte = str[start];
 		str[start++] = str[end];
 		str[end] = byte;
@@ -2027,7 +2016,9 @@ int get_cacti_version(MYSQL *psql, int mode) {
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       major, minor, point;
+	int major;
+	int minor;
+	int point;
 	int       cacti_version;
 
 	assert(psql != 0);
@@ -2128,5 +2119,5 @@ char *regex_replace(const char *exp, char *value) {
 	/* Free memory allocated to the pattern buffer by regcomp() */
 	regfree(&regex);
 
-	return (reti) ? value : msgbuf;
+	return reti ? value : msgbuf;
 }
