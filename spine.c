@@ -1107,7 +1107,7 @@ int main(int argc, char *argv[]) {
 	/* clueanup winsock library on Windows */
 	SOCK_CLEANUP;
 
-	exit(EXIT_SUCCESS);
+	exit(set.exit_code);
 }
 
 /*! \fn static void display_help()

@@ -141,3 +141,13 @@ CREATE TABLE `poller_command` (
   PRIMARY KEY (poller_id, action, command),
   KEY poller_id_last_updated (poller_id, last_updated)
 ) ENGINE=InnoDB ROW_FORMAT=Dynamic;
+
+CREATE TABLE `poller_time` (
+  id bigint(20) unsigned NOT NULL auto_increment,
+  pid int(10) unsigned NOT NULL default '0',
+  poller_id int(10) unsigned NOT NULL default '1',
+  start_time timestamp NOT NULL default '0000-00-00 00:00:00',
+  end_time timestamp NOT NULL default '0000-00-00 00:00:00',
+  PRIMARY KEY (id),
+  KEY `poller_id_end_time` (`poller_id`, `end_time`)
+) ENGINE=InnoDB ROW_FORMAT=Dynamic;

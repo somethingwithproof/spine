@@ -1442,6 +1442,75 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	set = previous;
 }
 
+static void run_cli_transfer(const char *config, int expected) {
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		alarm(15);
+		execl("./spine", "spine", "-C", config, "-p", "2", "-t", "1", "--mode=online", "-O", "poller_interval:5", "-S", "-V", "2", NULL);
+		_exit(127);
+	}
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	printf("Spine executable exit: expected=%d raw_status=%d\n", expected, status);
+	fflush(stdout);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+}
+
+static void test_cli_transfer_exit(MYSQL *source) {
+	char database[80];
+	char username[80];
+	char query[BUFSIZE];
+	spine_snprintf(database, sizeof(database), "spine_exit_%ld", (long)getpid());
+	spine_snprintf(username, sizeof(username), "spine_cli_%ld", (long)getpid());
+	spine_snprintf(query, sizeof(query), "CREATE DATABASE %s CHARACTER SET utf8mb4", database);
+	assert(db_insert(source, LOCAL, query));
+	/* Public fixture credentials, restricted to the two isolated regression databases. */
+	spine_snprintf(query, sizeof(query), "CREATE USER '%s'@'%%' IDENTIFIED BY 'regression-only'", username);
+	assert(db_insert(source, LOCAL, query));
+	spine_snprintf(query, sizeof(query), "GRANT SELECT,INSERT,UPDATE,DELETE ON spine_regressions.* TO '%s'@'%%'", username);
+	assert(db_insert(source, LOCAL, query));
+	spine_snprintf(query, sizeof(query), "GRANT SELECT,INSERT,UPDATE,DELETE ON %s.* TO '%s'@'%%'", database, username);
+	assert(db_insert(source, LOCAL, query));
+	MYSQL destination;
+	db_connect(LOCAL, &destination);
+	assert(mysql_select_db(&destination, database) == 0);
+	const char *const tables[] = {"settings", "poller", "poller_item", "version", "host", "poller_time"};
+	for (size_t index = 0; index < sizeof(tables) / sizeof(tables[0]); index++) {
+		spine_snprintf(query, sizeof(query), "CREATE TABLE %s LIKE spine_regressions.%s", tables[index], tables[index]);
+		assert(db_insert(&destination, REMOTE, query));
+	}
+	assert(db_insert(&destination, REMOTE, "INSERT INTO version VALUES ('1.2.32')"));
+	assert(db_insert(source, LOCAL, "REPLACE INTO poller(id,threads) VALUES (2,1)"));
+	assert(db_insert(&destination, REMOTE, "INSERT INTO poller(id,threads) VALUES (2,1)"));
+	assert(db_insert(source, LOCAL, "DELETE FROM host"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item"));
+	/* Disabled devices are excluded from CLI polling, but their status still syncs. */
+	assert(db_insert(source, LOCAL, "INSERT INTO host (id,poller_id,disabled) VALUES (42,2,'on')"));
+	assert(db_insert(&destination, REMOTE, "CREATE TRIGGER reject_cli_transfer BEFORE INSERT ON host FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='regression transfer failure'"));
+	char config[] = "spine-cli-exit-XXXXXX";
+	int fd = mkstemp(config);
+	assert(fd >= 0);
+	FILE *file = fdopen(fd, "w");
+	assert(file != NULL);
+	assert(fprintf(file, "DB_Host %s\nDB_Database spine_regressions\nDB_User %s\nDB_Pass regression-only\nDB_Port 3306\nRDB_Host %s\nRDB_Database %s\nRDB_User %s\nRDB_Pass regression-only\nRDB_Port 3306\nCacti_Log %s.log\n", set.db_host, username, set.db_host, database, username, config) > 0);
+	assert(fclose(file) == 0);
+	run_cli_transfer(config, EXIT_FAILURE);
+	assert(database_count(&destination, "SELECT COUNT(*) FROM host") == 0);
+	assert(database_count(source, "SELECT COUNT(*) FROM host") == 1);
+	assert(db_insert(&destination, REMOTE, "DROP TRIGGER reject_cli_transfer"));
+	run_cli_transfer(config, EXIT_SUCCESS);
+	assert(database_count(&destination, "SELECT COUNT(*) FROM host WHERE id=42") == 1);
+	assert(unlink(config) == 0);
+	spine_snprintf(query, sizeof(query), "%s.log", config);
+	if (file_exists(query)) assert(unlink(query) == 0);
+	db_disconnect(&destination);
+	spine_snprintf(query, sizeof(query), "DROP USER '%s'@'%%'", username);
+	assert(db_insert(source, LOCAL, query));
+	spine_snprintf(query, sizeof(query), "DROP DATABASE %s", database);
+	assert(db_insert(source, LOCAL, query));
+}
+
 static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
@@ -1495,6 +1564,7 @@ static void test_database_configuration(void) {
 	test_poller_queries(&mysql);
 	test_collector_transfer(&mysql);
 	test_poll_pipeline(&mysql);
+	test_cli_transfer_exit(&mysql);
 	db_disconnect(&mysql);
 }
 
