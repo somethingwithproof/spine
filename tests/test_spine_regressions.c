@@ -676,7 +676,7 @@ static void test_snmp_security_protocols(void) {
 		options.snmp_priv_passphrase = index == 2 ? "regression-privacy" : "";
 		void *handle = snmp_host_init(&options);
 		assert(handle != NULL);
-		struct snmp_session *session = snmp_sess_session(handle);
+		const struct snmp_session *session = snmp_sess_session(handle);
 		assert(session != NULL && session->version == SNMP_VERSION_3);
 		assert(session->securityLevel == levels[index]);
 		assert(strcmp(session->securityName, options.snmp_username) == 0);
@@ -846,6 +846,23 @@ static void test_script_execution(void) {
 	assert(strcmp(result, "U") == 0);
 	assert(spine_monotonic_time() - begin < 5);
 	free(result);
+	assert(spine_permits_available(&available_scripts) == 1);
+	for (int timeout = -1; timeout <= 0; timeout++) {
+		set.script_timeout = timeout;
+		result = exec_poll(&host, command, 1, "DS");
+		assert(strcmp(result, "U") == 0);
+		free(result);
+		assert(spine_permits_available(&available_scripts) == 1);
+	}
+	set.script_timeout = 1;
+	assert(spine_permits_try_acquire(&available_scripts) == 0);
+	begin = spine_monotonic_time();
+	result = exec_poll(&host, command, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	assert(spine_monotonic_time() - begin < 1);
+	free(result);
+	assert(spine_permits_available(&available_scripts) == 0);
+	assert(spine_permits_release(&available_scripts) == 0);
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	set.script_timeout = previous_timeout;
 }

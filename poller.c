@@ -1686,6 +1686,24 @@ int validate_result(char *result) {
 	return FALSE;
 }
 
+static int acquire_script_permit(const host_t *host) {
+	if (set.script_timeout <= 0) return EINVAL;
+	/* Preserve the existing retry budget without signed multiplication overflow. */
+	uint64_t attempts = (uint64_t)set.script_timeout * 15;
+	int error = EAGAIN;
+	for (uint64_t retry = 1; retry < attempts; retry++) {
+		error = spine_permits_try_acquire(&available_scripts);
+		if (error == 0) return 0;
+		if (error == EAGAIN || error == EWOULDBLOCK) {
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEVDBG, ("DEBUG: Device[%i]: Pausing as unable to obtain a script execution lock", host->id));
+		} else {
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEVDBG, ("DEBUG: Device[%i]: Pausing as error %d whilst obtaining a script execution lock", host->id, error));
+		}
+		spine_sleep_usec(10000);
+	}
+	return error;
+}
+
 /*! \fn char *exec_poll(host_t *current_host, char *command, int id, char *type)
  *  \brief polls a host using a script
  *  \param current_host a pointer to the current host structure
@@ -1730,8 +1748,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 
 
 	/* don't run too many scripts, operating systems do not like that. */
-	int retries = 0;
-	int sem_err = 0;
+	int sem_err;
 	int needs_cleanup = 0;
 
 	/* used for checking executable status */
@@ -1740,21 +1757,14 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 
 	pthread_cleanup_push(child_cleanup_script, NULL);
 
-	// use the script server timeout value, allow for 50% leeway
-	while (++retries < (set.script_timeout * 15)) {
-		sem_err = spine_permits_try_acquire(&available_scripts);
-		if (sem_err == 0) {
-			break;
-		} else if (sem_err == EAGAIN || sem_err == EWOULDBLOCK) {
-			SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEVDBG, ("DEBUG: Device[%i]: Pausing as unable to obtain a script execution lock", current_host->id));
-		} else {
-			SPINE_LOG_DEVICE(current_host->id, POLLER_VERBOSITY_DEVDBG, ("DEBUG: Device[%i]: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_err));
-		}
-		spine_sleep_usec(10000);
-	}
+	sem_err = acquire_script_permit(current_host);
 
 	if (sem_err) {
-		SPINE_LOG(("ERROR: Device[%i]: Failed to obtain a script execution lock within 30 seconds", current_host->id));
+		SPINE_LOG(("ERROR: Device[%i]: Failed to obtain a script execution lock (error %d)", current_host->id, sem_err));
+		SET_UNDEFINED(result_string);
+		#if defined(__CYGWIN__)
+		SPINE_FREE(proc_command);
+		#endif
 	} else {
 		/* Mark for cleanup */
 		needs_cleanup = 1;
