@@ -488,6 +488,13 @@ typedef struct snmp_oids {
  * This structure holds thread polling instructions.
  *
  */
+/* Process-local permits use a mutex because Darwin does not implement
+ * unnamed POSIX semaphores. No caller needs a blocking semaphore wait. */
+typedef struct spine_permits {
+	pthread_mutex_t mutex;
+	int available;
+} spine_permits_t;
+
 typedef struct poller_thread {
 	int device_counter;
 	int host_id;
@@ -498,7 +505,7 @@ typedef struct poller_thread {
 	int complete;
 	char host_time[40];
 	double host_time_double;
-	sem_t *thread_init_sem;
+	spine_permits_t *thread_init_sem;
 } poller_thread_t;
 
 /*! PHP Script Server Structure
@@ -629,8 +636,8 @@ extern config_t set;
 extern php_t  *php_processes;
 extern char   start_datetime[20];
 extern char   config_paths[CONFIG_PATHS][BUFSIZE];
-extern sem_t  available_threads;
-extern sem_t  available_scripts;
+extern spine_permits_t available_threads;
+extern spine_permits_t available_scripts;
 extern pool_t *db_pool_remote;
 extern pool_t *db_pool_local;
 

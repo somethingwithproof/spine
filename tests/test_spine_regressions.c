@@ -87,6 +87,50 @@ static void test_result_count_range(void) {
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
 }
 
+static spine_permits_t test_permits;
+static pthread_mutex_t permit_test_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int active_permit_workers;
+
+static void *exercise_permit(void *unused) {
+	(void)unused;
+	for (int iteration = 0; iteration < 100; iteration++) {
+		int status;
+		while ((status = spine_permits_try_acquire(&test_permits)) == EAGAIN) spine_sleep_usec(100);
+		assert(status == 0);
+		assert(pthread_mutex_lock(&permit_test_mutex) == 0);
+		assert(active_permit_workers == 0);
+		active_permit_workers++;
+		assert(pthread_mutex_unlock(&permit_test_mutex) == 0);
+		spine_sleep_usec(100);
+		assert(pthread_mutex_lock(&permit_test_mutex) == 0);
+		assert(active_permit_workers == 1);
+		active_permit_workers--;
+		assert(pthread_mutex_unlock(&permit_test_mutex) == 0);
+		assert(spine_permits_release(&test_permits) == 0);
+	}
+	return NULL;
+}
+
+static void test_concurrent_permits(void) {
+	assert(spine_permits_init(&test_permits, -1) == EINVAL);
+	assert(spine_permits_init(&test_permits, INT_MAX) == 0);
+	assert(spine_permits_release(&test_permits) == EOVERFLOW);
+	assert(spine_permits_available(&test_permits) == INT_MAX);
+	assert(spine_permits_destroy(&test_permits) == 0);
+	assert(spine_permits_init(&test_permits, 1) == 0);
+	assert(spine_permits_try_acquire(&test_permits) == 0);
+	assert(spine_permits_try_acquire(&test_permits) == EAGAIN);
+	assert(spine_permits_available(&test_permits) == 0);
+	assert(spine_permits_release(&test_permits) == 0);
+	pthread_t workers[4];
+	for (size_t i = 0; i < sizeof(workers) / sizeof(workers[0]); i++) {
+		assert(pthread_create(&workers[i], NULL, exercise_permit, NULL) == 0);
+	}
+	for (size_t i = 0; i < sizeof(workers) / sizeof(workers[0]); i++) assert(pthread_join(workers[i], NULL) == 0);
+	assert(spine_permits_available(&test_permits) == 1 && active_permit_workers == 0);
+	assert(spine_permits_destroy(&test_permits) == 0);
+}
+
 static void test_database_escape(void) {
 	MYSQL *mysql = mysql_init(NULL);
 	assert(mysql != NULL);
@@ -506,15 +550,13 @@ static void test_php_partial_response_timeout(void) {
 	close(pipes[0]);
 }
 
-#ifndef __APPLE__
 static void test_script_execution(void) {
-	/* Linux implements the production unnamed semaphore API. macOS does not. */
-	assert(sem_init(&available_scripts, 0, 1) == 0);
+	assert(spine_permits_init(&available_scripts, 1) == 0);
 	host_t host = {0};
 	STRNCOPY(host.hostname, "regression-device");
 	int previous_timeout = set.script_timeout;
 	set.script_timeout = 1;
-	char command[] = "/bin/printf 7";
+	char command[] = "/usr/bin/printf 7";
 	char *result = exec_poll(&host, command, 1, "DS");
 	assert(strcmp(result, "7") == 0);
 	free(result);
@@ -524,10 +566,9 @@ static void test_script_execution(void) {
 	assert(strcmp(result, "U") == 0);
 	assert(spine_monotonic_time() - begin < 5);
 	free(result);
-	assert(sem_destroy(&available_scripts) == 0);
+	assert(spine_permits_destroy(&available_scripts) == 0);
 	set.script_timeout = previous_timeout;
 }
-#endif
 
 static void test_php_command(size_t length) {
 	char command[BUFSIZE];
@@ -669,6 +710,7 @@ int main(int argc, char **argv) {
 	debug_devices = devices;
 	test_string_conversions();
 	test_result_count_range();
+	test_concurrent_permits();
 	test_copy_bounds();
 	test_database_escape();
 	test_database_addresses();
@@ -696,9 +738,7 @@ int main(int argc, char **argv) {
 	test_php_command(BUFSIZE - 3);
 	test_invalid_php_commands();
 	test_php_startup(argv[0]);
-#ifndef __APPLE__
 	test_script_execution();
-#endif
 	puts("production regression tests passed");
 	return 0;
 }

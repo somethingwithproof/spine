@@ -44,20 +44,20 @@ void child_cleanup(void *arg) {
 
 void child_cleanup_thread(void *arg) {
 	(void)arg;
-	sem_post(&available_threads);
+	spine_permits_release(&available_threads);
 
 	int a_threads_value;
-	sem_getvalue(&available_threads, &a_threads_value);
+	a_threads_value = spine_permits_available(&available_threads);
 
 	SPINE_LOG_DEVDBG(("DEBUG: Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
 }
 
 void child_cleanup_script(void *arg) {
 	(void)arg;
-	sem_post(&available_scripts);
+	spine_permits_release(&available_scripts);
 
 	int a_scripts_value;
-	sem_getvalue(&available_scripts, &a_scripts_value);
+	a_scripts_value = spine_permits_available(&available_scripts);
 
 	SPINE_LOG_DEVDBG(("DEBUG: Available Scripts is %i (%i outstanding)", a_scripts_value, MAX_SIMULTANEOUS_SCRIPTS - a_scripts_value));
 }
@@ -99,7 +99,7 @@ void *child(void *arg) {
 	thread_mutex_unlock(LOCK_HOST_TIME);
 
 	/* Allows main thread to proceed with creation of other threads */
-	sem_post(poller_details.thread_init_sem);
+	spine_permits_release(poller_details.thread_init_sem);
 
 	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", host_id, host_thread));
 
@@ -2049,7 +2049,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 
 	// use the script server timeout value, allow for 50% leeway
 	while (++retries < (set.script_timeout * 15)) {
-		sem_err = sem_trywait(&available_scripts);
+		sem_err = spine_permits_try_acquire(&available_scripts);
 		if (sem_err == 0) {
 			break;
 		} else if (sem_err == EAGAIN || sem_err == EWOULDBLOCK) {

@@ -118,3 +118,9 @@ extern double spine_monotonic_time(void);
 extern int spine_count_to_int(unsigned long long count);
 
 extern int spine_wait_readable(int fd, double deadline);
+
+extern int spine_permits_init(spine_permits_t *permits, int count);
+extern int spine_permits_destroy(spine_permits_t *permits);
+extern int spine_permits_try_acquire(spine_permits_t *permits);
+extern int spine_permits_release(spine_permits_t *permits);
+extern int spine_permits_available(spine_permits_t *permits);

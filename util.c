@@ -112,6 +112,60 @@ int spine_wait_readable(int fd, double deadline) {
 }
 
 
+int spine_permits_init(spine_permits_t *permits, int count) {
+	if (count < 0) return EINVAL;
+	int status = pthread_mutex_init(&permits->mutex, NULL);
+	if (status == 0) permits->available = count;
+	return status;
+}
+
+int spine_permits_destroy(spine_permits_t *permits) {
+	return pthread_mutex_destroy(&permits->mutex);
+}
+
+static void spine_permits_lock(spine_permits_t *permits) {
+	if (pthread_mutex_lock(&permits->mutex) != 0) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to lock process permits");
+	}
+}
+
+static void spine_permits_unlock(spine_permits_t *permits) {
+	if (pthread_mutex_unlock(&permits->mutex) != 0) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to unlock process permits");
+	}
+}
+
+int spine_permits_try_acquire(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int status = EAGAIN;
+	if (permits->available > 0) {
+		permits->available--;
+		status = 0;
+	}
+	spine_permits_unlock(permits);
+	return status;
+}
+
+int spine_permits_release(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int status = EOVERFLOW;
+	if (permits->available < INT_MAX) {
+		permits->available++;
+		status = 0;
+	}
+	spine_permits_unlock(permits);
+	return status;
+}
+
+int spine_permits_available(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int available = permits->available;
+	spine_permits_unlock(permits);
+	return available;
+}
+
 void spine_clear_sensitive(void *buffer, size_t length) {
 	volatile unsigned char *bytes = buffer;
 	while (length > 0) {
