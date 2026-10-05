@@ -1403,7 +1403,7 @@ static FILE *log_error_stream(void) {
 	#endif
 }
 
-static bool log_stream_available(FILE *stream) {
+static bool log_stream_available(const FILE *stream) {
 	return (stream == stdout && !set.stdout_notty) || (stream == stderr && !set.stderr_notty);
 }
 

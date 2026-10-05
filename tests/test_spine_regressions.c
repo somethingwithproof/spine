@@ -416,7 +416,8 @@ static void test_log_append_and_failures(void) {
 	set.stdout_notty = TRUE;
 	set.stderr_notty = TRUE;
 	strncopy(set.path_logfile, path, sizeof(set.path_logfile));
-	char first[20001], second[20001];
+	char first[20001];
+	char second[20001];
 	memset(first, 'a', sizeof(first) - 1);
 	memset(second, 'b', sizeof(second) - 1);
 	first[sizeof(first) - 1] = '\0';
@@ -432,9 +433,10 @@ static void test_log_append_and_failures(void) {
 	size_t capacity = 0;
 	assert(getline(&line, &capacity, file) == (ssize_t)(sizeof(retained) - 1));
 	assert(strcmp(line, retained) == 0);
-	int first_count = 0, second_count = 0;
+	int first_count = 0;
+	int second_count = 0;
 	while (getline(&line, &capacity, file) >= 0) {
-		char *body = strstr(line, first);
+		const char *body = strstr(line, first);
 		if (body != NULL) first_count++;
 		else { body = strstr(line, second); second_count++; }
 		assert(body != NULL && strcmp(body + 20000, "\n") == 0);
