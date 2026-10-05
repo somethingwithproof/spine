@@ -33,6 +33,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include <fcntl.h>
 
 /*! \fn int ping_host(host_t *host, ping_t *ping)
  *  \brief ping a host to determine if it is reachable for polling
@@ -546,154 +547,62 @@ int ping_icmp(host_t *host, ping_t *ping) {
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  *
  */
-int ping_udp(const host_t *host, ping_t *ping) {
-	double begin_time;
-	double end_time;
-	double total_time;
-	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
-	int    udp_socket;
-	struct sockaddr_in servername;
-	char   socket_reply[BUFSIZE];
-	int    retry_count;
-	char   request[BUFSIZE];
-	int    request_len;
-	int    return_code;
-	fd_set socket_fds;
+static int ping_down(ping_t *ping, const char *message) {
+	snprintf(ping->ping_status, 50, "down");
+	strncopy(ping->ping_response, message, SMALL_BUFSIZE);
+	return HOST_DOWN;
+}
 
-	if (is_debug_device(host->id)) {
-		SPINE_LOG(("Device[%i] DEBUG: Entering UDP Ping", host->id));
-	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering UDP Ping", host->id));
+/* UDP reachability is established by the existing ICMP port-error contract;
+ * receiving an application datagram alone does not establish that result. */
+static int ping_udp_response(int fd, double deadline) {
+	char response[BUFSIZE];
+	for (;;) {
+		int ready = spine_wait_readable(fd, deadline);
+		if (ready <= 0) return ready;
+		ssize_t received = recv(fd, response, sizeof(response), 0);
+		if (received >= 0) continue;
+		if (errno == EHOSTUNREACH || errno == ECONNRESET || errno == ECONNREFUSED) return 1;
+		if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) return -1;
 	}
+}
 
-	/* set total time */
-	total_time = 0;
-
-	begin_time = get_time_as_double();
-
-	/* convert the host timeout to a double precision number in seconds */
-	host_timeout = host->ping_timeout;
-
-	/* initialize the socket */
-	udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-	/* hostname must be nonblank */
-	if ((strlen(host->hostname) != 0) && (udp_socket != -1)) {
-		/* initialize variables */
-		snprintf(ping->ping_status, 50, "down");
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "default");
-
-		/* get address of hostname */
-		if (init_sockaddr(&servername, host->hostname, host->ping_port)) {
-			if (connect(udp_socket, (struct sockaddr *) &servername, sizeof(servername)) < 0) {
-				snprintf(ping->ping_status, 50, "down");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Cannot connect to host");
-				close(udp_socket);
-				return HOST_DOWN;
-			}
-
-			/* format packet */
-			snprintf(request, BUFSIZE, "cacti-monitoring-system"); /* the actual test data */
-			request_len = strlen(request);
-
-			retry_count = 0;
-
-			/* initialize file descriptor to review for input/output */
-			FD_ZERO(&socket_fds);
-			FD_SET(udp_socket,&socket_fds);
-
-			while (1) {
-				if (retry_count > host->ping_retries) {
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Ping timed out");
-					snprintf(ping->ping_status, 50, "down");
-					close(udp_socket);
-					return HOST_DOWN;
-				}
-
-				/* record start time */
-				if (total_time == 0) {
-					/* establish timeout value */
-					timeout.tv_sec  = rint(host_timeout / 1000);
-					timeout.tv_usec = rint((int) host_timeout % 1000) * 1000;
-
-					/* set the socket send and receive timeout */
-					setsockopt(udp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-					setsockopt(udp_socket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
-				} else {
-					/* decrement the timeout value by the total time */
-					timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-					timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
-
-					/* set the socket send and receive timeout */
-					setsockopt(udp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-					setsockopt(udp_socket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
-				}
-
-				/* send packet to destination */
-				send(udp_socket, request, request_len, 0);
-
-				/* wait for a response on the socket */
-				wait_more:
-				return_code = select(FD_SETSIZE, &socket_fds, NULL, NULL, &timeout);
-
-				/* record end time */
-				end_time = get_time_as_double();
-
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
-
-				/* check to see which socket talked */
-				if (return_code > 0) {
-					if (FD_ISSET(udp_socket, &socket_fds)) {
-						return_code = read(udp_socket, socket_reply, BUFSIZE);
-
-						if (return_code == -1 && (errno == EHOSTUNREACH || errno == ECONNRESET || errno == ECONNREFUSED)) {
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-							snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Alive");
-							snprintf(ping->ping_status, 50, "%.5f", total_time);
-							close(udp_socket);
-							return HOST_UP;
-						}
-					}
-				} else if (return_code == -1) {
-					if (errno == EINTR) {
-						/* interrupted, try again */
-						spine_sleep_usec(10000);
-						goto wait_more;
-					} else {
-						snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Down");
-						snprintf(ping->ping_status, 50, "%.5f", total_time);
-						close(udp_socket);
-						return HOST_DOWN;
-					}
-				} else {
-					/* timeout */
-				}
-
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] DEBUG: UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-				}
-
-				retry_count++;
-				#ifndef SOLAR_THREAD
-				spine_sleep_usec(1000);
-				#endif
-			}
-		} else {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			close(udp_socket);
-			return HOST_DOWN;
+int ping_udp(const host_t *host, ping_t *ping) {
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering UDP Ping", host->id));
+	if (host->hostname[0] == '\0') return ping_down(ping, "UDP: Destination address invalid or unable to create socket");
+	struct sockaddr_in servername = {0};
+	if (!init_sockaddr(&servername, host->hostname, host->ping_port)) return ping_down(ping, "UDP: Destination hostname invalid");
+	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "UDP: Ping timed out");
+	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (fd < 0) return ping_down(ping, "UDP: Destination address invalid or unable to create socket");
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0 ||
+		connect(fd, (struct sockaddr *)&servername, sizeof(servername)) < 0) {
+		close(fd);
+		return ping_down(ping, "UDP: Cannot connect to host");
+	}
+	static const char request[] = "cacti-monitoring-system";
+	double begin = spine_monotonic_time();
+	for (unsigned int attempt = 0; ; attempt++) {
+		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		ssize_t sent;
+		do {
+			sent = send(fd, request, sizeof(request) - 1, 0);
+		} while (sent < 0 && errno == EINTR && spine_monotonic_time() < deadline);
+		int result = sent == (ssize_t)(sizeof(request) - 1) ? ping_udp_response(fd, deadline) : -1;
+		double elapsed = (spine_monotonic_time() - begin) * 1000;
+		if (result > 0) {
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: UDP Device Alive, Try Count:%u, Time:%.4f ms", host->id, attempt + 1, elapsed));
+			strncopy(ping->ping_response, "UDP: Device is Alive", SMALL_BUFSIZE);
+			snprintf(ping->ping_status, 50, "%.5f", elapsed);
+			close(fd);
+			return HOST_UP;
 		}
-	} else {
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Destination address invalid or unable to create socket");
-		snprintf(ping->ping_status, 50, "down");
-		if (udp_socket != -1) close(udp_socket);
-		return HOST_DOWN;
+		if (result < 0 || attempt >= (unsigned int)host->ping_retries) {
+			close(fd);
+			return ping_down(ping, result < 0 ? "UDP: Device is Down" : "UDP: Ping timed out");
+		}
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: UDP Timeout, Try Count:%u, Time:%.4f ms", host->id, attempt + 1, elapsed));
 	}
 }
 
@@ -867,13 +776,14 @@ int get_address_type(host_t *host) {
 	}
 }
 
-/*! \fn int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port)
+/*! \fn int init_sockaddr(struct sockaddr_in *name, const char *hostname, int port)
  *  \brief converts a hostname to an internet address
  *
  *  \return TRUE if successful, FALSE otherwise.
  *
  */
-int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port) {
+int init_sockaddr(struct sockaddr_in *name, const char *hostname, int port) {
+	if (port < 0 || port > 65535) return FALSE;
 	struct addrinfo hints = {0};
 	struct addrinfo *hostinfo = NULL;
 	hints.ai_family = AF_INET;
@@ -893,9 +803,9 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short
 		SPINE_LOG(("WARNING: Unknown host %s", hostname));
 		return FALSE;
 	}
-	name->sin_family = hostinfo->ai_family;
+	name->sin_family = AF_INET;
 	name->sin_addr = ((struct sockaddr_in *)hostinfo->ai_addr)->sin_addr;
-	name->sin_port = htons(port);
+	name->sin_port = htons((unsigned short)port);
 	freeaddrinfo(hostinfo);
 	return TRUE;
 }

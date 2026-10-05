@@ -703,6 +703,38 @@ static void test_php_startup(const char *executable) {
 	set = previous_config;
 }
 
+static void test_udp_deadline(void) {
+	struct sockaddr_in address = {0};
+	assert(init_sockaddr(&address, "127.0.0.1", 0));
+	assert(address.sin_family == AF_INET && address.sin_addr.s_addr == htonl(INADDR_LOOPBACK));
+	assert(!init_sockaddr(&address, "127.0.0.1", -1));
+	assert(!init_sockaddr(&address, "127.0.0.1", 65536));
+	int server = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	assert(server >= 0);
+	assert(bind(server, (struct sockaddr *)&address, sizeof(address)) == 0);
+	socklen_t length = sizeof(address);
+	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "127.0.0.1");
+	host.ping_port = ntohs(address.sin_port);
+	host.ping_timeout = 650;
+	host.ping_retries = 0;
+	ping_t ping = {0};
+	double begin = spine_monotonic_time();
+	assert(ping_udp(&host, &ping) == HOST_DOWN);
+	double elapsed = spine_monotonic_time() - begin;
+	assert(elapsed >= 0.60 && elapsed < 1.25);
+	assert(strcmp(ping.ping_response, "UDP: Ping timed out") == 0);
+	char request[64];
+	ssize_t received = recv(server, request, sizeof(request), 0);
+	static const char expected[] = "cacti-monitoring-system";
+	assert(received == (ssize_t)(sizeof(expected) - 1));
+	assert(memcmp(request, expected, sizeof(expected) - 1) == 0);
+	assert(close(server) == 0);
+	host.ping_timeout = 0;
+	assert(ping_udp(&host, &ping) == HOST_DOWN);
+}
+
 int main(int argc, char **argv) {
 	if (argc > 1 && strcmp(argv[1], "-q") == 0) return run_test_script_server(argc, argv);
 	extern int *debug_devices;
@@ -727,6 +759,7 @@ int main(int argc, char **argv) {
 	test_debug_device_bounds();
 	test_poll_result_formats();
 	test_hostnames();
+	test_udp_deadline();
 	test_snmp_initialization_failure();
 	test_child_process();
 	test_php_response(4, true);
