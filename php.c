@@ -368,13 +368,15 @@ static bool php_stop_child(php_t *server) {
 	double now = php_shutdown_time();
 	if (!isfinite(now)) return FALSE;
 	enum php_child_state state = php_wait_child(server, now + 0.25);
-	for (size_t index = 0; state == PHP_CHILD_RUNNING && index < sizeof(signals) / sizeof(signals[0]); index++) {
+	size_t index = 0;
+    while (state == PHP_CHILD_RUNNING && index < sizeof(signals) / sizeof(signals[0])) {
 		/* waitpid confirmed ownership. An exited unreaped child retains its
 		 * PID, so this cannot become a signal to an unrelated reused PID. */
 		if (kill(server->php_pid, signals[index]) < 0 && errno != ESRCH) return FALSE;
 		now = php_shutdown_time();
 		if (!isfinite(now)) return FALSE;
 		state = php_wait_child(server, now + (signals[index] == SIGKILL ? 0.50 : 0.25));
+        index++;
 	}
 	return state == PHP_CHILD_REAPED;
 }

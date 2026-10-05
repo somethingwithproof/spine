@@ -465,7 +465,7 @@ static int snmp_get_variable(const host_t *host, const char *text_oid, const str
 	return STAT_ERROR;
 }
 
-static int snmp_get_response(host_t *host, const char *text_oid, const snmp_reply_t *reply, char *output) {
+static int snmp_get_response(const host_t *host, const char *text_oid, const snmp_reply_t *reply, char *output) {
 	if (reply->status == STAT_DESCRIP_ERROR) {
 		SET_UNDEFINED(output);
 		return STAT_ERROR;
@@ -739,7 +739,9 @@ void snmp_get_multi(host_t *host, const target_t *items, snmp_oids_t *oids, int 
 	int status = STAT_DESCRIP_ERROR;
 	/* Every v1 retry removes one valid OID, so at most count requests are
 	 * possible. The synchronous call consumes each submitted request. */
-	for (int attempt = 0; request != NULL && attempt < count; attempt++) {
+	int attempt = 0;
+	while (request != NULL && attempt < count) {
+		attempt++;
 		struct snmp_pdu *response = NULL;
 		status = snmp_sess_synch_response(host->snmp_session, request, &response);
 		request = NULL;

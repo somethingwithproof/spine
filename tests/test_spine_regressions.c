@@ -818,13 +818,18 @@ static void test_invalid_php_commands(void) {
 }
 
 static int run_test_script_server(int argc, char **argv) {
-	const char *marker = getenv("SPINE_TEST_PHP_FAIL_SECOND");
-	if (marker != NULL) {
-		int fd = open(marker, O_WRONLY | O_CREAT | O_EXCL, 0600);
-		if (fd < 0) { assert(errno == EEXIST); return 127; }
-		assert(close(fd) == 0);
-	}
-	assert(argc >= 5 && strcmp(argv[2], "regression-server") == 0);
+	assert(argc >= 5);
+	if (strncmp(argv[2], "regression-server:", 18) == 0) {
+		char *end;
+		errno = 0;
+		long descriptor = strtol(argv[2] + 18, &end, 10);
+		assert(errno == 0 && *end == 0 && descriptor >= 3 && descriptor <= INT_MAX);
+		char token;
+		ssize_t received = read((int)descriptor, &token, 1);
+		assert(close((int)descriptor) == 0);
+		if (received == 0) return 127;
+		assert(received == 1 && token == 82);
+	} else assert(strcmp(argv[2], "regression-server") == 0);
 	if (strcmp(argv[3], "spine") == 0) {
 		assert(argc == 5 && strcmp(argv[4], "1") == 0);
 	} else {
@@ -881,20 +886,17 @@ static void test_php_startup(const char *executable) {
 			assert(WIFEXITED(processes[index].php_exit_status) && WEXITSTATUS(processes[index].php_exit_status) == 0);
 		}
 	}
-	char marker[] = "spine-php-partial-startup-XXXXXX";
-	int marker_fd = mkstemp(marker);
-	assert(marker_fd >= 0 && close(marker_fd) == 0 && unlink(marker) == 0);
-	const char *old_marker = getenv("SPINE_TEST_PHP_FAIL_SECOND");
-	char *saved_marker = old_marker == NULL ? NULL : strdup(old_marker);
-	assert(old_marker == NULL || saved_marker != NULL);
-	assert(setenv("SPINE_TEST_PHP_FAIL_SECOND", marker, 1) == 0);
+	/* An inherited one-byte pipe admits the first child and rejects the second. */
+	int admissions[2];
+	assert(pipe(admissions) == 0);
+	assert(write(admissions[1], "R", 1) == 1 && close(admissions[1]) == 0);
+	spine_snprintf(set.path_php_server, sizeof(set.path_php_server), "regression-server:%d", admissions[0]);
 	assert(!php_init(PHP_INIT));
 	assert(processes[0].php_pid == -1 && processes[1].php_pid == -1);
 	assert(WIFEXITED(processes[0].php_exit_status) && WEXITSTATUS(processes[0].php_exit_status) == 0);
 	assert(WIFEXITED(processes[1].php_exit_status) && WEXITSTATUS(processes[1].php_exit_status) == 127);
-	assert(unlink(marker) == 0);
-	if (saved_marker != NULL) { assert(setenv("SPINE_TEST_PHP_FAIL_SECOND", saved_marker, 1) == 0); free(saved_marker); }
-	else assert(unsetenv("SPINE_TEST_PHP_FAIL_SECOND") == 0);
+	assert(close(admissions[0]) == 0);
+	STRNCOPY(set.path_php_server, "regression-server");
 	assert(!php_init(-2) && !php_init(set.php_servers));
 	STRNCOPY(set.path_php, "/nonexistent-spine-regression-executable");
 	assert(!php_init(0));
@@ -931,7 +933,7 @@ static void test_php_owned_shutdown(void) {
 	int flags = fcntl(requests[1], F_GETFL);
 	assert(flags >= 0 && fcntl(requests[1], F_SETFL, flags | O_NONBLOCK) == 0);
 	char padding[1024] = {0};
-	while (write(requests[1], padding, sizeof(padding)) > 0) {}
+	while (write(requests[1], padding, sizeof(padding)) > 0) { /* Fill the pipe until the nonblocking write refuses more data. */ }
 	assert(errno == EAGAIN || errno == EWOULDBLOCK);
 	assert(fcntl(requests[1], F_SETFL, flags) == 0);
 	php_t server = {0};
@@ -1255,6 +1257,39 @@ static void test_snmp_scalar_responses(host_t *host) {
 	}
 }
 
+static void test_system_information(host_t *host) {
+	MYSQL mysql;
+	assert(mysql_init(&mysql) != NULL);
+	int previous_mibs = set.mibs;
+	set.mibs = FALSE;
+	STRNCOPY(host->snmp_sysLocation, "untouched");
+	get_system_information(host, &mysql, FALSE);
+	assert(strcmp(host->snmp_sysLocation, "untouched") == 0);
+	assert(host->snmp_sysUpTimeInstance > 0 && !host->ignore_host);
+	for (int explicit_update = 0; explicit_update <= 1; explicit_update++) {
+		set.mibs = !explicit_update;
+		get_system_information(host, &mysql, explicit_update);
+		assert(strcmp(host->snmp_sysLocation, "isolated-regression-agent") == 0);
+		assert(strcmp(host->snmp_sysContact, "regression") == 0);
+		assert(host->snmp_sysDescr[0] != '\0' && host->snmp_sysObjectID[0] != '\0');
+		assert(host->snmp_sysName[0] != '\0' && !host->ignore_host);
+	}
+	/* Missing sessions return allocated U responses; repeated short polls must free them. */
+	void *session = host->snmp_session;
+	int previous_ignore = host->ignore_host;
+	int previous_status = host->snmp_status;
+	host->snmp_session = NULL;
+	unsigned long long previous_uptime = host->snmp_sysUpTimeInstance;
+	set.mibs = FALSE;
+	for (int count = 0; count < 100; count++) get_system_information(host, &mysql, FALSE);
+	assert(host->snmp_sysUpTimeInstance == previous_uptime);
+	host->snmp_session = session;
+	host->ignore_host = previous_ignore;
+	host->snmp_status = previous_status;
+	set.mibs = previous_mibs;
+	mysql_close(&mysql);
+}
+
 static void test_snmp_agent(void) {
 	const char *address = getenv("SPINE_TEST_SNMP_HOST");
 	assert(address != NULL && address[0] != '\0');
@@ -1285,6 +1320,7 @@ static void test_snmp_agent(void) {
 		assert(host.snmp_session != NULL);
 		test_snmp_scalar_responses(&host);
 		test_snmp_multi_responses(&host);
+		test_system_information(&host);
 		assert(snmp_count(&host, ".1.3.6.1.2.1.1.6") == 1 && !host.ignore_host);
 		assert(snmp_count(&host, ".1.3.6.1.2.1.1.9999") == 0 && !host.ignore_host);
 		/* At the end of the entire MIB, v1 sends an agent error. The old

@@ -1625,104 +1625,49 @@ int is_multipart_output(const char *result) {
 	return FALSE;
 }
 
-void get_system_information(host_t *host, MYSQL *mysql, int system)  {
+static void poll_system_uptime(host_t *host, bool full) {
 	char *poll_result;
+	// Get the legacy system uptime instance first
+	SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0');", host->id));
+	poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
+	SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
 
+	if (poll_result && is_numeric(poll_result)) {
+		host->snmp_sysUpTimeInstance = atoll(poll_result);
+		SPINE_FREE(poll_result);
+
+		// Attempt to get the more modern version
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0');", host->id));
+		poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", !full);
+		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
+
+		if (poll_result && is_numeric(poll_result)) {
+			host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
+		}
+	}
+	SPINE_FREE(poll_result);
+}
+
+static void poll_system_field(host_t *host, MYSQL *mysql, char *oid, char *destination, size_t capacity) {
+	SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] requesting system OID %s", host->id, oid));
+	char *result = snmp_get(host, oid);
+	if (result != NULL) db_escape(mysql, destination, (int)capacity, result);
+	SPINE_FREE(result);
+}
+
+void get_system_information(host_t *host, MYSQL *mysql, int system) {
 	SPINE_LOG_MEDIUM(("Device[%d] Checking for System Information Update", host->id));
-
-	if (set.mibs || system) {
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%d] Updating Full System Information Table", host->id));
-
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.1.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.1.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.1.0'); [complete]", host->id));
-
-		if (poll_result) {
-			db_escape(mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), poll_result);
-			SPINE_FREE(poll_result);
-		}
-
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.2.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.2.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.2.0'); [complete]", host->id));
-
-		if (poll_result) {
-			db_escape(mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), poll_result);
-			SPINE_FREE(poll_result);
-		}
-
-		// Get the legacy system uptime instance first
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
-		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
-
-		if (poll_result && is_numeric(poll_result)) {
-			host->snmp_sysUpTimeInstance = atoll(poll_result);
-			SPINE_FREE(poll_result);
-
-			// Attempt to get the more modern version
-			SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0');", host->id));
-			poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
-			SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
-
-			if (poll_result && is_numeric(poll_result)) {
-				host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
-				snprintf(poll_result, BUFSIZE, "%llu", host->snmp_sysUpTimeInstance);
-			}
-
-			SPINE_FREE(poll_result);
-		}
-
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.4.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.4.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.4.0'); [complete]", host->id));
-
-		if (poll_result) {
-			db_escape(mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), poll_result);
-			SPINE_FREE(poll_result);
-		}
-
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.5.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.5.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.5.0'); [complete]", host->id));
-
-		if (poll_result) {
-			db_escape(mysql, host->snmp_sysName, sizeof(host->snmp_sysName), poll_result);
-			SPINE_FREE(poll_result);
-		}
-
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.6.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.6.0'); [complete]", host->id));
-
-		if (poll_result) {
-			db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), poll_result);
-			SPINE_FREE(poll_result);
-		}
-	} else {
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%d] Updating Short System Information Table", host->id));
-
-		// Get the legacy system uptime instance first
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
-		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
-
-		if (poll_result && is_numeric(poll_result)) {
-			host->snmp_sysUpTimeInstance = atoll(poll_result);
-			SPINE_FREE(poll_result);
-
-			// Attempt to get the more modern version
-			SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0');", host->id));
-			poll_result = snmp_get(host, ".1.3.6.1.6.3.10.2.1.3.0");
-			SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
-
-			if (poll_result && is_numeric(poll_result)) {
-				host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
-				snprintf(poll_result, BUFSIZE, "%llu", host->snmp_sysUpTimeInstance);
-			}
-
-			SPINE_FREE(poll_result);
-		}
+	bool full = set.mibs || system;
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%d] Updating %s System Information Table", host->id, full ? "Full" : "Short"));
+	if (full) {
+		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.1.0", host->snmp_sysDescr, sizeof(host->snmp_sysDescr));
+		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.2.0", host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID));
+	}
+	poll_system_uptime(host, full);
+	if (full) {
+		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.4.0", host->snmp_sysContact, sizeof(host->snmp_sysContact));
+		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.5.0", host->snmp_sysName, sizeof(host->snmp_sysName));
+		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.6.0", host->snmp_sysLocation, sizeof(host->snmp_sysLocation));
 	}
 }
 

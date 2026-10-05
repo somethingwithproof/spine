@@ -1054,9 +1054,7 @@ int main(int argc, char *argv[]) {
 	SPINE_LOG_DEBUG(("DEBUG: Thread Cleanup Complete"));
 
 	/* close the php script server */
-	if (set.php_required && !set.ping_only) {
-		if (!php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
-	}
+	if (set.php_required && !set.ping_only && !php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
 
 	SPINE_LOG_DEBUG(("DEBUG: PHP Script Server Pipes Closed"));
 
