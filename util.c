@@ -1026,7 +1026,9 @@ static bool transfer_table(MYSQL *source, MYSQL *destination, const poller_trans
 	size_t suffix_length = strlen(suffix);
 	MYSQL_ROW row;
 	bool success = TRUE;
-	while (success && (row = mysql_fetch_row(result)) != NULL) {
+	while (success) {
+		row = mysql_fetch_row(result);
+		if (row == NULL) break;
 		size_t length = transfer_row(destination, row, plan->field_count, row_sql, sizeof(row_sql));
 		if (rows > 0 && (rows == plan->row_limit || length + suffix_length + 3 > HUGE_BUFSIZE - used)) {
 			success = transfer_batch(destination, buffer, used, suffix);
@@ -1859,52 +1861,31 @@ void checkAsRoot() {
  *  \return the cacti version
  *
  */
-int get_cacti_version(MYSQL *psql, int mode) {
-	char      qstring[BUFSIZE];
-	char      *retval;
-	MYSQL_RES *result;
-	MYSQL_ROW mysql_row;
-	int major;
-	int minor;
-	int point;
-	int       cacti_version;
-
-	assert(psql != 0);
-
-	spine_snprintf(qstring, sizeof(qstring), "SELECT cacti FROM version LIMIT 1");
-
-	result = db_query(psql, mode, qstring);
-
-	if (result != 0) {
-		if (mysql_num_rows(result) > 0) {
-			mysql_row = mysql_fetch_row(result);
-
-			if (mysql_row != NULL) {
-				retval = strdup(mysql_row[0]);
-				db_free_result(result);
-
-				if (STRIMATCH(retval, "new_install")) {
-					SPINE_FREE(retval);
-
-					return 0;
-				} else {
-					sscanf(retval, "%d.%d.%d", &major, &minor, &point);
-					cacti_version = (major * 1000) + (minor * 100) + (point * 1);
-
-					SPINE_FREE(retval);
-
-					return cacti_version;
-				}
-			}else{
-				return 0;
-			}
-		}else{
-			db_free_result(result);
-			return 0;
-		}
-	}else{
-		return 0;
+static int parse_cacti_version(const char *value) {
+	const unsigned long weights[] = {1000, 100, 1};
+	unsigned long version = 0;
+	for (size_t index = 0; index < sizeof(weights) / sizeof(weights[0]); index++) {
+		if (*value < '0' || *value > '9') return 0;
+		errno = 0;
+		char *end;
+		unsigned long component = strtoul(value, &end, 10);
+		if (errno == ERANGE || component > ((unsigned long)INT_MAX - version) / weights[index]) return 0;
+		version += component * weights[index];
+		if (index < 2 && *end != '.') return 0;
+		value = end + (index < 2 ? 1 : 0);
 	}
+	/* Preserve suffixes such as develop/beta accepted by the previous three-component scan. */
+	return (int)version;
+}
+
+int get_cacti_version(MYSQL *psql, int mode) {
+	assert(psql != NULL);
+	MYSQL_RES *result = db_query(psql, mode, "SELECT cacti FROM version LIMIT 1");
+	if (result == NULL) return 0;
+	MYSQL_ROW row = mysql_fetch_row(result);
+	int version = row != NULL && row[0] != NULL ? parse_cacti_version(row[0]) : 0;
+	db_free_result(result);
+	return version;
 }
 
 /* pthread storage keeps the borrowed match valid without requiring C11 TLS.

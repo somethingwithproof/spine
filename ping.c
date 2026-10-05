@@ -670,7 +670,7 @@ static void log_host_availability(const host_t *host, const ping_t *ping, int me
 }
 
 /*! Update availability statistics and apply failure/recovery thresholds. */
-void update_host_status(int status, host_t *host, ping_t *ping, int availability_method) {
+void update_host_status(int status, host_t *host, const ping_t *ping, int availability_method) {
 	char current_date[40];
 	snprintf(current_date, sizeof(current_date), "%lu", time(NULL));
 	bool issue_log_message;

@@ -1338,6 +1338,28 @@ static void test_collector_transfer(MYSQL *source) {
 	set = previous;
 }
 
+static void test_database_version(MYSQL *mysql) {
+	const struct {
+		const char *text;
+		int expected;
+	} cases[] = {
+		{"1.2.32", 1232}, {"1.3.0_develop", 1300}, {"1.2.33-beta1", 1233},
+		{"2147483.6.47", INT_MAX}, {"2147483.6.48", 0}, {"2147483647.0.0", 0},
+		{"99999999999999999999", 0}, {"new_install", 0}, {"", 0},
+		{"1.2", 0}, {"1.x.3", 0}, {"1.2.-1", 0}, {"-1.2.3", 0}
+	};
+	for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+		assert(db_insert(mysql, LOCAL, "DELETE FROM version"));
+		char query[BUFSIZE];
+		spine_snprintf(query, sizeof(query), "INSERT INTO version(cacti) VALUES ('%s')", cases[index].text);
+		assert(db_insert(mysql, LOCAL, query));
+		assert(get_cacti_version(mysql, LOCAL) == cases[index].expected);
+	}
+	assert(db_insert(mysql, LOCAL, "DELETE FROM version"));
+	assert(get_cacti_version(mysql, LOCAL) == 0);
+	assert(db_insert(mysql, LOCAL, "INSERT INTO version(cacti) VALUES ('1.2.32')"));
+}
+
 static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
@@ -1353,6 +1375,7 @@ static void test_database_configuration(void) {
 	set.parent_fork = SPINE_PARENT;
 	MYSQL mysql;
 	db_connect(LOCAL, &mysql);
+	test_database_version(&mysql);
 	assert(db_insert(&mysql, LOCAL, "DELETE FROM settings") == TRUE);
 	assert(db_insert(&mysql, LOCAL, "INSERT INTO settings (name,value) VALUES ('path_webroot','/srv/cacti'),('path_cactilog',''),('ping_timeout','650'),('script_timeout','2'),('php_servers','100'),('max_get_size','200'),('default_datechar','99')") == TRUE);
 	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_item") == TRUE);
