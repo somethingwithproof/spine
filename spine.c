@@ -985,7 +985,10 @@ int main(int argc, char *argv[]) {
 
 		if (cur_time - begin_time > set.poller_interval) {
 			SPINE_LOG(("ERROR: Polling timed out while waiting for %d Threads to End", set.threads - a_threads_value));
-			break;
+			/* Active workers still own pool entries and completion state. Exit the
+			 * process before normal cleanup can invalidate those borrowed objects. */
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Polling deadline expired with active workers; polling is incomplete");
 		}
 
 		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
