@@ -1023,6 +1023,19 @@ typedef struct {
 	snmp_oids_t *oids;
 } poll_item_storage_t;
 
+static MYSQL_RES *select_poll_items(MYSQL *mysql, const poller_queries_t *queries,
+	const host_t *host, const poller_thread_t *work, int *num_rows) {
+	const char *query = set.poller.poller_interval == 0 ? queries->items : queries->due_items;
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	*num_rows = 0;
+	if (result != NULL) {
+		*num_rows = spine_count_to_int(mysql_num_rows(result));
+	} else {
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, work->host_thread));
+	}
+	return result;
+}
+
 static poll_item_storage_t load_poll_items(MYSQL_RES *result, host_t *host, int num_rows) {
 	poll_item_storage_t storage;
 	/* retrieve each hosts polling items from poller cache and load into array */
@@ -1324,22 +1337,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	poll_host_reindex(host, reindex, queries.reindex, &evaluation);
 
 	/* calculate the number of poller items to poll this cycle */
-	num_rows = 0;
-	if (set.poller.poller_interval == 0) {
-		/* get the poller items */
-		if ((result = db_query(mysql, LOCAL, queries.items)) != 0) {
-			num_rows = spine_count_to_int(mysql_num_rows(result));
-		} else {
-			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
-		}
-	} else {
-		/* get the poller items */
-		if ((result = db_query(mysql, LOCAL, queries.due_items)) != 0) {
-			num_rows = spine_count_to_int(mysql_num_rows(result));
-		} else {
-			SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, host_thread));
-		}
-	}
+	result = select_poll_items(mysql, &queries, host, work, &num_rows);
 
 	if (num_rows > 0) {
 		poll_item_storage_t storage = load_poll_items(result, host, num_rows);
