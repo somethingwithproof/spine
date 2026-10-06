@@ -589,7 +589,7 @@ static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thre
 }
 
 static bool start_poll_worker(const poller_thread_t *device, int current_thread, spine_permits_t *startup,
-	pthread_attr_t *attributes, pthread_t *thread) {
+	const pthread_attr_t *attributes, pthread_t *thread) {
 	if (!acquire_worker_permits(startup, device->host_id, current_thread)) {
 		set.exit_code = EXIT_FAILURE;
 		return FALSE;
@@ -655,6 +655,45 @@ static int wait_for_workers(double begin_time) {
 	return a_threads_value;
 }
 
+static void report_worker_completion(int num_rows) {
+	int threads_missing = -1;
+	if (!set.ping_only) {
+		thread_mutex_lock(LOCK_THDET);
+
+		for (int threads_count = 0; threads_count < num_rows; threads_count++) {
+			const poller_thread_t *det = details[threads_count];
+
+			if (threads_missing == -1 && det == NULL) {
+				threads_missing = threads_count;
+			}
+
+			if (det != NULL) {
+				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
+					det->host_id,
+					det->complete ? "":"in",
+					det->host_data_ids * (det->host_thread - 1),
+					det->host_data_ids * (det->host_thread)));
+
+				SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, host_thread = %d,"
+					" host_threads = %d, host_data_ids = %d, complete = %d",
+					threads_count,
+					det->host_id,
+					det->host_thread,
+					det->host_threads,
+					det->host_data_ids,
+					det->complete));
+			}
+		}
+
+		thread_mutex_unlock(LOCK_THDET);
+	}
+
+	if (threads_missing > -1) {
+		SPINE_LOG(("WARNING: There were %d threads which did not run", num_rows - threads_missing));
+	}
+
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
@@ -692,7 +731,6 @@ int main(int argc, char *argv[]) {
 	int change_host   = TRUE;
 	int current_thread;
 	int threads_final = 0;
-	int threads_missing = -1;
 
 	/* we must initialize snmp in the main thread */
 	struct snmp_session session;
@@ -1044,40 +1082,7 @@ int main(int argc, char *argv[]) {
 
 	SPINE_LOG_HIGH(("The final count of Threads is %i", threads_final));
 
-	if (!set.ping_only) {
-		thread_mutex_lock(LOCK_THDET);
-
-		for (int threads_count = 0; threads_count < num_rows; threads_count++) {
-			const poller_thread_t *det = details[threads_count];
-
-			if (threads_missing == -1 && det == NULL) {
-				threads_missing = threads_count;
-			}
-
-			if (det != NULL) {
-				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
-					det->host_id,
-					det->complete ? "":"in",
-					det->host_data_ids * (det->host_thread - 1),
-					det->host_data_ids * (det->host_thread)));
-
-				SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, host_thread = %d,"
-					" host_threads = %d, host_data_ids = %d, complete = %d",
-					threads_count,
-					det->host_id,
-					det->host_thread,
-					det->host_threads,
-					det->host_data_ids,
-					det->complete));
-			}
-		}
-
-		thread_mutex_unlock(LOCK_THDET);
-	}
-
-	if (threads_missing > -1) {
-		SPINE_LOG(("WARNING: There were %d threads which did not run", num_rows - threads_missing));
-	}
+	report_worker_completion(num_rows);
 
 	/* tell Spine that it is now parent */
 	set.parent_fork = SPINE_PARENT;
