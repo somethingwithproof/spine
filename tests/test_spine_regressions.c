@@ -1522,6 +1522,44 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
 }
 
+static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *aggregate) {
+	config_t previous = set;
+	test_poll_work_t original = *aggregate;
+	set.active_profiles = 2;
+	set.poller_interval = 5;
+	set.total_snmp_ports = 1;
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET rrd_step=300,rrd_next_step=0 WHERE host_id=43"));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name,rrd_step,rrd_next_step) VALUES (603,43,1,1,'/usr/bin/printf 789','not-due',300,100)"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+	aggregate->thread.host_thread = 2;
+	aggregate->thread.host_threads = 2;
+	aggregate->thread.host_data_ids = 1;
+	aggregate->thread.complete = FALSE;
+	aggregate->thread.threads_complete = 0;
+	/* Deliberately finish partition 2 before partition 1 has selected its rows. */
+	test_poll_work_t second = *aggregate;
+	second.thread.host_thread = 2;
+	pthread_t worker;
+	assert(pthread_create(&worker, NULL, test_poll_worker, &second) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	assert(aggregate->thread.threads_complete == 1 && !aggregate->thread.complete);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=43 AND rrd_next_step=0") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=602 AND output='U'") == 1);
+	test_poll_work_t first = *aggregate;
+	first.thread.host_thread = 1;
+	assert(pthread_create(&worker, NULL, test_poll_worker, &first) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	assert(aggregate->thread.threads_complete == 2 && aggregate->thread.complete);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=603") == 0);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=43 AND ((local_data_id IN (601,602) AND rrd_next_step=295) OR (local_data_id=603 AND rrd_next_step=95))") == 3);
+	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+	*aggregate = original;
+	set = previous;
+}
+
 static void test_poll_pipeline(MYSQL *mysql) {
 	extern poller_thread_t **details;
 	config_t previous = set;
@@ -1597,7 +1635,10 @@ static void test_poll_pipeline(MYSQL *mysql) {
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
 			assert(database_count(mysql, query) == 1);
 		}
-		if (host_id == 43) test_reindex_pipeline(mysql, &work);
+		if (host_id == 43) {
+			test_reindex_pipeline(mysql, &work);
+			test_profile_schedule_completion(mysql, &work);
+		}
 	}
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);

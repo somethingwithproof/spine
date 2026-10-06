@@ -647,7 +647,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int device_counter = work->device_counter;
 	int host_id = work->host_id;
 	int host_thread = work->host_thread;
-	int host_threads = work->host_threads;
 	int host_data_ids = work->host_data_ids;
 	const char *host_time = work->host_time;
 	double host_time_double = work->host_time_double;
@@ -1412,13 +1411,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	SPINE_FREE(reindex);
 	SPINE_FREE(ping);
 
-	/* update poller_items table for next polling interval */
-	if (host_thread == host_threads && set.active_profiles != 1) {
-		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
-
-		db_query(mysql, LOCAL, queries.schedule);
-	}
-
 	/* record the polling time for the device */
 	poll_time = get_time_as_double() - poll_time;
 	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, host_thread, poll_time));
@@ -1427,6 +1419,11 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	thread_mutex_lock(LOCK_THDET);
 	details[device_counter]->threads_complete++;
 	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
+		/* Keep the due-item set stable until every device partition has finished. */
+		if (set.active_profiles != 1) {
+			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
+			db_query(mysql, LOCAL, queries.schedule);
+		}
 		details[device_counter]->complete = TRUE;
 
 		poll_time = get_time_as_double();
