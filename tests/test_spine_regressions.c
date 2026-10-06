@@ -1041,7 +1041,7 @@ static int run_test_script_server(int argc, char **argv) {
 	return 17; /* EOF without quit must not count as graceful protocol shutdown. */
 }
 
-static void assert_php_responses(php_t *processes, int count) {
+static void assert_php_responses(const php_t *processes, int count) {
 	for (int index = 0; index < count; index++) {
 		assert(processes[index].php_state == PHP_READY);
 		char *result = php_cmd("regression request", index);

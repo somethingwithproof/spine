@@ -210,12 +210,10 @@ static void await_output_byte(int fd, char expected, double deadline) {
 	assert(count == 1 && value == expected);
 }
 
-static void close_output_signals(const int *ready, const int *release, const int finished[][2], const char ready_paths[][SMALL_BUFSIZE], const char release_paths[][SMALL_BUFSIZE]) {
-	for (int index = 0; index < 2; index++) {
-		assert(close(ready[index]) == 0 && close(release[index]) == 0);
-		assert(close(finished[index][0]) == 0 && close(finished[index][1]) == 0);
-		assert(unlink(ready_paths[index]) == 0 && unlink(release_paths[index]) == 0);
-	}
+static void close_output_signal(int ready, int release, const int finished[2], const char *ready_path, const char *release_path) {
+	assert(close(ready) == 0 && close(release) == 0);
+	assert(close(finished[0]) == 0 && close(finished[1]) == 0);
+	assert(unlink(ready_path) == 0 && unlink(release_path) == 0);
 }
 
 static void test_concurrent_output_failure(MYSQL *mysql) {
@@ -329,7 +327,9 @@ static void test_concurrent_output_failure(MYSQL *mysql) {
 	assert(spine_permits_available(&available_scripts) == 2);
 	assert(db_pool_local[0].free && db_pool_local[1].free);
 	assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
-	close_output_signals(ready, release, finished, ready_paths, release_paths);
+	for (int index = 0; index < 2; index++) {
+		close_output_signal(ready[index], release[index], finished[index], ready_paths[index], release_paths[index]);
+	}
 	assert(rmdir(directory) == 0);
 	assert(spine_permits_destroy(&startup) == 0);
 	assert(spine_permits_destroy(&available_threads) == 0);
