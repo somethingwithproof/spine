@@ -48,7 +48,7 @@ fi
 gcc --version > "$coverage_dir/compiler.txt"
 gcc -dumpmachine >> "$coverage_dir/compiler.txt"
 if command -v dpkg-query >/dev/null; then
-    dpkg-query -W gcc libc6-dev libmariadb-dev libsnmp-dev libssl-dev lcov autoconf automake libtool > "$coverage_dir/dependencies.txt"
+    dpkg-query -W gcc libc6-dev libmariadb-dev libsnmp-dev libssl-dev snmpd lcov autoconf automake libtool > "$coverage_dir/dependencies.txt"
 fi
 gcov --version > "$coverage_dir/gcov.txt"
 lcov --version > "$coverage_dir/lcov.txt"
@@ -98,12 +98,15 @@ tests/tools/verify_coverage.sh --producers "$source_dir" "$coverage_dir/producer
 sha256sum "${notes[@]}" > "$coverage_dir/notes.sha256"
 ./test_spine_regressions > "$coverage_dir/default.log" 2>&1
 grep -Fq 'production regression tests passed' "$coverage_dir/default.log"
+grep -Fq 'production SNMPv3 key and timeout boundary regressions passed' "$coverage_dir/default.log"
 grep -Fq 'production additional contracts passed' "$coverage_dir/default.log"
 ./test_spine_regressions --database > "$coverage_dir/database.log" 2>&1
 grep -Fq 'production database configuration regressions passed' "$coverage_dir/database.log"
 grep -Fq 'production live SNMP and PHP reindex contracts passed' "$coverage_dir/database.log"
 ./test_spine_regressions --snmp-agent > "$coverage_dir/snmp.log" 2>&1
 grep -Fq 'production SNMP agent regressions passed' "$coverage_dir/snmp.log"
+SPINE_SNMPV3_EVIDENCE_DIR="$coverage_dir" tests/tools/run_snmpv3.sh > "$coverage_dir/snmpv3.log" 2>&1
+grep -Fq 'production live SNMPv3 authentication and privacy regressions passed' "$coverage_dir/snmpv3.log"
 ./test_spine_faults > "$coverage_dir/fault-default.log" 2>&1
 grep -Fq 'production logger date-format failure regressions passed' "$coverage_dir/fault-default.log"
 grep -Fq 'production process creation failure regressions passed' "$coverage_dir/fault-default.log"
@@ -144,7 +147,7 @@ sha256sum --check "$coverage_dir/source.sha256" > "$coverage_dir/source-verifica
 sha256sum --check "$coverage_dir/generated-config.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/binaries.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/notes.sha256" >> "$coverage_dir/source-verification.log"
-printf '%s\n' default additional-contracts database live-reindex snmp fault-default fault-logger fault-process fault-database-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
-(cd "$coverage_dir" && sha256sum default.log database.log snmp.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt compiler.txt generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
+printf '%s\n' default additional-contracts database live-reindex snmp snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
+(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt compiler.txt generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1

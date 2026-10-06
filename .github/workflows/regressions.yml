@@ -62,6 +62,10 @@ jobs:
           sleep 1
           ./test_spine_regressions --snmp-agent
           ./test_spine_regressions --database
+      - name: Verify authenticated SNMPv3 against owned agent
+        env:
+          SPINE_SNMPV3_EVIDENCE_DIR: snmpv3-evidence
+        run: tests/tools/run_snmpv3.sh
       - name: Verify ICMP against local loopback
         run: |
           set -eu

@@ -184,7 +184,8 @@ am__objects_4 = $(am__objects_3) \
 am_test_spine_regressions_OBJECTS = $(am__objects_4) \
 	test_spine_regressions-test_spine_regressions.$(OBJEXT) \
 	test_spine_regressions-test_spine_contracts.$(OBJEXT) \
-	test_spine_regressions-test_spine_reindex_contracts.$(OBJEXT)
+	test_spine_regressions-test_spine_reindex_contracts.$(OBJEXT) \
+	test_spine_regressions-test_spine_snmpv3_contracts.$(OBJEXT)
 test_spine_regressions_OBJECTS = $(am_test_spine_regressions_OBJECTS)
 test_spine_regressions_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
@@ -230,6 +231,7 @@ am__depfiles_remade = ./$(DEPDIR)/error.Po ./$(DEPDIR)/keywords.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po \
+	./$(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po \
 	./$(DEPDIR)/test_spine_regressions-util.Po ./$(DEPDIR)/util.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
@@ -645,9 +647,9 @@ configdir = $(sysconfdir)
 dist_config_DATA = spine.conf.dist
 man_MANS = spine.1
 DISTCLEANFILES = spine.1
-dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf
+dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf tests/fixtures/snmpv3-agent.conf tests/fixtures/snmpv3-users.conf
 TESTS = $(check_PROGRAMS)
-test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c
+test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c tests/test_spine_snmpv3_contracts.c
 # Link the real production translation units and globals, with a separate test
 # entry point. The test source undefines main before declaring its own entry.
 test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
@@ -660,7 +662,7 @@ test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_progra
 @HAVE_LINKER_WRAP_TRUE@ -Wl,--wrap=pipe -Wl,--wrap=socketpair -Wl,--wrap=fork -Wl,--wrap=dup2 \
 @HAVE_LINKER_WRAP_TRUE@ -Wl,--wrap=execve -Wl,--wrap=malloc -Wl,--wrap=strdup
 
-EXTRA_DIST = tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
+EXTRA_DIST = tests/tools/run_snmpv3.sh tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
  tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
 
 all: all-am
@@ -826,6 +828,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-util.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/util.Po@am__quote@ # am--include-marker
 
@@ -1205,6 +1208,20 @@ test_spine_regressions-test_spine_reindex_contracts.obj: tests/test_spine_reinde
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_reindex_contracts.c' object='test_spine_regressions-test_spine_reindex_contracts.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_reindex_contracts.obj `if test -f 'tests/test_spine_reindex_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_reindex_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_reindex_contracts.c'; fi`
+
+test_spine_regressions-test_spine_snmpv3_contracts.o: tests/test_spine_snmpv3_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-test_spine_snmpv3_contracts.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Tpo -c -o test_spine_regressions-test_spine_snmpv3_contracts.o `test -f 'tests/test_spine_snmpv3_contracts.c' || echo '$(srcdir)/'`tests/test_spine_snmpv3_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Tpo $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_snmpv3_contracts.c' object='test_spine_regressions-test_spine_snmpv3_contracts.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_snmpv3_contracts.o `test -f 'tests/test_spine_snmpv3_contracts.c' || echo '$(srcdir)/'`tests/test_spine_snmpv3_contracts.c
+
+test_spine_regressions-test_spine_snmpv3_contracts.obj: tests/test_spine_snmpv3_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-test_spine_snmpv3_contracts.obj -MD -MP -MF $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Tpo -c -o test_spine_regressions-test_spine_snmpv3_contracts.obj `if test -f 'tests/test_spine_snmpv3_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_snmpv3_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_snmpv3_contracts.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Tpo $(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_snmpv3_contracts.c' object='test_spine_regressions-test_spine_snmpv3_contracts.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_snmpv3_contracts.obj `if test -f 'tests/test_spine_snmpv3_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_snmpv3_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_snmpv3_contracts.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -1763,6 +1780,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po
+	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-util.Po
 	-rm -f ./$(DEPDIR)/util.Po
 	-rm -f Makefile
@@ -1846,6 +1864,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po
+	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_snmpv3_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-util.Po
 	-rm -f ./$(DEPDIR)/util.Po
 	-rm -f Makefile

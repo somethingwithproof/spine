@@ -33,6 +33,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include <limits.h>
 
 /* resolve problems in debian */
 #ifndef NETSNMP_DS_LIB_DONT_PERSIST_STATE
@@ -152,6 +153,11 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 	if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
 	free(Apsz);
 	Apsz = NULL;
+	if (session->securityLevel == SNMP_SEC_LEVEL_AUTHNOPRIV) {
+		spine_clear_sensitive(Xpsz, strlen(Xpsz));
+		free(Xpsz);
+		return TRUE;
+	}
 
 	session->securityPrivKeyLen = USM_PRIV_KU_LEN;
 	if (session->securityPrivProto == NULL) {
@@ -219,11 +225,12 @@ static bool snmp_set_security_protocols(struct snmp_session *session, const snmp
 	if (strcmp(options->snmp_priv_protocol, "[None]") == 0 || (strlen(options->snmp_priv_passphrase) == 0)) {
 		session->securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
 		session->securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
-		session->securityPrivKeyLen   = USM_PRIV_KU_LEN;
+		session->securityPrivKeyLen   = 0;
 
 		/* set the security level to authenticate, but not encrypted */
 		if (strlen(options->snmp_password)) {
 			session->securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
+			if (!snmp_set_security_keys(session, options->host_id, options->snmp_password, options->snmp_priv_passphrase)) return FALSE;
 		} else {
 			session->securityLevel = SNMP_SEC_LEVEL_NOAUTH;
 		}
@@ -253,6 +260,16 @@ static bool snmp_set_security_protocols(struct snmp_session *session, const snmp
  *  \brief initializes an owned Net-SNMP session from borrowed connection inputs.
  */
 void *snmp_host_init(const snmp_connection_t *options) {
+	if (options->snmp_timeout <= 0) {
+		SPINE_LOG(("SNMP: Device[%i] Invalid nonpositive timeout.", options->host_id));
+		return NULL;
+	}
+	#if LONG_MAX / 1000L < INT_MAX
+	if (options->snmp_timeout > LONG_MAX / 1000L) {
+		SPINE_LOG(("SNMP: Device[%i] Timeout exceeds Net-SNMP's microsecond range.", options->host_id));
+		return NULL;
+	}
+	#endif
 
 	void   *sessp = NULL;
 	struct snmp_session session;
@@ -326,7 +343,7 @@ void *snmp_host_init(const snmp_connection_t *options) {
 	snprintf(hostnameport, BUFSIZE, "%s:%i", options->hostname, options->snmp_port);
 	session.peername    = hostnameport;
 	session.retries     = set.snmp_retries;
-	session.timeout     = (options->snmp_timeout * 1000); /* net-snmp likes microseconds */
+	session.timeout     = ((long)options->snmp_timeout * 1000L); /* net-snmp likes microseconds */
 
 	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", options->host_id, hostnameport, session.timeout, options->snmp_timeout, session.retries));
 

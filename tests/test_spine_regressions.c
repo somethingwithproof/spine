@@ -25,6 +25,8 @@ extern int spine_program_main(int argc, char **argv);
 extern void test_additional_contracts(void);
 extern void test_additional_database_contracts(MYSQL *mysql);
 extern void test_additional_reindex_contracts(MYSQL *mysql);
+extern void test_additional_snmp_session_boundaries(void);
+extern void test_snmpv3_agent_contracts(void);
 
 static void test_copy_bounds(void) {
 	struct { char text[8]; unsigned char guard; } output;
@@ -691,6 +693,7 @@ static void test_snmp_security_protocols(void) {
 		}
 		snmp_host_cleanup(handle);
 	}
+	test_additional_snmp_session_boundaries();
 	options.snmp_priv_protocol = "INVALID";
 	assert(snmp_host_init(&options) == NULL);
 	snmp_spine_close();
@@ -2189,6 +2192,11 @@ int main(int argc, char **argv) {
 		init_mutexes();
 		test_icmp_socket_failure();
 		puts("production ICMP socket-failure regression passed");
+		return 0;
+	}
+	if (argc == 2 && strcmp(argv[1], "--snmpv3-agent") == 0) {
+		init_mutexes();
+		test_snmpv3_agent_contracts();
 		return 0;
 	}
 	if (argc == 2 && strcmp(argv[1], "--snmp-agent") == 0) {

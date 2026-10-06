@@ -145,7 +145,7 @@ static void test_logger_format_failure(void) {
 	assert(dup2(saved, diagnostic) == diagnostic && close(saved) == 0);
 	char response[LOGSIZE * 2];
 	ssize_t received = read(capture[0], response, sizeof(response) - 1);
-	assert(received > 0 && close(capture[0]) == 0);
+	assert(received > 0 && (size_t)received < sizeof(response) && close(capture[0]) == 0);
 	response[received] = '\0';
 	assert(strstr(response, "ERROR: Could not get string from strftime()") != NULL);
 	assert(strstr(response, "regression date fallback") != NULL);
@@ -164,7 +164,7 @@ static void test_logger_format_failure(void) {
 	FILE *file = fopen(filename, "r");
 	assert(file != NULL);
 	size_t bytes = fread(response, 1, sizeof(response) - 1, file);
-	assert(bytes > 0 && !ferror(file) && fclose(file) == 0);
+	assert(bytes > 0 && bytes < sizeof(response) && !ferror(file) && fclose(file) == 0);
 	response[bytes] = '\0';
 	assert(strstr(response, "regression date fallback") != NULL);
 	assert(strstr(response, "regression quiet date fallback") != NULL);
@@ -178,7 +178,7 @@ static unsigned int open_descriptor_count(void) {
 	DIR *directory = opendir("/proc/self/fd");
 	assert(directory != NULL);
 	unsigned int count = 0;
-	struct dirent *entry;
+	const struct dirent *entry;
 	while ((entry = readdir(directory)) != NULL) {
 		if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) count++;
 	}
