@@ -106,6 +106,7 @@ grep -Fq 'production additional contracts passed' "$coverage_dir/default.log"
 ./test_spine_regressions --database > "$coverage_dir/database.log" 2>&1
 grep -Fq 'production settings write outcome regressions passed' "$coverage_dir/database.log"
 grep -Fq 'production database configuration regressions passed' "$coverage_dir/database.log"
+grep -Fq 'production nullable SNMP profile handoff passed' "$coverage_dir/database.log"
 grep -Fq 'production live SNMP and PHP reindex contracts passed' "$coverage_dir/database.log"
 ./test_spine_regressions --snmp-agent > "$coverage_dir/snmp.log" 2>&1
 grep -Fq 'production SNMP agent regressions passed' "$coverage_dir/snmp.log"
@@ -151,7 +152,7 @@ sha256sum --check "$coverage_dir/source.sha256" > "$coverage_dir/source-verifica
 sha256sum --check "$coverage_dir/generated-config.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/binaries.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/notes.sha256" >> "$coverage_dir/source-verification.log"
-printf '%s\n' default config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome live-reindex snmp snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
+printf '%s\n' default config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome nullable-snmp-profile live-reindex snmp snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
 (cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt compiler.txt generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1
