@@ -41,6 +41,18 @@
 #include "output_buffer.h"
 #include "platform/platform_fd.h"
 
+#ifdef HAVE_LIBUV
+#include "poll_state_internal.h"
+#include "async_dns.h"
+#include "async_snmp.h"
+#include "async_exec.h"
+#include "async_php.h"
+#include "async_mysql.h"
+#include "async_batch.h"
+#include "task_scheduler.h"
+#include "task_executor.h"
+#endif
+
 static int poll_host_run(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
 
 static void append_output_query(char *buffer, size_t capacity, const char *part, size_t length) {
@@ -2316,7 +2328,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 					result_length = strlen(result_string);
 
 					/* if the next element to the buffer will overflow it, write to the database */
-					if (spine_output_buffer_needs_flush((size_t)out_buffer, (size_t)result_length, MAX_MYSQL_BUF_SIZE)) {
+					if (spine_output_buffer_needs_flush(out_buffer, (size_t)result_length, MAX_MYSQL_BUF_SIZE)) {
 						/* append the suffix */
 						append_output_query(query3, buf_length, posuffix, posuffix_len);
 
@@ -2913,15 +2925,6 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 }
 
 #ifdef HAVE_LIBUV
-#include "poll_state_internal.h"
-#include "async_dns.h"
-#include "async_snmp.h"
-#include "async_exec.h"
-#include "async_php.h"
-#include "async_mysql.h"
-#include "async_batch.h"
-#include "task_scheduler.h"
-#include "task_executor.h"
 
 
 static void poll_step(poll_context_t *ctx);
