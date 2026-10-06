@@ -588,11 +588,77 @@ static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thre
 	}
 }
 
+static bool start_poll_worker(const poller_thread_t *device, int current_thread, spine_permits_t *startup,
+	pthread_attr_t *attributes, pthread_t *thread) {
+	if (!acquire_worker_permits(startup, device->host_id, current_thread)) {
+		set.exit_code = EXIT_FAILURE;
+		return FALSE;
+	}
+	poller_thread_t *worker = malloc(sizeof(*worker));
+	if (worker == NULL) die("ERROR: Fatal malloc error: polling worker instructions");
+	thread_mutex_lock(LOCK_THDET);
+	*worker = *device;
+	thread_mutex_unlock(LOCK_THDET);
+	worker->host_thread = current_thread;
+	int status;
+	do {
+		status = pthread_create(thread, attributes, child, worker);
+		if (status == EAGAIN) spine_sleep_usec(10000);
+	} while (status == EAGAIN && get_time_as_double() - start_time < set.poller_interval);
+	if (status == 0) {
+		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", device->host_id, (unsigned long int)*thread));
+		return TRUE;
+	}
+	SPINE_LOG(("ERROR: Device[%i] HT[%i] unable to create polling thread (error %d)", device->host_id, current_thread, status));
+	free(worker);
+	spine_permits_release(startup);
+	spine_permits_release(&available_threads);
+	set.exit_code = EXIT_FAILURE;
+	return FALSE;
+}
+
+static void report_worker_launch(const poller_thread_t *device, int device_counter) {
+	int available = spine_permits_available(&available_threads);
+	SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", device->host_id, available, set.threads - available));
+	thread_mutex_lock(LOCK_THDET);
+	SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
+		" host_threads = %d, host_data_ids = %d, complete = %d",
+		device_counter-1, device->host_id, device->host_thread, device->host_threads,
+		device->host_data_ids, device->complete));
+	thread_mutex_unlock(LOCK_THDET);
+}
+
+static int wait_for_workers(double begin_time) {
+	int a_threads_value;
+	double cur_time;
+	a_threads_value = spine_permits_available(&available_threads);
+
+	/* wait for all threads to 'complete'
+	 * using the mutex here as the semaphore will
+     * show zero before the children are done */
+	while (a_threads_value < set.threads) {
+		cur_time = get_time_as_double();
+
+		if (cur_time - begin_time > set.poller_interval) {
+			SPINE_LOG(("ERROR: Polling timed out while waiting for %d Threads to End", set.threads - a_threads_value));
+			/* Active workers still own pool entries and completion state. Exit the
+			 * process before normal cleanup can invalidate those borrowed objects. */
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Polling deadline expired with active workers; polling is incomplete");
+		}
+
+		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
+		spine_sleep_usec(500000);
+		a_threads_value = spine_permits_available(&available_threads);
+	}
+
+	return a_threads_value;
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
 	double end_time;
-	double cur_time;
 	int num_rows = 0;
 	int device_counter = 0;
 	char querybuf[MEGA_BUFSIZE];
@@ -623,7 +689,6 @@ int main(int argc, char *argv[]) {
 	int canexit = FALSE;
 	int host_id = 0;
 	int i;
-	int thread_status = 0;
 	int change_host   = TRUE;
 	int current_thread;
 	int threads_final = 0;
@@ -965,76 +1030,15 @@ int main(int argc, char *argv[]) {
 		}
 
 
-		if (acquire_worker_permits(&thread_init_sem, host_id, current_thread)) {
-			/* Each worker owns immutable instructions; details owns device completion. */
-			poller_thread_t *worker_details = malloc(sizeof(*worker_details));
-			if (worker_details == NULL) die("ERROR: Fatal malloc error: polling worker instructions");
-			thread_mutex_lock(LOCK_THDET);
-			*worker_details = *poller_details;
-			thread_mutex_unlock(LOCK_THDET);
-			worker_details->host_thread = current_thread;
-			do {
-				thread_status = pthread_create(&threads[device_counter], &attr, child, worker_details);
-				if (thread_status == EAGAIN) spine_sleep_usec(10000);
-			} while (thread_status == EAGAIN && get_time_as_double() - start_time < set.poller_interval);
-
-			if (thread_status == 0) {
-				SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", poller_details->host_id, (unsigned long int)threads[device_counter]));
-
-				if (change_host) {
-					device_counter++;
-				}
-
-				a_threads_value = spine_permits_available(&available_threads);
-				SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", poller_details->host_id, a_threads_value, set.threads - a_threads_value));
-
-				thread_mutex_lock(LOCK_THDET);
-				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
-					" host_threads = %d, host_data_ids = %d, complete = %d",
-					device_counter-1,
-					poller_details->host_id,
-					poller_details->host_thread,
-					poller_details->host_threads,
-					poller_details->host_data_ids,
-					poller_details->complete));
-				thread_mutex_unlock(LOCK_THDET);
-			}
-
-			/* Restore thread initialization semaphore if thread creation failed */
-			if (thread_status) {
-				SPINE_LOG(("ERROR: Device[%i] HT[%i] unable to create polling thread (error %d)", host_id, current_thread, thread_status));
-				free(worker_details);
-				spine_permits_release(&thread_init_sem);
-				spine_permits_release(&available_threads);
-				set.exit_code = EXIT_FAILURE;
-				canexit = TRUE;
-			}
+		if (start_poll_worker(poller_details, current_thread, &thread_init_sem, &attr, &threads[device_counter])) {
+			if (change_host) device_counter++;
+			report_worker_launch(poller_details, device_counter);
 		} else {
-			set.exit_code = EXIT_FAILURE;
 			canexit = TRUE;
 		}
 	}
 
-	a_threads_value = spine_permits_available(&available_threads);
-
-	/* wait for all threads to 'complete'
- 	 * using the mutex here as the semaphore will
-     * show zero before the children are done */
-	while (a_threads_value < set.threads) {
-		cur_time = get_time_as_double();
-
-		if (cur_time - begin_time > set.poller_interval) {
-			SPINE_LOG(("ERROR: Polling timed out while waiting for %d Threads to End", set.threads - a_threads_value));
-			/* Active workers still own pool entries and completion state. Exit the
-			 * process before normal cleanup can invalidate those borrowed objects. */
-			set.exit_code = EXIT_FAILURE;
-			die("ERROR: Polling deadline expired with active workers; polling is incomplete");
-		}
-
-		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
-		spine_sleep_usec(500000);
-		a_threads_value = spine_permits_available(&available_threads);
-	}
+	a_threads_value = wait_for_workers(begin_time);
 
 	threads_final = set.threads - a_threads_value;
 
