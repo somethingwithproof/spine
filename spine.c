@@ -586,7 +586,9 @@ static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thre
 static bool start_poll_worker(const poller_thread_t *device, int current_thread, spine_permits_t *startup,
 	const pthread_attr_t *attributes, pthread_t *thread) {
 	if (!acquire_worker_permits(startup, device->host_id, current_thread)) {
+		thread_mutex_lock(LOCK_THDET);
 		set.exit.exit_code = EXIT_FAILURE;
+		thread_mutex_unlock(LOCK_THDET);
 		return FALSE;
 	}
 	poller_thread_t *worker = malloc(sizeof(*worker));
@@ -608,7 +610,9 @@ static bool start_poll_worker(const poller_thread_t *device, int current_thread,
 	free(worker);
 	spine_permits_release(startup);
 	spine_permits_release(&available_threads);
+	thread_mutex_lock(LOCK_THDET);
 	set.exit.exit_code = EXIT_FAILURE;
+	thread_mutex_unlock(LOCK_THDET);
 	return FALSE;
 }
 
@@ -663,6 +667,9 @@ static void report_worker_completion(int num_rows) {
 			}
 
 			if (det != NULL) {
+				if (det->output_failed) {
+					SPINE_LOG(("ERROR: Device[%i] output persistence failed; due items remain scheduled for retry", det->host_id));
+				}
 				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
 					det->host_id,
 					det->complete ? "":"in",
@@ -757,6 +764,7 @@ static void launch_poll_workers(MYSQL *mysql, MYSQL_RES *result, int num_rows,
 			poller_details->thread_init_sem  = thread_init_sem;
 			poller_details->complete         = FALSE;
 			poller_details->threads_complete = 0;
+			poller_details->output_failed    = FALSE;
 
 			thread_mutex_lock(LOCK_THDET);
 			details[device_counter] = poller_details;

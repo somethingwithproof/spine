@@ -22,6 +22,7 @@
 #endif
 
 extern int spine_program_main(int argc, char **argv);
+extern void test_output_write_contracts(MYSQL *mysql);
 extern void test_additional_contracts(void);
 extern void test_cli_alias_contracts(void);
 extern int run_script_stream_fixture(const char *scenario);
@@ -1942,6 +1943,7 @@ static void test_database_configuration(void) {
 	test_poller_queries(&mysql);
 	test_collector_transfer(&mysql);
 	test_poll_pipeline(&mysql);
+	test_output_write_contracts(&mysql);
 	const char *reindex_agent = getenv("SPINE_TEST_SNMP_HOST");
 	if (reindex_agent != NULL && reindex_agent[0] != '\0') test_additional_reindex_contracts(&mysql);
 	test_cli_transfer_exit(&mysql);

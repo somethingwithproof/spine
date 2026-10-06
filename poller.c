@@ -807,6 +807,7 @@ static void poll_script_item(host_t *host, target_t *item,
 typedef struct {
 	char *output;
 	char *boost;
+	bool failed;
 } poll_output_buffers_t;
 
 static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
@@ -814,6 +815,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	int rows_processed, const char *host_time) {
 	char *query3 = NULL;
 	char *query12 = NULL;
+	bool failed = FALSE;
 	char result_string[RESULTS_BUFFER + SMALL_BUFSIZE];
 	int result_length;
 	int query8_len = spine_count_to_int(strlen(queries->output));
@@ -879,7 +881,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 			strncat(query3, queries->suffix, posuffix_len);
 
 			/* insert the record */
-			db_insert(mysqlt, mode, query3);
+			if (!db_insert(mysqlt, mode, query3)) failed = TRUE;
 
 			/* re-initialize the query buffer */
 			memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
@@ -891,7 +893,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 				/* append the suffix */
 				strncat(query12, queries->suffix, posuffix_len);
 
-				db_insert(mysqlt, mode, query12);
+				if (!db_insert(mysqlt, mode, query12)) failed = TRUE;
 
 				memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
 
@@ -929,17 +931,19 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 		strncat(query3, queries->suffix, posuffix_len);
 
 		/* insert records into database */
-		db_insert(mysqlt, mode, query3);
+		if (!db_insert(mysqlt, mode, query3)) failed = TRUE;
 
 		/* insert the record for boost */
 		if (query12 != NULL) {
 			/* append the suffix */
 			strncat(query12, queries->suffix, posuffix_len);
 
-			db_insert(mysqlt, mode, query12);
+			if (!db_insert(mysqlt, mode, query12)) failed = TRUE;
 		}
 	}
-	return (poll_output_buffers_t){query3, query12};
+	/* MEMORY output tables can retain earlier rows after a rejected write.
+	 * Keep both outputs and due items available for an idempotent retry. */
+	return (poll_output_buffers_t){query3, query12, failed};
 }
 
 typedef struct {
@@ -1070,6 +1074,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    num_rows;
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
+	bool   output_failed = FALSE;
 	int    i = 0;
 	int    snmp_poller_items = 0;
 
@@ -1326,6 +1331,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		poll_output_buffers_t output = write_poll_results(mysql, mysqlr, &queries, poller_items, rows_processed, host_time);
 		query3 = output.output;
 		query12 = output.boost;
+		output_failed = output.failed;
 
 		/* cleanup memory and prepare for function exit */
 		if (host->snmp.session != NULL) {
@@ -1355,14 +1361,19 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 	/* record the total time for the host */
 	thread_mutex_lock(LOCK_THDET);
+	if (output_failed) {
+		details[device_counter]->output_failed = TRUE;
+		set.exit.exit_code = EXIT_FAILURE;
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial output is retained for retry", host_id, host_thread));
+	}
 	details[device_counter]->threads_complete++;
 	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
 		/* Keep the due-item set stable until every device partition has finished. */
-		if (set.poller.active_profiles != 1) {
+		if (set.poller.active_profiles != 1 && !details[device_counter]->output_failed) {
 			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
 			db_query(mysql, LOCAL, queries.schedule);
 		}
-		details[device_counter]->complete = TRUE;
+		details[device_counter]->complete = !details[device_counter]->output_failed;
 
 		poll_time = get_time_as_double();
 		queries.items[0] = '\0';
