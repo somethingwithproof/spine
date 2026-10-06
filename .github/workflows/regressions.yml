@@ -33,7 +33,7 @@ jobs:
         run: |
           set -eu
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin
+          sudo apt-get install -y autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin lcov
       - name: Build and test production code
         run: |
           set -eu
@@ -67,3 +67,21 @@ jobs:
           ./test_spine_regressions --icmp-no-capability
           sudo setcap cap_net_raw+ep ./test_spine_regressions
           ./test_spine_regressions --raw-icmp
+      - name: Measure every production translation unit
+        env:
+          SPINE_TEST_SNMP_HOST: 127.0.0.1
+          SPINE_TEST_DB_HOST: 127.0.0.1
+        run: |
+          set -eu
+          snmpd -f -Lo -C -c tests/fixtures/snmpd.conf > coverage-snmp-agent.log 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid"; wait "$agent_pid" || true' EXIT
+          sleep 1
+          tests/tools/run_coverage.sh
+      - name: Preserve coverage and source provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-coverage-${{ github.sha }}
+          path: coverage/
+          if-no-files-found: error

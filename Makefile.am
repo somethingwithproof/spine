@@ -37,10 +37,19 @@ DISTCLEANFILES = spine.1
 check_PROGRAMS = test_spine_regressions
 dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf
 TESTS = $(check_PROGRAMS)
-test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c
+test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c
 # Link the real production translation units and globals, with a separate test
 # entry point. The test source undefines main before declaring its own entry.
 test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
 
 spine.1: $(bin_PROGRAMS)
 	$(HELP2MAN) --output=$@ --name='Data Collector for Cacti' --no-info --version-option='--version' ./spine
+
+EXTRA_DIST = tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
+ tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
+.PHONY: coverage-source-list coverage-test-source-list
+coverage-source-list:
+	@printf '%s\n' $(spine_SOURCES)
+
+coverage-test-source-list:
+	@printf '%s\n' $(test_spine_regressions_SOURCES)

@@ -70,9 +70,14 @@ static void test_lock_contracts(void) {
 		LOCK_PHP_PROC_4, LOCK_PHP_PROC_5, LOCK_PHP_PROC_6, LOCK_PHP_PROC_7,
 		LOCK_PHP_PROC_8, LOCK_PHP_PROC_9, LOCK_PHP_PROC_10, LOCK_PHP_PROC_11,
 		LOCK_PHP_PROC_12, LOCK_PHP_PROC_13, LOCK_PHP_PROC_14, LOCK_THDET, LOCK_HOST_TIME};
+	static const char *const names[] = {"snmp", "seteuid", "ghbn", "pool", "php",
+		"php_proc_0", "php_proc_1", "php_proc_2", "php_proc_3", "php_proc_4",
+		"php_proc_5", "php_proc_6", "php_proc_7", "php_proc_8", "php_proc_9",
+		"php_proc_10", "php_proc_11", "php_proc_12", "php_proc_13", "php_proc_14", "thdet", "host_time"};
 	init_mutexes();
 	init_mutexes(); /* pthread_once must preserve the already-created locks. */
 	for (size_t i = 0; i < sizeof(locks)/sizeof(locks[0]); i++) {
+		assert(strcmp(get_name(locks[i]), names[i]) == 0);
 		assert(get_lock(locks[i]) != NULL && get_cond(locks[i]) != NULL && get_attr(locks[i]) != NULL);
 		assert(get_lock(locks[i]) == get_lock(locks[i]));
 		for (size_t j = 0; j < i; j++) {
@@ -91,6 +96,7 @@ static void test_lock_contracts(void) {
 		assert(thread_mutex_trylock(locks[i]) == 0);
 		thread_mutex_unlock(locks[i]);
 	}
+	assert(strcmp(get_name(-1), "Unknown lock") == 0);
 	assert(get_lock(-1) == NULL && get_cond(-1) == NULL && get_attr(-1) == NULL);
 	assert(get_lock(1) == NULL && get_cond(1) == NULL && get_attr(1) == NULL);
 }
@@ -158,12 +164,60 @@ static void test_multipart_boundaries(void) {
 	for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) assert(is_multipart_output(cases[i].input) == cases[i].expected);
 }
 
+static void test_fatal_signal_contracts(void) {
+	static const struct { int signal; const char *message; } cases[] = {
+		{SIGINT, "Console Operator"}, {SIGPIPE, "Broken Pipe"},
+		{SIGSEGV, "Segmentation Fault"}, {SIGBUS, "Bus Error"},
+		{SIGFPE, "Floating Point Exception"}, {SIGQUIT, "Keyboard Quit"},
+		{SIGSYS, "Unhandled Exception"}, {SIGABRT, "Abort Signal"}
+	};
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		int diagnostic[2];
+		assert(pipe(diagnostic) == 0);
+		pid_t child = fork();
+		assert(child >= 0);
+		if (child == 0) {
+			alarm(5);
+			close(diagnostic[0]);
+			assert(dup2(diagnostic[1], STDERR_FILENO) == STDERR_FILENO);
+			close(diagnostic[1]);
+			assert(signal(cases[i].signal, SIG_DFL) != SIG_ERR);
+			install_spine_signal_handler();
+			assert(raise(cases[i].signal) == 0);
+			assert(set.exit_code == cases[i].signal);
+			struct sigaction restored;
+			assert(sigaction(cases[i].signal, NULL, &restored) == 0);
+			assert(restored.sa_handler == SIG_DFL);
+			uninstall_spine_signal_handler();
+			_exit(0);
+		}
+		close(diagnostic[1]);
+		char message[512] = {0};
+		size_t used = 0;
+		ssize_t count;
+		while ((count = read(diagnostic[0], message + used, sizeof(message) - used - 1)) != 0) {
+			if (count < 0 && errno == EINTR) continue;
+			assert(count > 0);
+			used += (size_t)count;
+			assert(used < sizeof(message) - 1);
+		}
+		close(diagnostic[0]);
+		int status;
+		assert(waitpid(child, &status, 0) == child);
+		assert(WIFEXITED(status));
+		assert(WEXITSTATUS(status) == (cases[i].signal == SIGSEGV ? 1 : 0));
+		assert(strstr(message, cases[i].message) != NULL);
+	}
+}
+
 void test_additional_contracts(void) {
 	test_keyword_roundtrips();
 	test_lock_contracts();
 	test_php_roundrobin();
 	test_legacy_ip_predicate();
 	test_multipart_boundaries();
+	test_fatal_signal_contracts();
+	puts("production additional contracts passed");
 }
 
 void test_additional_database_contracts(MYSQL *mysql) {
@@ -186,5 +240,28 @@ void test_additional_database_contracts(MYSQL *mysql) {
 	mysql_free_result(result);
 	/* An already-healthy session does not count as a new reconnection. */
 	assert(db_reconnect(&victim, 2006, "regression_healthy_session") == FALSE);
+	/* Exercise query and mutation callers, not just explicit reconnect. */
+	for (int insert = 0; insert < 2; insert++) {
+		original = mysql_thread_id(&victim);
+		snprintf(query, sizeof(query), "KILL CONNECTION %lu", original);
+		assert(mysql_query(mysql, query) == 0);
+		errno = 0;
+		if (insert) assert(db_insert(&victim, LOCAL, "SET @spine_regression_retry=456"));
+		else {
+			result = db_query(&victim, LOCAL, "SELECT 456");
+			assert(result != NULL);
+			row = mysql_fetch_row(result);
+			assert(row != NULL && row[0] != NULL && strcmp(row[0], "456") == 0);
+			db_free_result(result);
+		}
+		assert(mysql_thread_id(&victim) != original);
+		if (insert) {
+			result = db_query(&victim, LOCAL, "SELECT @spine_regression_retry");
+			assert(result != NULL);
+			row = mysql_fetch_row(result);
+			assert(row != NULL && row[0] != NULL && strcmp(row[0], "456") == 0);
+			db_free_result(result);
+		}
+	}
 	db_disconnect(&victim);
 }
