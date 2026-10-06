@@ -942,7 +942,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 		}
 	}
 	/* MEMORY output tables can retain earlier rows after a rejected write.
-	 * Keep both outputs and due items available for an idempotent retry. */
+	 * Confirmed partial output remains; keep due items eligible for recollection. */
 	return (poll_output_buffers_t){query3, query12, failed};
 }
 
@@ -1364,7 +1364,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	if (output_failed) {
 		details[device_counter]->output_failed = TRUE;
 		set.exit.exit_code = EXIT_FAILURE;
-		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial output is retained for retry", host_id, host_thread));
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial writes remain and due items stay eligible for recollection", host_id, host_thread));
 	}
 	details[device_counter]->threads_complete++;
 	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {

@@ -411,7 +411,9 @@ static void test_ping_only_session_lifetime(void) {
 		work.host_time_double = get_time_as_double();
 		STRNCOPY(work.host_time, "1791244800");
 		owned_snmp_session = NULL;
-		session_opens = session_close_attempts = session_closes = 0;
+		session_opens = 0;
+		session_close_attempts = 0;
+		session_closes = 0;
 		account_snmp_sessions = TRUE;
 		pthread_t worker;
 		assert(pthread_create(&worker, NULL, run_ping_only_worker, &work) == 0);

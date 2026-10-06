@@ -188,7 +188,8 @@ am_test_spine_regressions_OBJECTS = $(am__objects_4) \
 	test_spine_regressions-test_spine_snmpv3_contracts.$(OBJEXT) \
 	test_spine_regressions-test_spine_settings_contracts.$(OBJEXT) \
 	test_spine_regressions-test_spine_cli_contracts.$(OBJEXT) \
-	test_spine_regressions-test_spine_stream_contracts.$(OBJEXT)
+	test_spine_regressions-test_spine_stream_contracts.$(OBJEXT) \
+	test_spine_regressions-test_spine_output_contracts.$(OBJEXT)
 test_spine_regressions_OBJECTS = $(am_test_spine_regressions_OBJECTS)
 test_spine_regressions_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
@@ -233,6 +234,7 @@ am__depfiles_remade = ./$(DEPDIR)/error.Po ./$(DEPDIR)/keywords.Po \
 	./$(DEPDIR)/test_spine_regressions-sql.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_cli_contracts.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po \
+	./$(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po \
 	./$(DEPDIR)/test_spine_regressions-test_spine_settings_contracts.Po \
@@ -655,7 +657,7 @@ man_MANS = spine.1
 DISTCLEANFILES = spine.1
 dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf tests/fixtures/snmpv3-agent.conf tests/fixtures/snmpv3-users.conf
 TESTS = $(check_PROGRAMS)
-test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c tests/test_spine_snmpv3_contracts.c tests/test_spine_settings_contracts.c tests/test_spine_cli_contracts.c tests/test_spine_stream_contracts.c
+test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c tests/test_spine_snmpv3_contracts.c tests/test_spine_settings_contracts.c tests/test_spine_cli_contracts.c tests/test_spine_stream_contracts.c tests/test_spine_output_contracts.c
 # Link the real production translation units and globals, with a separate test
 # entry point. The test source undefines main before declaring its own entry.
 test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
@@ -834,6 +836,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-sql.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_cli_contracts.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-test_spine_settings_contracts.Po@am__quote@ # am--include-marker
@@ -1274,6 +1277,20 @@ test_spine_regressions-test_spine_stream_contracts.obj: tests/test_spine_stream_
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_stream_contracts.c' object='test_spine_regressions-test_spine_stream_contracts.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_stream_contracts.obj `if test -f 'tests/test_spine_stream_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_stream_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_stream_contracts.c'; fi`
+
+test_spine_regressions-test_spine_output_contracts.o: tests/test_spine_output_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-test_spine_output_contracts.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Tpo -c -o test_spine_regressions-test_spine_output_contracts.o `test -f 'tests/test_spine_output_contracts.c' || echo '$(srcdir)/'`tests/test_spine_output_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Tpo $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_output_contracts.c' object='test_spine_regressions-test_spine_output_contracts.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_output_contracts.o `test -f 'tests/test_spine_output_contracts.c' || echo '$(srcdir)/'`tests/test_spine_output_contracts.c
+
+test_spine_regressions-test_spine_output_contracts.obj: tests/test_spine_output_contracts.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-test_spine_output_contracts.obj -MD -MP -MF $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Tpo -c -o test_spine_regressions-test_spine_output_contracts.obj `if test -f 'tests/test_spine_output_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_output_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_output_contracts.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Tpo $(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_output_contracts.c' object='test_spine_regressions-test_spine_output_contracts.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-test_spine_output_contracts.obj `if test -f 'tests/test_spine_output_contracts.c'; then $(CYGPATH_W) 'tests/test_spine_output_contracts.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_output_contracts.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -1831,6 +1848,7 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/test_spine_regressions-sql.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_cli_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po
+	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_settings_contracts.Po
@@ -1918,6 +1936,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/test_spine_regressions-sql.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_cli_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_contracts.Po
+	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_output_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_regressions.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_reindex_contracts.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-test_spine_settings_contracts.Po

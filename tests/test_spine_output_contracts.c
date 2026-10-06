@@ -37,21 +37,24 @@ static void assert_output_engine(MYSQL *mysql, const char *table, const char *en
 	db_free_result(result);
 }
 
-static void *output_poll_worker(void *argument) {
-	assert(mysql_thread_init() == 0);
-	int errors = -1;
-	poll_host(argument, &errors);
-	/* Persistence failures are not invalid numeric samples. */
-	assert(errors == 0);
-	return NULL;
-}
-
 static void run_output_partition(poller_thread_t *aggregate, int partition) {
-	poller_thread_t work = *aggregate;
-	work.host_thread = partition;
+	poller_thread_t *work = malloc(sizeof(*work));
+	assert(work != NULL);
+	*work = *aggregate;
+	work->host_thread = partition;
+	spine_permits_t startup;
+	assert(spine_permits_init(&startup, 1) == 0);
+	assert(spine_permits_try_acquire(&startup) == 0);
+	work->thread_init_sem = &startup;
+	assert(spine_permits_try_acquire(&available_threads) == 0);
 	pthread_t worker;
-	assert(pthread_create(&worker, NULL, output_poll_worker, &work) == 0);
+	/* Production child owns/frees instructions and releases thread/startup
+	 * permits after poll_host, including output failures. */
+	assert(pthread_create(&worker, NULL, child, work) == 0);
 	assert(pthread_join(worker, NULL) == 0);
+	assert(spine_permits_available(&startup) == 1);
+	assert(spine_permits_destroy(&startup) == 0);
+	assert(spine_permits_available(&available_threads) == 1);
 	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
 }
 
@@ -135,6 +138,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 	set.boost.boost_enabled = TRUE;
 	set.boost.boost_redirect = TRUE;
 	set.logging.spine_log_level = 0;
+	set.logging.log_destination = 0;
 	set.php.script_timeout = 5;
 	set.php.php_servers = 1;
 	set.php.php_current_server = 0;
@@ -143,6 +147,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 	db_pool_local = calloc(1, sizeof(*db_pool_local));
 	assert(db_pool_local != NULL);
 	db_create_connection_pool(LOCAL);
+	assert(spine_permits_init(&available_threads, 1) == 0);
 	assert(spine_permits_init(&available_scripts, 2) == 0);
 	php_t server = {0};
 	int payload = RESULTS_BUFFER - 2 < 400 ? RESULTS_BUFFER - 2 : 400;
@@ -206,8 +211,9 @@ void test_output_write_contracts(MYSQL *mysql) {
 			assert_sample(mysql, "poller_output", 930001, expected);
 		}
 		assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
-		/* A fresh invocation resets completion/exit state, not persisted data.
-		 * ON DUPLICATE KEY repairs both outputs, including partial MEMORY rows. */
+		/* This controlled retry reuses its timestamp and resets completion/exit
+		 * state. It proves same-key upsert repair, including partial MEMORY rows;
+	 * a later CLI invocation recollects data with the current timestamp. */
 		reset_output_work(&work, rows, partitions);
 		if (partitions == 2) run_output_partition(&work, 2);
 		run_output_partition(&work, 1);
@@ -231,6 +237,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id BETWEEN 930000 AND 939999"));
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id BETWEEN 930000 AND 939999"));
 	assert(spine_permits_destroy(&available_scripts) == 0);
+	assert(spine_permits_destroy(&available_threads) == 0);
 	db_close_connection_pool(LOCAL);
 	db_pool_local = previous_pool;
 	details = previous_details;
