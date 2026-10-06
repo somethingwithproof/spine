@@ -189,6 +189,207 @@ void drop_root(uid_t server_uid, gid_t server_gid) {
  *  \return 0 if SUCCESS, or -1 if FAILED
  *
  */
+typedef enum {
+	CLI_FIRST,
+	CLI_LAST,
+	CLI_POLLER,
+	CLI_THREADS,
+	CLI_PINGONLY,
+	CLI_MODE,
+	CLI_HOSTLIST,
+	CLI_MIBS,
+	CLI_HELP,
+	CLI_VERSION,
+	CLI_OPTION,
+	CLI_READONLY,
+	CLI_CONF,
+	CLI_STDOUT,
+	CLI_LOG,
+	CLI_VERBOSITY,
+	CLI_UNKNOWN
+} cli_option_t;
+
+typedef struct {
+	const char *name;
+	cli_option_t option;
+	bool ignore_case;
+} cli_alias_t;
+
+static cli_option_t lookup_cli_option(const char *arg) {
+	static const cli_alias_t aliases[] = {
+		{"-f", CLI_FIRST, TRUE},
+		{"--first", CLI_FIRST, FALSE},
+		{"-l", CLI_LAST, TRUE},
+		{"--last", CLI_LAST, TRUE},
+		{"-p", CLI_POLLER, TRUE},
+		{"--poller", CLI_POLLER, TRUE},
+		{"-t", CLI_THREADS, FALSE},
+		{"--threads", CLI_THREADS, TRUE},
+		{"-P", CLI_PINGONLY, FALSE},
+		{"--pingonly", CLI_PINGONLY, TRUE},
+		{"-N", CLI_MODE, FALSE},
+		{"--mode", CLI_MODE, TRUE},
+		{"-H", CLI_HOSTLIST, TRUE},
+		{"--hostlist", CLI_HOSTLIST, TRUE},
+		{"-M", CLI_MIBS, TRUE},
+		{"--mibs", CLI_MIBS, FALSE},
+		{"-h", CLI_HELP, TRUE},
+		{"--help", CLI_HELP, FALSE},
+		{"-v", CLI_VERSION, FALSE},
+		{"--version", CLI_VERSION, FALSE},
+		{"-O", CLI_OPTION, TRUE},
+		{"--option", CLI_OPTION, TRUE},
+		{"-R", CLI_READONLY, TRUE},
+		{"--readonly", CLI_READONLY, FALSE},
+		{"--read-only", CLI_READONLY, FALSE},
+		{"-C", CLI_CONF, TRUE},
+		{"--conf", CLI_CONF, FALSE},
+		{"-S", CLI_STDOUT, TRUE},
+		{"--stdout", CLI_STDOUT, FALSE},
+		{"-D", CLI_LOG, TRUE},
+		{"--log", CLI_LOG, FALSE},
+		{"-V", CLI_VERBOSITY, FALSE},
+		{"--verbosity", CLI_VERBOSITY, FALSE},
+	};
+	for (size_t index = 0; index < sizeof(aliases) / sizeof(aliases[0]); index++) {
+		bool matches = aliases[index].ignore_case ? STRIMATCH(arg, aliases[index].name) : STRMATCH(arg, aliases[index].name);
+		if (matches) return aliases[index].option;
+	}
+	return CLI_UNKNOWN;
+}
+
+static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **conf_file) {
+	switch (lookup_cli_option(arg)) {
+		case CLI_FIRST: {
+			if (HOSTID_DEFINED(set.start_host_id)) {
+				die("ERROR: %s can only be used once", arg);
+			}
+
+			opt = getarg(opt, argv);
+			set.start_host_id = atoi(opt);
+
+			if (!HOSTID_DEFINED(set.start_host_id)) {
+				die("ERROR: '%s=%s' is invalid first-host ID", arg, opt);
+			}
+			break;
+		}
+		case CLI_LAST: {
+			if (HOSTID_DEFINED(set.end_host_id)) {
+				die("ERROR: %s can only be used once", arg);
+			}
+
+			opt = getarg(opt, argv);
+			set.end_host_id = atoi(opt);
+
+			if (!HOSTID_DEFINED(set.end_host_id)) {
+				die("ERROR: '%s=%s' is invalid last-host ID", arg, opt);
+			}
+			break;
+		}
+		case CLI_POLLER: {
+			set.poller_id = atoi(getarg(opt, argv));
+			break;
+		}
+		case CLI_THREADS: {
+			set.threads = atoi(getarg(opt, argv));
+			set.threads_set = TRUE;
+			break;
+		}
+		case CLI_PINGONLY: {
+			set.ping_only = TRUE;
+			break;
+		}
+		case CLI_MODE: {
+			const char *requested_mode = getarg(opt, argv);
+			if (STRIMATCH(requested_mode, "online")) {
+				set.mode = REMOTE_ONLINE;
+			} else if (STRIMATCH(requested_mode, "offline")) {
+				set.mode = REMOTE_OFFLINE;
+			} else if (STRIMATCH(requested_mode, "recovery")) {
+				set.mode = REMOTE_RECOVERY;
+			} else {
+				die("ERROR: invalid polling mode '%s' specified", requested_mode);
+			}
+			break;
+		}
+		case CLI_HOSTLIST: {
+			snprintf(set.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, argv));
+			break;
+		}
+		case CLI_MIBS: {
+			set.mibs = 1;
+			break;
+		}
+		case CLI_HELP: {
+			display_help(FALSE);
+
+			exit(EXIT_SUCCESS);
+		}
+		case CLI_VERSION: {
+			display_help(TRUE);
+
+			exit(EXIT_SUCCESS);
+		}
+		case CLI_OPTION: {
+			const char *setting = getarg(opt, argv);
+			char *value   = strchr(setting, ':');
+
+			if (value != NULL && value != setting) {
+				*value++ = '\0';
+			} else {
+				die("ERROR: -O requires setting:value");
+			}
+
+			set_option(setting, value);
+			break;
+		}
+		case CLI_READONLY: {
+			set.SQL_readonly = TRUE;
+			break;
+		}
+		case CLI_CONF: {
+			*conf_file = strdup(getarg(opt, argv));
+			break;
+		}
+		case CLI_STDOUT: {
+			set_option("log_destination", "STDOUT");
+			break;
+		}
+		case CLI_LOG: {
+			set_option("log_destination", getarg(opt, argv));
+			break;
+		}
+		case CLI_VERBOSITY: {
+			set_option("log_verbosity", getarg(opt, argv));
+			break;
+		}
+		default:
+			if (!HOSTID_DEFINED(set.start_host_id) && all_digits(arg)) {
+				set.start_host_id = atoi(arg);
+			}
+
+			else if (!HOSTID_DEFINED(set.end_host_id) && all_digits(arg)) {
+				set.end_host_id = atoi(arg);
+			}
+
+			else {
+				die("ERROR: %s is an unknown command-line parameter", arg);
+			}
+			break;
+	}
+}
+
+static void parse_command_line(char **argv, char **conf_file) {
+	argv++;
+	while (*argv) {
+		char *arg = *argv;
+		char *opt = strchr(arg, '=');
+		if (opt) *opt++ = '\0';
+		parse_cli_argument(arg, opt, &argv, conf_file);
+		argv++;
+	}
+}
+
 static bool wait_for_worker_permit(spine_permits_t *permit, int host_id, int host_thread, const char *label) {
 	int retries = 0;
 	for (;;) {
@@ -367,131 +568,7 @@ int main(int argc, char *argv[]) {
 	set.mode              = REMOTE_ONLINE;
 	set.has_device_0      = FALSE;
 
-	argv++;
-	while (*argv) {
-		char	*arg = *argv;
-		char	*opt = strchr(arg, '=');	/* pick off the =VALUE part */
-
-		if (opt) *opt++ = '\0';
-
-		if (STRIMATCH(arg, "-f") || STRMATCH(arg, "--first")) {
-			if (HOSTID_DEFINED(set.start_host_id)) {
-				die("ERROR: %s can only be used once", arg);
-			}
-
-			opt = getarg(opt, &argv);
-			set.start_host_id = atoi(opt);
-
-			if (!HOSTID_DEFINED(set.start_host_id)) {
-				die("ERROR: '%s=%s' is invalid first-host ID", arg, opt);
-			}
-		}
-
-		else if (STRIMATCH(arg, "-l") || STRIMATCH(arg, "--last")) {
-			if (HOSTID_DEFINED(set.end_host_id)) {
-				die("ERROR: %s can only be used once", arg);
-			}
-
-			opt = getarg(opt, &argv);
-			set.end_host_id = atoi(opt);
-
-			if (!HOSTID_DEFINED(set.end_host_id)) {
-				die("ERROR: '%s=%s' is invalid last-host ID", arg, opt);
-			}
-		}
-
-		else if (STRIMATCH(arg, "-p") || STRIMATCH(arg, "--poller")) {
-			set.poller_id = atoi(getarg(opt, &argv));
-		}
-
-		else if (STRMATCH(arg, "-t") || STRIMATCH(arg, "--threads")) {
-			set.threads = atoi(getarg(opt, &argv));
-			set.threads_set = TRUE;
-		}
-
-		else if (STRMATCH(arg, "-P") || STRIMATCH(arg, "--pingonly")) {
-			set.ping_only = TRUE;
-		}
-
-		else if (STRMATCH(arg, "-N") || STRIMATCH(arg, "--mode")) {
-			const char *requested_mode = getarg(opt, &argv);
-			if (STRIMATCH(requested_mode, "online")) {
-				set.mode = REMOTE_ONLINE;
-			} else if (STRIMATCH(requested_mode, "offline")) {
-				set.mode = REMOTE_OFFLINE;
-			} else if (STRIMATCH(requested_mode, "recovery")) {
-				set.mode = REMOTE_RECOVERY;
-			} else {
-				die("ERROR: invalid polling mode '%s' specified", requested_mode);
-			}
-		}
-
-		else if (STRIMATCH(arg, "-H") || STRIMATCH(arg, "--hostlist")) {
-			snprintf(set.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, &argv));
-		}
-
-		else if (STRIMATCH(arg, "-M") || STRMATCH(arg, "--mibs")) {
-			set.mibs = 1;
-		}
-
-		else if (STRIMATCH(arg, "-h") || STRMATCH(arg, "--help")) {
-			display_help(FALSE);
-
-			exit(EXIT_SUCCESS);
-		}
-
-		else if (STRMATCH(arg, "-v") || STRMATCH(arg, "--version")) {
-			display_help(TRUE);
-
-			exit(EXIT_SUCCESS);
-		}
-
-		else if (STRIMATCH(arg, "-O") || STRIMATCH(arg, "--option")) {
-			const char *setting = getarg(opt, &argv);
-			char *value   = strchr(setting, ':');
-
-			if (value != NULL && value != setting) {
-				*value++ = '\0';
-			} else {
-				die("ERROR: -O requires setting:value");
-			}
-
-			set_option(setting, value);
-		}
-
-		else if (STRIMATCH(arg, "-R") || STRMATCH(arg, "--readonly") || STRMATCH(arg, "--read-only")) {
-			set.SQL_readonly = TRUE;
-		}
-
-		else if (STRIMATCH(arg, "-C") || STRMATCH(arg, "--conf")) {
-			conf_file = strdup(getarg(opt, &argv));
-		}
-
-		else if (STRIMATCH(arg, "-S") || STRMATCH(arg, "--stdout")) {
-			set_option("log_destination", "STDOUT");
-		}
-
-		else if (STRIMATCH(arg, "-D") || STRMATCH(arg, "--log")) {
-			set_option("log_destination", getarg(opt, &argv));
-		}
-
-		else if (STRMATCH(arg, "-V") || STRMATCH(arg, "--verbosity")) {
-			set_option("log_verbosity", getarg(opt, &argv));
-		}
-
-		else if (!HOSTID_DEFINED(set.start_host_id) && all_digits(arg)) {
-			set.start_host_id = atoi(arg);
-		}
-
-		else if (!HOSTID_DEFINED(set.end_host_id) && all_digits(arg)) {
-			set.end_host_id = atoi(arg);
-		}
-
-		else {
-			die("ERROR: %s is an unknown command-line parameter", arg);
-		}
-		argv++;
-	}
+	parse_command_line(argv, &conf_file);
 
 	if (set.ping_only) {
 		set.mibs = 0;
