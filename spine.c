@@ -426,6 +426,109 @@ static bool acquire_worker_permits(spine_permits_t *startup, int host_id, int ho
 	return FALSE;
 }
 
+static char *load_startup_configuration(char *conf_file) {
+	int valid_conf_file = FALSE;
+	/* read configuration file to establish local environment */
+	if (conf_file) {
+		if ((read_spine_config(conf_file)) < 0) {
+			die("ERROR: Could not read config file: %s", conf_file);
+		} else {
+			valid_conf_file = TRUE;
+		}
+	} else {
+		if (!(conf_file = calloc(CONFIG_PATHS, DBL_BUFSIZE))) {
+			die("ERROR: Fatal malloc error: spine.c conf_file!");
+		}
+
+		for (int i=0; i<CONFIG_PATHS; i++) {
+			snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
+
+			if (read_spine_config(conf_file) >= 0) {
+				valid_conf_file = TRUE;
+				break;
+			}
+
+			if (i == CONFIG_PATHS-1) {
+				snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[0], DEFAULT_CONF_FILE);
+			}
+		}
+	}
+
+	if (valid_conf_file) {
+		/* read settings table from the database to further establish environment */
+		read_config_options();
+	} else {
+		die("FATAL: Unable to read configuration file!");
+	}
+
+	return conf_file;
+}
+
+static MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
+	char querybuf[MEGA_BUFSIZE];
+	char *qp = querybuf;
+	/* obtain the list of hosts to poll */
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " WHERE disabled = ''");
+
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
+
+	if (!strlen(set.host_id_list)) {
+		qp += append_hostrange(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "h.id");	/* AND id BETWEEN a AND b */
+	} else {
+		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.id IN(%s)", set.host_id_list);
+	}
+
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller_id);
+	spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
+
+	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
+	return db_query(mysql, LOCAL, querybuf);
+
+}
+
+static void report_startup(int mode) {
+	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
+
+		if (set.poller_id > 1) {
+			if (mode == REMOTE) {
+				SPINE_LOG_DEBUG(("DEBUG: Sending entries to remote database in 'online' mode"));
+			} else {
+				SPINE_LOG_DEBUG(("DEBUG: Sending entries to local database in 'offline', or 'recovery' mode"));
+			}
+		}
+	} else {
+		if (!set.stdout_notty) {
+			printf("Version %s starting\n", VERSION);
+
+			if (set.poller_id > 1) {
+				if (mode == REMOTE) {
+					printf("Sending entries to remote database in 'online' mode\n");
+				} else {
+					printf("Sending entries to local database in 'offline', or 'recovery' mode\n");
+				}
+			}
+		}
+	}
+
+	if (set.has_device_0) {
+		SPINE_LOG_MEDIUM(("Device 0 Poller Items found.  Ensure that these entries are accurate"));
+	} else {
+		SPINE_LOG_MEDIUM(("No Device 0 Poller Items found."));
+	}
+
+	/* see if mysql is thread safe */
+	if (mysql_thread_safe()) {
+		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+			SPINE_LOG(("DEBUG: MySQL is Thread Safe!"));
+		}
+	} else {
+		SPINE_LOG(("WARNING: MySQL is NOT Thread Safe!"));
+	}
+
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
@@ -433,9 +536,7 @@ int main(int argc, char *argv[]) {
 	double cur_time;
 	int num_rows = 0;
 	int device_counter = 0;
-	int valid_conf_file = FALSE;
 	char querybuf[MEGA_BUFSIZE];
-	char *qp = querybuf;
 	char *host_time = NULL;
 	double host_time_double = 0;
 	int items_per_thread = 0;
@@ -603,38 +704,7 @@ int main(int argc, char *argv[]) {
 		die("ERROR: Invalid row spec; first host_id must be less than the second");
 	}
 
-	/* read configuration file to establish local environment */
-	if (conf_file) {
-		if ((read_spine_config(conf_file)) < 0) {
-			die("ERROR: Could not read config file: %s", conf_file);
-		} else {
-			valid_conf_file = TRUE;
-		}
-	} else {
-		if (!(conf_file = calloc(CONFIG_PATHS, DBL_BUFSIZE))) {
-			die("ERROR: Fatal malloc error: spine.c conf_file!");
-		}
-
-		for (i=0; i<CONFIG_PATHS; i++) {
-			snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
-
-			if (read_spine_config(conf_file) >= 0) {
-				valid_conf_file = TRUE;
-				break;
-			}
-
-			if (i == CONFIG_PATHS-1) {
-				snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[0], DEFAULT_CONF_FILE);
-			}
-		}
-	}
-
-	if (valid_conf_file) {
-		/* read settings table from the database to further establish environment */
-		read_config_options();
-	} else {
-		die("FATAL: Unable to read configuration file!");
-	}
+	conf_file = load_startup_configuration(conf_file);
 
 	/* set the poller interval for those who use less than 5 minute intervals */
 	if (set.poller_interval == 0) {
@@ -682,44 +752,7 @@ int main(int argc, char *argv[]) {
 	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
 	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
 
-	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
-		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
-
-		if (set.poller_id > 1) {
-			if (mode == REMOTE) {
-				SPINE_LOG_DEBUG(("DEBUG: Sending entries to remote database in 'online' mode"));
-			} else {
-				SPINE_LOG_DEBUG(("DEBUG: Sending entries to local database in 'offline', or 'recovery' mode"));
-			}
-		}
-	} else {
-		if (!set.stdout_notty) {
-			printf("Version %s starting\n", VERSION);
-
-			if (set.poller_id > 1) {
-				if (mode == REMOTE) {
-					printf("Sending entries to remote database in 'online' mode\n");
-				} else {
-					printf("Sending entries to local database in 'offline', or 'recovery' mode\n");
-				}
-			}
-		}
-	}
-
-	if (set.has_device_0) {
-		SPINE_LOG_MEDIUM(("Device 0 Poller Items found.  Ensure that these entries are accurate"));
-	} else {
-		SPINE_LOG_MEDIUM(("No Device 0 Poller Items found."));
-	}
-
-	/* see if mysql is thread safe */
-	if (mysql_thread_safe()) {
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
-			SPINE_LOG(("DEBUG: MySQL is Thread Safe!"));
-		}
-	} else {
-		SPINE_LOG(("WARNING: MySQL is NOT Thread Safe!"));
-	}
+	report_startup(mode);
 
 	/* test for asroot permissions for ICMP */
 	checkAsRoot();
@@ -744,23 +777,7 @@ int main(int argc, char *argv[]) {
 		set.php_current_server = 0;
 	}
 
-	/* obtain the list of hosts to poll */
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " WHERE disabled = ''");
-
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
-
-	if (!strlen(set.host_id_list)) {
-		qp += append_hostrange(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "h.id");	/* AND id BETWEEN a AND b */
-	} else {
-		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.id IN(%s)", set.host_id_list);
-	}
-
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller_id);
-	spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
-
-	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
-	result = db_query(&mysql, LOCAL, querybuf);
+	result = select_poll_hosts(&mysql);
 
 	if (set.poller_id == 1) {
 		if (set.has_device_0) {
