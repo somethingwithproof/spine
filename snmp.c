@@ -650,23 +650,22 @@ int snmp_count(host_t *host, char *text_oid) {
  *
  */
 void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t objidlen, const struct variable_list *variable) {
-	u_char *buf    = NULL;
-	size_t out_len = 0;
 	(void)objid;
 	(void)objidlen;
-
-	if (buf_len > 0) {
-		if ((buf = (u_char *) calloc(buf_len, 1)) != 0) {
-			sprint_realloc_by_type(&buf, &buf_len, &out_len, 0, variable, NULL, NULL, NULL);
-			snprintf(obuf, buf_len, "%s", buf);
-		} else {
-			SET_UNDEFINED(obuf);
-		}
-
-		free(buf);
-	} else {
-		SET_UNDEFINED(obuf);
+	if (obuf == NULL || buf_len == 0) return;
+	u_char *buf = calloc(buf_len, 1);
+	if (buf == NULL) {
+		snprintf(obuf, buf_len, "%s", "U");
+		return;
 	}
+	size_t scratch_capacity = buf_len;
+	size_t out_len = 0;
+	if (sprint_realloc_by_type(&buf, &scratch_capacity, &out_len, 0, variable, NULL, NULL, NULL)) {
+		snprintf(obuf, buf_len, "%s", buf);
+	} else {
+		snprintf(obuf, buf_len, "%s", "U");
+	}
+	free(buf);
 }
 
 static void snmp_multi_undefined(snmp_oids_t *oids, int count) {
