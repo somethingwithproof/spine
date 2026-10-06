@@ -348,7 +348,10 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		case CLI_CONF: {
-			*conf_file = strdup(getarg(opt, argv));
+			char *replacement = strdup(getarg(opt, argv));
+			if (replacement == NULL) die("ERROR: Fatal malloc error: spine.c conf_file!");
+			SPINE_FREE(*conf_file);
+			*conf_file = replacement;
 			break;
 		}
 		case CLI_STDOUT: {
@@ -382,7 +385,7 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 static void parse_command_line(char **argv, char **conf_file) {
 	argv++;
 	while (*argv) {
-		char *arg = *argv;
+		const char *arg = *argv;
 		char *opt = strchr(arg, '=');
 		if (opt) *opt++ = '\0';
 		parse_cli_argument(arg, opt, &argv, conf_file);

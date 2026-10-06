@@ -1537,7 +1537,7 @@ static void run_cli_poll(const char *config, const char *poller, const char *thr
 	assert(child >= 0);
 	if (child == 0) {
 		alarm(15);
-		execl("./spine", "spine", "-C", config, "-p", poller, "-t", threads, "--mode=online", "-O", interval, "-O", "active_profiles:1", "-S", "-V", "2", NULL);
+		execl("./spine", "spine", "-C", "/nonexistent/spine-regression.conf", "--conf", config, "-p", poller, "-t", threads, "--mode=online", "-O", interval, "-O", "active_profiles:1", "-S", "-V", "2", NULL);
 		_exit(127);
 	}
 	int status;
