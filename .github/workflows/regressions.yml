@@ -4,7 +4,6 @@ on:
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +11,7 @@ permissions:
 
 jobs:
   regressions:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       database:

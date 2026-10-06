@@ -125,6 +125,7 @@ grep -Fq 'production linker fault regressions passed' "$coverage_dir/fault-defau
 ./test_spine_faults --database > "$coverage_dir/fault-database.log" 2>&1
 grep -Fq 'production real lost-connection retry regressions passed' "$coverage_dir/fault-database.log"
 grep -Fq 'production ping-only SNMP session ownership regressions passed' "$coverage_dir/fault-database.log"
+grep -Fq 'production actual main worker launch failure and retry regressions passed' "$coverage_dir/fault-database.log"
 grep -Fq 'production linker fault regressions passed' "$coverage_dir/fault-database.log"
 profiles=()
 for producer in "${producer_units[@]}"; do [[ -s "$producer.gcda" ]]; profiles+=("$producer.gcda"); done
@@ -159,7 +160,7 @@ sha256sum --check "$coverage_dir/source.sha256" > "$coverage_dir/source-verifica
 sha256sum --check "$coverage_dir/generated-config.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/binaries.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/notes.sha256" >> "$coverage_dir/source-verification.log"
-printf '%s\n' default numeric-error-boundaries config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome output-write-failure-retry output-recollection-new-timestamp simultaneous-output-failure-ordering remote-output-destination-failure-recollection output-sql-batch-boundary nullable-snmp-profile live-reindex snmp local-silent-udp-snmp-multi-timeout snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry fault-ping-only-session icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
+printf '%s\n' default numeric-error-boundaries config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome output-write-failure-retry output-recollection-new-timestamp simultaneous-output-failure-ordering remote-output-destination-failure-recollection output-sql-batch-boundary nullable-snmp-profile live-reindex snmp local-silent-udp-snmp-multi-timeout snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry fault-ping-only-session worker-launch-admitted worker-launch-rejected worker-launch-eagain-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
 (cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt compiler.txt generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1
