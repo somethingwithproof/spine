@@ -1526,33 +1526,17 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
  *
  */
 int is_multipart_output(const char *result) {
+	if (result == NULL) return FALSE;
+	if (strchr(result, ':') == NULL && strchr(result, '!') == NULL) return FALSE;
+	if (strchr(result, ' ') == NULL) return TRUE;
+
 	size_t space_cnt = 0;
 	size_t delim_cnt = 0;
-
-	/* check the easy cases first */
-	if (result && (strstr(result, ":") || strstr(result, "!"))) {
-		if (!strstr(result, " ")) {
-			return TRUE;
-		} else {
-			const size_t len = strlen(result);
-
-			for (size_t i = 0; i < len; i++) {
-				if ((result[i] == ':') || (result[i] == '!')) {
-					delim_cnt = delim_cnt + 1;
-				} else if (result[i] == ' ') {
-					space_cnt = space_cnt + 1;
-				}
-			}
-
-			if (space_cnt+1 == delim_cnt) {
-				return TRUE;
-			} else {
-				return FALSE;
-			}
-		}
+	for (const char *cursor = result; *cursor != '\0'; cursor++) {
+		if (*cursor == ':' || *cursor == '!') delim_cnt++;
+		else if (*cursor == ' ') space_cnt++;
 	}
-
-	return FALSE;
+	return space_cnt + 1 == delim_cnt;
 }
 
 static void poll_system_uptime(host_t *host, bool full) {
