@@ -500,6 +500,148 @@ static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, c
 	return failed;
 }
 
+static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
+	if (host->snmp_session == NULL) {
+		*unavailable = TRUE;
+		SPINE_LOG(("WARNING: Device[%i] HT[%i] DQ[%i] Reindex Check FAILED: No SNMP Session.  If not an SNMP host, don't use Uptime Goes Backwards!", host->id, host_thread, reindex->data_query_id));
+		return NULL;
+	}
+	char *poll_result = NULL;
+	if ((strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||
+		strstr(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")) && strlen(sysUptime) > 0) {
+
+		if (!(poll_result = (char *) malloc(BUFSIZE))) {
+			die("ERROR: Fatal malloc error: poller.c poll_result");
+		}
+
+		poll_result[0] = '\0';
+
+		snprintf(poll_result, BUFSIZE, "%s", sysUptime);
+	} else if (strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0")) {
+	     // Ensure uptime is empty to start with
+	     sysUptime[0] = '\0';
+
+		// Check the legacy poll result first
+		poll_result = snmp_get(host, reindex->arg1);
+
+		if (poll_result && is_numeric(poll_result)) {
+			snprintf(sysUptime, BUFSIZE, "%s", poll_result);
+		}
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
+
+		SPINE_FREE(poll_result);
+
+		// Check the modern snmp engine uptime in seconds
+		poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
+
+		if (poll_result && is_numeric(poll_result)) {
+			snprintf(sysUptime, BUFSIZE, "%llu", atoll(poll_result) * 100);
+		}
+
+		// Use the primed uptime to repopulate the poll_result
+		// This ensures whichever response was valid gets used
+		SPINE_FREE(poll_result);
+		poll_result = strdup(sysUptime);
+		if (poll_result == NULL) {
+			die("ERROR: Fatal malloc error: poller.c uptime result");
+		}
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
+	} else {
+		poll_result = snmp_get(host, reindex->arg1);
+	}
+
+	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE OID: %s, (assert: %s %s output: %s)", host->id, host_thread, reindex->data_query_id, reindex->arg1, reindex->assert_value, reindex->op, poll_result));
+	return poll_result;
+}
+
+static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
+	char *poll_result = NULL;
+	int php_process;
+	switch(reindex->action) {
+	case POLLER_ACTION_SNMP:
+		poll_result = poll_reindex_snmp(host, reindex, host_thread, sysUptime, unavailable);
+		break;
+	case POLLER_ACTION_SCRIPT: /* script (popen) */
+		poll_result = trim(exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ"));
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+
+		break;
+	case POLLER_ACTION_PHP_SCRIPT_SERVER: /* script (php script server) */
+		php_process = php_get_process();
+
+		poll_result = trim(php_cmd(reindex->arg1, php_process));
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+
+		break;
+	case POLLER_ACTION_SNMP_COUNT: /* snmp; count items */
+		if (!(poll_result = (char *) malloc(BUFSIZE))) {
+			die("ERROR: Fatal malloc error: poller.c poll_result");
+		}
+		poll_result[0] = '\0';
+
+		snprintf(poll_result, BUFSIZE, "%d", snmp_count(host, reindex->arg1));
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE OID COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+
+		break;
+	case POLLER_ACTION_SCRIPT_COUNT: { /* script (popen); count line feeds */
+		if (!(poll_result = (char *) malloc(BUFSIZE))) {
+			die("ERROR: Fatal malloc error: poller.c poll_result");
+		}
+		poll_result[0] = '\0';
+
+		char *count_result = exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ");
+		snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
+		SPINE_FREE(count_result);
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+
+		break;
+	}
+	case POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT: { /* script (php script server); count number of lines */
+		if (!(poll_result = (char *) malloc(BUFSIZE))) {
+			die("ERROR: Fatal malloc error: poller.c poll_result");
+		}
+		poll_result[0] = '\0';
+
+		php_process = php_get_process();
+
+		char *count_result = php_cmd(reindex->arg1, php_process);
+		spine_snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
+		SPINE_FREE(count_result);
+
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+
+		break;
+	}
+	default:
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: Unknown Assert Action!", host->id, host_thread));
+	}
+	return poll_result;
+}
+
+static void load_reindex_item(reindex_t *reindex, MYSQL_ROW row) {
+	/* initialize the reindex struction */
+	reindex->data_query_id   = 0;
+	reindex->action          = -1;
+	reindex->op[0]           = '\0';
+	reindex->assert_value[0] = '\0';
+	reindex->arg1[0]         = '\0';
+
+	if (row[0] != NULL) reindex->data_query_id = atoi(row[0]);
+	if (row[1] != NULL) reindex->action        = atoi(row[1]);
+
+	if (row[2] != NULL) snprintf(reindex->op, sizeof(reindex->op), "%s", row[2]);
+
+	if (row[3] != NULL) snprintf(reindex->assert_value, sizeof(reindex->assert_value), "%s", row[3]);
+
+	if (row[4] != NULL) snprintf(reindex->arg1, sizeof(reindex->arg1), "%s", row[4]);
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -526,7 +668,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	char *error_string;
 
 	int    num_rows;
-	int    reindex_err = FALSE;
+	bool   reindex_err = FALSE;
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	int    i = 0;
@@ -733,21 +875,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 				while ((row = mysql_fetch_row(result))) {
 					reindex_err = FALSE;
 
-					/* initialize the reindex struction */
-					reindex->data_query_id   = 0;
-					reindex->action          = -1;
-					reindex->op[0]           = '\0';
-					reindex->assert_value[0] = '\0';
-					reindex->arg1[0]         = '\0';
-
-					if (row[0] != NULL) reindex->data_query_id = atoi(row[0]);
-					if (row[1] != NULL) reindex->action        = atoi(row[1]);
-
-					if (row[2] != NULL) snprintf(reindex->op, sizeof(reindex->op), "%s", row[2]);
-
-					if (row[3] != NULL) snprintf(reindex->assert_value, sizeof(reindex->assert_value), "%s", row[3]);
-
-					if (row[4] != NULL) snprintf(reindex->arg1, sizeof(reindex->arg1), "%s", row[4]);
+					load_reindex_item(reindex, row);
 
 					/* shortcut assertion checks if a data query reindex has already been queued */
 					if ((last_data_query_id == reindex->data_query_id) &&
@@ -764,124 +892,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 					poll_result = NULL;
 
 					if (perform_assert) {
-						switch(reindex->action) {
-						case POLLER_ACTION_SNMP: /* snmp */
-							/* if there is no snmp session, don't probe */
-							if (host->snmp_session == NULL) {
-								reindex_err = TRUE;
-							}
-
-							/* check to see if you are checking uptime */
-							if (!reindex_err) {
-								if ((strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||
-									strstr(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")) && strlen(sysUptime) > 0) {
-
-									if (!(poll_result = (char *) malloc(BUFSIZE))) {
-										die("ERROR: Fatal malloc error: poller.c poll_result");
-									}
-
-									poll_result[0] = '\0';
-
-									snprintf(poll_result, BUFSIZE, "%s", sysUptime);
-								} else if (strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0")) {
-								     // Ensure uptime is empty to start with
-								     sysUptime[0] = '\0';
-
-									// Check the legacy poll result first
-									poll_result = snmp_get(host, reindex->arg1);
-
-									if (poll_result && is_numeric(poll_result)) {
-										snprintf(sysUptime, BUFSIZE, "%s", poll_result);
-									}
-
-									SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
-
-									SPINE_FREE(poll_result);
-
-									// Check the modern snmp engine uptime in seconds
-									poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
-
-									if (poll_result && is_numeric(poll_result)) {
-										snprintf(sysUptime, BUFSIZE, "%llu", atoll(poll_result) * 100);
-									}
-
-									// Use the primed uptime to repopulate the poll_result
-									// This ensures whichever response was valid gets used
-									SPINE_FREE(poll_result);
-									poll_result = strdup(sysUptime);
-									if (poll_result == NULL) {
-										die("ERROR: Fatal malloc error: poller.c uptime result");
-									}
-
-									SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
-								} else {
-									poll_result = snmp_get(host, reindex->arg1);
-								}
-
-								SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE OID: %s, (assert: %s %s output: %s)", host->id, host_thread, reindex->data_query_id, reindex->arg1, reindex->assert_value, reindex->op, poll_result));
-							} else {
-								SPINE_LOG(("WARNING: Device[%i] HT[%i] DQ[%i] Reindex Check FAILED: No SNMP Session.  If not an SNMP host, don't use Uptime Goes Backwards!", host->id, host_thread, reindex->data_query_id));
-							}
-
-							break;
-						case POLLER_ACTION_SCRIPT: /* script (popen) */
-							poll_result = trim(exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ"));
-
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-
-							break;
-						case POLLER_ACTION_PHP_SCRIPT_SERVER: /* script (php script server) */
-							php_process = php_get_process();
-
-							poll_result = trim(php_cmd(reindex->arg1, php_process));
-
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-
-							break;
-						case POLLER_ACTION_SNMP_COUNT: /* snmp; count items */
-							if (!(poll_result = (char *) malloc(BUFSIZE))) {
-								die("ERROR: Fatal malloc error: poller.c poll_result");
-							}
-							poll_result[0] = '\0';
-
-							snprintf(poll_result, BUFSIZE, "%d", snmp_count(host, reindex->arg1));
-
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE OID COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-
-							break;
-						case POLLER_ACTION_SCRIPT_COUNT: { /* script (popen); count line feeds */
-							if (!(poll_result = (char *) malloc(BUFSIZE))) {
-								die("ERROR: Fatal malloc error: poller.c poll_result");
-							}
-							poll_result[0] = '\0';
-
-							char *count_result = exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ");
-							snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
-							SPINE_FREE(count_result);
-
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-
-							break;
-						}
-						case POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT: { /* script (php script server); count number of lines */
-							if (!(poll_result = (char *) malloc(BUFSIZE))) {
-								die("ERROR: Fatal malloc error: poller.c poll_result");
-							}
-							poll_result[0] = '\0';
-
-							php_process = php_get_process();
-
-							char *count_result = php_cmd(reindex->arg1, php_process);
-							spine_snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
-							SPINE_FREE(count_result);
-
-							SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-
-							break;
-						}
-						default:
-							SPINE_LOG(("Device[%i] HT[%i] ERROR: Unknown Assert Action!", host->id, host_thread));
-						}
+						poll_result = poll_reindex_action(host, reindex, host_thread, sysUptime, &reindex_err);
 
 						if (!reindex_err) {
 							const reindex_evaluation_t evaluation = {mysql, mysqlr, host, work, &errors, &spike_kill};
