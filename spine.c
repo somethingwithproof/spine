@@ -821,12 +821,11 @@ static void prepare_worker_storage(MYSQL_RES *result, int *rows,
 }
 
 static double initialize_process_defaults(void) {
-	int i;
 	double begin_time;
 	/* establish php processes and initialize space */
 	php_processes = (php_t*) calloc(MAX_PHP_SERVERS, sizeof(php_t));
 	if (php_processes == NULL) die("ERROR: Fatal malloc error: PHP process list!");
-	for (i = 0; i < MAX_PHP_SERVERS; i++) {
+	for (int i = 0; i < MAX_PHP_SERVERS; i++) {
 		php_processes[i].php_state = PHP_BUSY;
 		php_processes[i].php_pid = -1;
 		php_processes[i].php_read_fd = -1;
@@ -966,10 +965,54 @@ static void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode) {
 
 }
 
+static void close_main_php(void) {
+	/* close the php script server */
+	if (set.php_required && !set.ping_only && !php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
+
+	SPINE_LOG_DEBUG(("DEBUG: PHP Script Server Pipes Closed"));
+
+}
+
+static void free_worker_storage(int num_rows, pthread_t *threads, int *ids,
+	char *conf_file, char *host_time) {
+	/* free malloc'd variables */
+	for (int i = 0; i < num_rows; i++) {
+		if (details[i] != NULL) {
+			SPINE_FREE(details[i]);
+		}
+	}
+
+	SPINE_FREE(details);
+	SPINE_FREE(threads);
+	SPINE_FREE(ids);
+	SPINE_FREE(conf_file);
+	SPINE_FREE(debug_devices);
+	SPINE_FREE(host_time);
+	SPINE_FREE(php_processes);
+
+	SPINE_LOG_DEBUG(("DEBUG: Allocated Variable Memory Freed"));
+
+}
+
+static void report_poll_statistics(double begin_time, int num_rows) {
+	double end_time;
+	/* finally add some statistics to the log and exit */
+	end_time = get_time_as_double();
+
+	if (set.log_level >= POLLER_VERBOSITY_MEDIUM) {
+		SPINE_LOG(("Time: %.4f s, Threads: %i, Devices: %i", (end_time - begin_time), set.threads, num_rows));
+	} else {
+		/* provide output if running from command line */
+		if (!set.stdout_notty) {
+			fprintf(stdout, "Time: %.4f s, Threads: %i, Devices: %i\n", (end_time - begin_time), set.threads, num_rows);
+		}
+	}
+
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
-	double end_time;
 	int num_rows = 0;
 	char querybuf[MEGA_BUFSIZE];
 	char *host_time = NULL;
@@ -993,7 +1036,6 @@ int main(int argc, char *argv[]) {
 	MYSQL mysql;
 	MYSQL mysqlr;
 	MYSQL_RES *result  = NULL;
-	int i;
 	int threads_final = 0;
 
 
@@ -1165,27 +1207,9 @@ int main(int argc, char *argv[]) {
 
 	SPINE_LOG_DEBUG(("DEBUG: Thread Cleanup Complete"));
 
-	/* close the php script server */
-	if (set.php_required && !set.ping_only && !php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
+	close_main_php();
 
-	SPINE_LOG_DEBUG(("DEBUG: PHP Script Server Pipes Closed"));
-
-	/* free malloc'd variables */
-	for (i = 0; i < num_rows; i++) {
-		if (details[i] != NULL) {
-			SPINE_FREE(details[i]);
-		}
-	}
-
-	SPINE_FREE(details);
-	SPINE_FREE(threads);
-	SPINE_FREE(ids);
-	SPINE_FREE(conf_file);
-	SPINE_FREE(debug_devices);
-	SPINE_FREE(host_time);
-	SPINE_FREE(php_processes);
-
-	SPINE_LOG_DEBUG(("DEBUG: Allocated Variable Memory Freed"));
+	free_worker_storage(num_rows, threads, ids, conf_file, host_time);
 
 	/* close mysql */
 	db_free_result(result);
@@ -1202,17 +1226,7 @@ int main(int argc, char *argv[]) {
 
 	SPINE_LOG_DEBUG(("DEBUG: Net-SNMP Close Completed"));
 
-	/* finally add some statistics to the log and exit */
-	end_time = get_time_as_double();
-
-	if (set.log_level >= POLLER_VERBOSITY_MEDIUM) {
-		SPINE_LOG(("Time: %.4f s, Threads: %i, Devices: %i", (end_time - begin_time), set.threads, num_rows));
-	} else {
-		/* provide output if running from command line */
-		if (!set.stdout_notty) {
-			fprintf(stdout, "Time: %.4f s, Threads: %i, Devices: %i\n", (end_time - begin_time), set.threads, num_rows);
-		}
-	}
+	report_poll_statistics(begin_time, num_rows);
 
 	/* uninstall the spine signal handler */
 	uninstall_spine_signal_handler();
