@@ -326,6 +326,11 @@ function(spine_add_tests)
   endif()
 
   add_executable(test_scheduler tests/unit/test_scheduler.c src/task_scheduler.c src/task_governor.c src/task_executor.c)
+  # Keep the native state/loop ownership assertions active in ci-main's
+  # RelWithDebInfo preset as well as Debug builds.
+  target_compile_options(test_scheduler PRIVATE
+      $<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-UNDEBUG>
+      $<$<C_COMPILER_ID:MSVC>:/UNDEBUG>)
   if(TARGET spine_build_options)
     target_link_libraries(test_scheduler PRIVATE spine_build_options)
   endif()
