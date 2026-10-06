@@ -1115,6 +1115,10 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	}
 
 	if (set.availability.ping_only) {
+		if (host->snmp.session != NULL) {
+			snmp_host_cleanup(host->snmp.session);
+			host->snmp.session = NULL;
+		}
 		SPINE_FREE(host);
 		SPINE_FREE(reindex);
 		SPINE_FREE(ping);

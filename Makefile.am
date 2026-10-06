@@ -52,7 +52,8 @@ test_spine_faults_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)
 test_spine_faults_LDADD = test_spine_regressions-spine.$(OBJEXT)
 test_spine_faults_LDFLAGS = $(AM_LDFLAGS) -Wl,--wrap=strftime -Wl,--wrap=mysql_query -Wl,--wrap=mysql_ping \
  -Wl,--wrap=pipe -Wl,--wrap=socketpair -Wl,--wrap=fork -Wl,--wrap=dup2 \
- -Wl,--wrap=execve -Wl,--wrap=malloc -Wl,--wrap=strdup
+ -Wl,--wrap=execve -Wl,--wrap=malloc -Wl,--wrap=strdup \
+ -Wl,--wrap=snmp_sess_open -Wl,--wrap=snmp_sess_close
 endif
 
 

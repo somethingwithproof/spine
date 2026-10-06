@@ -27,6 +27,8 @@ extern int __real_dup2(int, int);
 extern int __real_execve(const char *, char *const [], char *const []);
 extern void *__real_malloc(size_t);
 extern char *__real_strdup(const char *);
+extern void *__real_snmp_sess_open(netsnmp_session *);
+extern int __real_snmp_sess_close(void *);
 
 static int format_failures;
 static int format_fault_calls;
@@ -46,6 +48,32 @@ static int duplicate_calls;
 static int execute_failures;
 static int allocation_failures;
 static int copy_failures;
+static bool account_snmp_sessions;
+static void *owned_snmp_session;
+static int session_opens;
+static int session_close_attempts;
+static int session_closes;
+
+void *__wrap_snmp_sess_open(netsnmp_session *session) {
+	void *handle = __real_snmp_sess_open(session);
+	if (account_snmp_sessions && handle != NULL) {
+		assert(owned_snmp_session == NULL);
+		owned_snmp_session = handle;
+		session_opens++;
+	}
+	return handle;
+}
+
+int __wrap_snmp_sess_close(void *handle) {
+	bool owned = account_snmp_sessions && handle == owned_snmp_session && handle != NULL;
+	if (owned) session_close_attempts++;
+	int result = __real_snmp_sess_close(handle);
+	if (owned && result == 1) {
+		session_closes++;
+		owned_snmp_session = NULL;
+	}
+	return result;
+}
 
 size_t __wrap_strftime(char *output, size_t capacity, const char *format, const struct tm *time) {
 	if (format_failures > 0) {
@@ -323,13 +351,109 @@ static void test_real_database_retry(void) {
 	puts("production real lost-connection retry regressions passed");
 }
 
+static unsigned long long fault_database_count(MYSQL *mysql, const char *query) {
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	assert(result != NULL && mysql_num_rows(result) == 1);
+	MYSQL_ROW row = mysql_fetch_row(result);
+	assert(row != NULL && row[0] != NULL);
+	unsigned long long count = strtoull(row[0], NULL, 10);
+	db_free_result(result);
+	return count;
+}
+
+static void *run_ping_only_worker(void *argument) {
+	assert(mysql_thread_init() == 0);
+	int errors = -1;
+	poll_host(argument, &errors);
+	assert(errors == -1); /* Early ping-only return preserves this output. */
+	return NULL;
+}
+
+static void test_ping_only_session_lifetime(void) {
+	const char *agent = getenv("SPINE_TEST_SNMP_HOST");
+	assert(agent != NULL && agent[0] != '\0');
+	config_t previous = set;
+	pool_t *previous_pool = db_pool_local;
+	set.poller.threads = 1;
+	set.poller.poller_id = 1;
+	set.poller.mode = REMOTE_OFFLINE;
+	set.availability.ping_only = TRUE;
+	set.snmp.snmp_retries = 0;
+	set.snmp.mibs = 0;
+	MYSQL administrator;
+	db_connect(LOCAL, &administrator);
+	/* Refuse to replace pre-existing records, even in the isolated fixture. */
+	assert(fault_database_count(&administrator, "SELECT COUNT(*) FROM host WHERE id=900") == 0);
+	assert(fault_database_count(&administrator, "SELECT COUNT(*) FROM poller_item WHERE host_id=900") == 0);
+	unsigned long long outputs = fault_database_count(&administrator, "SELECT COUNT(*) FROM poller_output");
+	unsigned long long boosted = fault_database_count(&administrator, "SELECT COUNT(*) FROM poller_output_boost");
+	db_pool_local = calloc(1, sizeof(*db_pool_local));
+	assert(db_pool_local != NULL);
+	db_pool_local[0].free = TRUE;
+	db_connect(LOCAL, &db_pool_local[0].mysql);
+	assert(spine_permits_init(&available_threads, 2) == 0);
+	assert(spine_permits_init(&available_scripts, 3) == 0);
+	char escaped_agent[BUFSIZE];
+	db_escape(&administrator, escaped_agent, sizeof(escaped_agent), agent);
+	snmp_spine_init();
+	for (int with_session = 1; with_session >= 0; with_session--) {
+		char query[LRG_BUFSIZE];
+		spine_snprintf(query, sizeof(query), "INSERT INTO host(id,hostname,snmp_version,snmp_community,snmp_port,snmp_timeout,availability_method,status,total_polls,failed_polls,status_fail_date,status_rec_date,snmp_sysLocation) VALUES(900,'%s',2,'%s',1161,500,%i,%i,0,0,'2026-10-06 00:00:00','2026-10-06 00:00:00','ping-only-metadata')", escaped_agent, with_session ? "regression" : "", AVAIL_SNMP, HOST_UP);
+		assert(db_insert(&administrator, LOCAL, query));
+		poller_thread_t work = {0};
+		work.host_id = 900;
+		work.host_thread = 1;
+		work.host_threads = 1;
+		work.host_time_double = get_time_as_double();
+		STRNCOPY(work.host_time, "1791244800");
+		owned_snmp_session = NULL;
+		session_opens = session_close_attempts = session_closes = 0;
+		account_snmp_sessions = TRUE;
+		pthread_t worker;
+		assert(pthread_create(&worker, NULL, run_ping_only_worker, &work) == 0);
+		assert(pthread_join(worker, NULL) == 0);
+		account_snmp_sessions = FALSE;
+		int observed_opens = session_opens;
+		int observed_attempts = session_close_attempts;
+		int observed_closes = session_closes;
+		/* Preserve an old-code failure without leaking the task-owned fixture
+		 * handle: this real cleanup is excluded from production close counts. */
+		if (owned_snmp_session != NULL) {
+			assert(__real_snmp_sess_close(owned_snmp_session) == 1);
+			owned_snmp_session = NULL;
+		}
+		assert(db_pool_local[0].free);
+		assert(spine_permits_available(&available_threads) == 2);
+		assert(spine_permits_available(&available_scripts) == 3);
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=900 AND status=%i AND total_polls=1 AND failed_polls=0 AND snmp_sysLocation='ping-only-metadata'", HOST_UP);
+		assert(fault_database_count(&administrator, query) == 1);
+		assert(fault_database_count(&administrator, "SELECT COUNT(*) FROM poller_output") == outputs);
+		assert(fault_database_count(&administrator, "SELECT COUNT(*) FROM poller_output_boost") == boosted);
+		assert(db_insert(&administrator, LOCAL, "DELETE FROM host WHERE id=900"));
+		fprintf(stderr, "ping-only owned session accounting: session=%d opens=%d attempts=%d closes=%d\n", with_session, observed_opens, observed_attempts, observed_closes);
+		assert(observed_opens == with_session);
+		assert(observed_attempts == with_session && observed_closes == with_session);
+	}
+	snmp_spine_close();
+	assert(spine_permits_destroy(&available_scripts) == 0);
+	assert(spine_permits_destroy(&available_threads) == 0);
+	db_close_connection_pool(LOCAL);
+	db_pool_local = previous_pool;
+	db_disconnect(&administrator);
+	set = previous;
+	puts("production ping-only SNMP session ownership regressions passed");
+}
+
 int main(int argc, char **argv) {
 	config_defaults();
 	init_mutexes();
 	alarm(20);
 	test_logger_format_failure();
 	test_process_creation_failures();
-	if (argc == 2 && strcmp(argv[1], "--database") == 0) test_real_database_retry();
+	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
+		test_real_database_retry();
+		test_ping_only_session_lifetime();
+	}
 	else assert(argc == 1);
 	alarm(0);
 	puts("production linker fault regressions passed");
