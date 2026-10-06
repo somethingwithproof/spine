@@ -155,21 +155,26 @@ static void record_result_error(const poll_error_context_t *context, const host_
 	}
 }
 
+static void normalize_snmp_item(const host_t *host, const target_t *item,
+	char *result, const poll_error_context_t *errors) {
+	if (host->ignore_host) {
+		SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
+			errors->host_id, errors->thread_id, item->local_data_id, host->snmp_timeout, host->hostname));
+		SET_UNDEFINED(result);
+		return;
+	}
+	enum poll_result_status status = normalize_poll_result(result, true);
+	if (status == POLL_RESULT_VALID) return;
+	record_result_error(errors, host, item, result, true);
+	if (status == POLL_RESULT_INVALID) SET_UNDEFINED(result);
+}
+
+
 static void store_snmp_results(const host_t *host, target_t *poller_items, snmp_oids_t *snmp_oids,
 	int num_oids, const poll_error_context_t *errors, double thread_start, bool spike_kill) {
 	for (int j = 0; j < num_oids; j++) {
 		const target_t *item = &poller_items[snmp_oids[j].array_position];
-		if (host->ignore_host) {
-			SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
-				errors->host_id, errors->thread_id, item->local_data_id, host->snmp_timeout, host->hostname));
-			SET_UNDEFINED(snmp_oids[j].result);
-		} else {
-			enum poll_result_status status = normalize_poll_result(snmp_oids[j].result, true);
-			if (status != POLL_RESULT_VALID) {
-				record_result_error(errors, host, item, snmp_oids[j].result, true);
-				if (status == POLL_RESULT_INVALID) SET_UNDEFINED(snmp_oids[j].result);
-			}
-		}
+		normalize_snmp_item(host, item, snmp_oids[j].result, errors);
 
 		snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
 
@@ -770,6 +775,174 @@ static void load_poll_item(target_t *item, MYSQL_ROW row) {
 	SET_UNDEFINED(item->result);
 }
 
+static void poll_script_item(host_t *host, target_t *item,
+	const poll_error_context_t *errors, double thread_start, bool spike_kill,
+	bool script_server) {
+	int php_process = -1;
+	char *poll_result;
+	if (script_server) {
+		php_process = php_get_process();
+		poll_result = php_cmd(item->arg1, php_process);
+	} else {
+		poll_result = exec_poll(host, item->arg1, item->local_data_id, "DS");
+	}
+	strncopy(item->result, poll_result, sizeof(item->result));
+	enum poll_result_status status = normalize_poll_result(item->result, false);
+	if (status != POLL_RESULT_VALID) {
+		record_result_error(errors, host, item, item->result, false);
+		if (status == POLL_RESULT_INVALID) SET_UNDEFINED(item->result);
+	}
+	SPINE_FREE(poll_result);
+	double thread_end = get_time_as_double();
+	if (script_server) {
+		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SS[%i] SERVER: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), php_process, item->arg1, item->result));
+		/* Preserve the existing PHP-server discard predicate. */
+		if (IS_UNDEFINED(item->result) && spike_kill && !STRIMATCH(item->result, ":")) SET_UNDEFINED(item->result);
+	} else {
+		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SCRIPT: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), item->arg1, item->result));
+		if (!IS_UNDEFINED(item->result) && spike_kill && !strstr(item->result, ":")) SET_UNDEFINED(item->result);
+	}
+}
+
+typedef struct {
+	char *output;
+	char *boost;
+} poll_output_buffers_t;
+
+static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
+	const poller_queries_t *queries, const target_t *poller_items,
+	int rows_processed, const char *host_time) {
+	char *query3 = NULL;
+	char *query12 = NULL;
+	char result_string[RESULTS_BUFFER + SMALL_BUFSIZE];
+	int result_length;
+	int query8_len = spine_count_to_int(strlen(queries->output));
+	int query11_len = spine_count_to_int(strlen(queries->boost_output));
+	int posuffix_len = spine_count_to_int(strlen(queries->suffix));
+	int new_buffer = TRUE;
+	int buf_length;
+	size_t out_buffer;
+	MYSQL *mysqlt;
+	int i;
+	buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
+
+	/* insert the query results into the database */
+	if (!(query3 = (char *)malloc(buf_length))) {
+		die("ERROR: Fatal malloc error: poller.c query3 output buffer!");
+	}
+
+	/* set zeros */
+	memset(query3, 0, buf_length);
+
+	/* append data */
+	strncat(query3, queries->output, query8_len);
+
+	out_buffer = strlen(query3);
+
+	if (set.boost_redirect && set.boost_enabled) {
+		/* insert the query results into the database */
+		if (!(query12 = (char *)malloc(buf_length))) {
+			die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
+		}
+
+		/* set zeros */
+		memset(query12, 0, buf_length);
+
+		/* append data */
+		strncat(query12, queries->boost_output, query11_len);
+	}
+
+	int mode;
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+		SPINE_LOG_DEBUG(("DEBUG: Setting up writes to remote database"));
+		mysqlt = mysqlr;
+		mode   = REMOTE;
+	} else {
+		SPINE_LOG_DEBUG(("DEBUG: Setting up writes to local database"));
+		mysqlt = mysql;
+		mode   = LOCAL;
+	}
+
+	i = 0;
+	while (i < rows_processed) {
+		snprintf(result_string, RESULTS_BUFFER+SMALL_BUFSIZE, " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+			poller_items[i].local_data_id,
+			poller_items[i].rrd_name,
+			host_time,
+			poller_items[i].result);
+
+		result_length = spine_count_to_int(strlen(result_string));
+
+		/* if the next element to the buffer will overflow it, write to the database */
+		if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
+			/* append the suffix */
+			strncat(query3, queries->suffix, posuffix_len);
+
+			/* insert the record */
+			db_insert(mysqlt, mode, query3);
+
+			/* re-initialize the query buffer */
+			memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+
+			strncat(query3, queries->output, query8_len);
+
+			/* insert the record for boost */
+			if (query12 != NULL) {
+				/* append the suffix */
+				strncat(query12, queries->suffix, posuffix_len);
+
+				db_insert(mysqlt, mode, query12);
+
+				memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+
+				strncat(query12, queries->boost_output, query11_len);
+			}
+
+			/* reset the output buffer length */
+			out_buffer = strlen(query3);
+
+			/* set binary, let the system know we are a new buffer */
+			new_buffer = TRUE;
+		}
+
+		/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
+		if (new_buffer) {
+			result_string[0] = ' ';
+		} else {
+			result_string[0] = ',';
+		}
+
+		strncat(query3, result_string, result_length);
+
+		if (query12 != NULL) {
+			strncat(query12, result_string, result_length);
+		}
+
+		out_buffer = out_buffer + strlen(result_string);
+		new_buffer = FALSE;
+		i++;
+	}
+
+	/* perform the last insert if there is data to process */
+	if (out_buffer > strlen(queries->output)) {
+		/* append the suffix */
+		strncat(query3, queries->suffix, posuffix_len);
+
+		/* insert records into database */
+		db_insert(mysqlt, mode, query3);
+
+		/* insert the record for boost */
+		if (query12 != NULL) {
+			/* append the suffix */
+			strncat(query12, queries->suffix, posuffix_len);
+
+			db_insert(mysqlt, mode, query12);
+		}
+	}
+	return (poll_output_buffers_t){query3, query12};
+}
+
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -782,12 +955,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	char *query3 = NULL;
 	char *query12 = NULL;
 
-	int query8_len   = 0;
-	int query11_len  = 0;
-	int posuffix_len = 0;
 
-	char result_string[RESULTS_BUFFER+SMALL_BUFSIZE];
-	int  result_length;
 	int  errors = 0;
 	int  *buf_errors;
 	int  *buf_size;
@@ -800,10 +968,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    k = 0;
 	int    num_oids = 0;
 	int    snmp_poller_items = 0;
-	size_t out_buffer;
-	int    php_process;
 
-	char *poll_result = NULL;
 
 	int  last_snmp_version = 0;
 	int  last_snmp_port    = 0;
@@ -817,11 +982,8 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	char last_snmp_engine_id[30];
 	double poll_time = get_time_as_double();
 	double thread_start = 0;
-	double thread_end = 0;
 
 	/* reindex shortcuts to speed polling */
-	int new_buffer              = TRUE;
-	int buf_length              = 0;
 
 	extern poller_thread_t** details;
 
@@ -849,7 +1011,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 	MYSQL     *mysql;
 	MYSQL     *mysqlr = NULL;
-	MYSQL     *mysqlt;
 	MYSQL_RES *result;
 	MYSQL_ROW row;
 
@@ -884,9 +1045,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	memset(reindex, 0, sizeof(reindex_t));
 
 	poller_prepare_queries(&queries, host_id, host_thread, host_data_ids);
-	query8_len = spine_count_to_int(strlen(queries.output));
-	query11_len = spine_count_to_int(strlen(queries.boost_output));
-	posuffix_len = spine_count_to_int(strlen(queries.suffix));
 
 	/* initialize the ping structure variables */
 	snprintf(ping->ping_status,   50,            "down");
@@ -1157,54 +1315,12 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 				num_oids++;
 
 				break;
-			case POLLER_ACTION_SCRIPT: { /* execute script file */
-				poll_result = exec_poll(host, poller_items[i].arg1, poller_items[i].local_data_id, "DS");
-
-				/* process the result */
-				strncopy(poller_items[i].result, poll_result, sizeof(poller_items[i].result));
-				enum poll_result_status status = normalize_poll_result(poller_items[i].result, false);
-				if (status != POLL_RESULT_VALID) {
-					record_result_error(&error_context, host, &poller_items[i], poller_items[i].result, false);
-					if (status == POLL_RESULT_INVALID) SET_UNDEFINED(poller_items[i].result);
-				}
-
-				SPINE_FREE(poll_result);
-
-				thread_end = get_time_as_double();
-
-				SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SCRIPT: %s, output: %s", host_id, host_thread, poller_items[i].local_data_id, (float) ((thread_end - thread_start) * 1000), poller_items[i].arg1, poller_items[i].result));
-
-				if ((!IS_UNDEFINED(poller_items[i].result)) && (spike_kill && (!strstr(poller_items[i].result,":")))) {
-					SET_UNDEFINED(poller_items[i].result);
-				}
-
+			case POLLER_ACTION_SCRIPT:
+				poll_script_item(host, &poller_items[i], &error_context, thread_start, spike_kill, FALSE);
 				break;
-			}
-			case POLLER_ACTION_PHP_SCRIPT_SERVER: { /* execute script server */
-				php_process = php_get_process();
-
-				poll_result = php_cmd(poller_items[i].arg1, php_process);
-
-				/* process the output */
-				strncopy(poller_items[i].result, poll_result, sizeof(poller_items[i].result));
-				enum poll_result_status status = normalize_poll_result(poller_items[i].result, false);
-				if (status != POLL_RESULT_VALID) {
-					record_result_error(&error_context, host, &poller_items[i], poller_items[i].result, false);
-					if (status == POLL_RESULT_INVALID) SET_UNDEFINED(poller_items[i].result);
-				}
-
-				SPINE_FREE(poll_result);
-
-				thread_end = get_time_as_double();
-
-				SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SS[%i] SERVER: %s, output: %s", host_id, host_thread, poller_items[i].local_data_id, (float) ((thread_end - thread_start) * 1000), php_process, poller_items[i].arg1, poller_items[i].result));
-
-				if ((IS_UNDEFINED(poller_items[i].result)) && (spike_kill && (!STRIMATCH(poller_items[i].result,":")))) {
-					SET_UNDEFINED(poller_items[i].result);
-				}
-
+			case POLLER_ACTION_PHP_SCRIPT_SERVER:
+				poll_script_item(host, &poller_items[i], &error_context, thread_start, spike_kill, TRUE);
 				break;
-			}
 			default: /* unknown action, generate error */
 				SPINE_LOG(("Device[%i] HT[%i] DS[%i] ERROR: Unknown Poller Action: %s", host_id, host_thread, poller_items[i].local_data_id, poller_items[i].arg1));
 
@@ -1222,121 +1338,9 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 			store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, spike_kill);
 		}
 
-		buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
-
-		/* insert the query results into the database */
-		if (!(query3 = (char *)malloc(buf_length))) {
-			die("ERROR: Fatal malloc error: poller.c query3 output buffer!");
-		}
-
-		/* set zeros */
-		memset(query3, 0, buf_length);
-
-		/* append data */
-		strncat(query3, queries.output, query8_len);
-
-		out_buffer = strlen(query3);
-
-		if (set.boost_redirect && set.boost_enabled) {
-			/* insert the query results into the database */
-			if (!(query12 = (char *)malloc(buf_length))) {
-				die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
-			}
-
-			/* set zeros */
-			memset(query12, 0, buf_length);
-
-			/* append data */
-			strncat(query12, queries.boost_output, query11_len);
-		}
-
-		int mode;
-		if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-			SPINE_LOG_DEBUG(("DEBUG: Setting up writes to remote database"));
-			mysqlt = mysqlr;
-			mode   = REMOTE;
-		} else {
-			SPINE_LOG_DEBUG(("DEBUG: Setting up writes to local database"));
-			mysqlt = mysql;
-			mode   = LOCAL;
-		}
-
-		i = 0;
-		while (i < rows_processed) {
-			snprintf(result_string, RESULTS_BUFFER+SMALL_BUFSIZE, " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
-				poller_items[i].local_data_id,
-				poller_items[i].rrd_name,
-				host_time,
-				poller_items[i].result);
-
-			result_length = spine_count_to_int(strlen(result_string));
-
-			/* if the next element to the buffer will overflow it, write to the database */
-			if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
-				/* append the suffix */
-				strncat(query3, queries.suffix, posuffix_len);
-
-				/* insert the record */
-				db_insert(mysqlt, mode, query3);
-
-				/* re-initialize the query buffer */
-				memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
-				strncat(query3, queries.output, query8_len);
-
-				/* insert the record for boost */
-				if (query12 != NULL) {
-					/* append the suffix */
-					strncat(query12, queries.suffix, posuffix_len);
-
-					db_insert(mysqlt, mode, query12);
-
-					memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
-					strncat(query12, queries.boost_output, query11_len);
-				}
-
-				/* reset the output buffer length */
-				out_buffer = strlen(query3);
-
-				/* set binary, let the system know we are a new buffer */
-				new_buffer = TRUE;
-			}
-
-			/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
-			if (new_buffer) {
-				result_string[0] = ' ';
-			} else {
-				result_string[0] = ',';
-			}
-
-			strncat(query3, result_string, result_length);
-
-			if (query12 != NULL) {
-				strncat(query12, result_string, result_length);
-			}
-
-			out_buffer = out_buffer + strlen(result_string);
-			new_buffer = FALSE;
-			i++;
-		}
-
-		/* perform the last insert if there is data to process */
-		if (out_buffer > strlen(queries.output)) {
-			/* append the suffix */
-			strncat(query3, queries.suffix, posuffix_len);
-
-			/* insert records into database */
-			db_insert(mysqlt, mode, query3);
-
-			/* insert the record for boost */
-			if (query12 != NULL) {
-				/* append the suffix */
-				strncat(query12, queries.suffix, posuffix_len);
-
-				db_insert(mysqlt, mode, query12);
-			}
-		}
+		poll_output_buffers_t output = write_poll_results(mysql, mysqlr, &queries, poller_items, rows_processed, host_time);
+		query3 = output.output;
+		query12 = output.boost;
 
 		/* cleanup memory and prepare for function exit */
 		if (host->snmp_session != NULL) {
