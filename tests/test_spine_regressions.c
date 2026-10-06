@@ -24,6 +24,7 @@
 extern int spine_program_main(int argc, char **argv);
 extern void test_additional_contracts(void);
 extern void test_additional_database_contracts(MYSQL *mysql);
+extern void test_settings_write_contracts(MYSQL *mysql);
 extern void test_additional_reindex_contracts(MYSQL *mysql);
 extern void test_additional_snmp_session_boundaries(void);
 extern void test_snmpv3_agent_contracts(void);
@@ -1871,6 +1872,7 @@ static void test_database_configuration(void) {
 	read_config_options();
 	assert(set.ping_timeout == 777);
 	db_connect(LOCAL, &mysql);
+	test_settings_write_contracts(&mysql);
 	test_additional_database_contracts(&mysql);
 	test_poller_queries(&mysql);
 	test_collector_transfer(&mysql);

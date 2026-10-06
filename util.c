@@ -301,11 +301,7 @@ int putsetting(MYSQL *psql, int mode, const char *mysetting, const char *myvalue
 
 	result = db_insert(psql, mode, qstring);
 
-	if (result == 0) {
-		return TRUE;
-	} else {
-		return FALSE;
-	}
+	return result;
 }
 
 /*! \fn static char *getpsetting(MYSQL *psql, const char *setting)
