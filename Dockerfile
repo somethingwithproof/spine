@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libuv1 \
         libseccomp2 \
-        libcares2 \
+        libc-ares2 \
         php-cli \
         procps \
         zlib1g \

@@ -6,8 +6,9 @@
  | Minimal stubs for dump_config / check_mode unit tests that link
  | src/util.c directly. The real definitions live in sql.c, php.c,
  | keywords.c, locks.c, and spine.c. Linking them pulls in the full
- | poller runtime. Every stub here is a deliberate no-op; behavioural
- | testing belongs in an integration suite, not ctest.
+ | poller runtime. Most stubs are deliberate no-ops; the async-only fatal
+ | stub exits with failure when an unexpected production guard fires.
+ | These stubs do not establish full poller integration behaviour.
  +-------------------------------------------------------------------------+
 */
 
