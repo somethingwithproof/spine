@@ -29,7 +29,7 @@ cleanup() {
     "${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
   fi
 }
-# trap cleanup EXIT
+trap cleanup EXIT
 
 wait_for_db() {
   local max_wait=120
@@ -123,12 +123,17 @@ else
 fi
 
 # Run spine against the test fixture
-poll_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
-  --conf=/etc/spine/spine.conf -f 1 -l 1 -S -M 2>&1 || true)
+if poll_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
+  --conf=/etc/spine/spine.conf -f 1 -l 1 -S -M 2>&1); then
+  poll_status=0
+else
+  poll_status=$?
+  fail "SNMPv3 poll exited unsuccessfully (status=$poll_status)"
+fi
 echo "$poll_output"
 
 # Check that spine connected to the database (exercises get_cacti_version, db_query)
-if echo "$poll_output" | grep -qi "ERROR.*MySQL\|Cannot connect"; then
+if [[ $poll_status -ne 0 ]] || echo "$poll_output" | grep -qi "ERROR.*MySQL\|Cannot connect"; then
   fail "spine could not connect to database"
 else
   pass "spine connected to database"
@@ -153,7 +158,7 @@ else
 fi
 
 # Check spine did not crash or segfault
-if echo "$poll_output" | grep -qi "segfault\|SIGSEGV\|Aborted\|core dump"; then
+if [[ $poll_status -ne 0 ]] || echo "$poll_output" | grep -qi "segfault\|SIGSEGV\|Aborted\|core dump"; then
   fail "spine crashed during polling"
 else
   pass "spine completed without crash"
@@ -226,8 +231,13 @@ INSERT IGNORE INTO poller_item (
 );
 " 2>/dev/null
 
-v2c_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
-  --conf=/etc/spine/spine.conf -f 2 -l 2 -S 2>&1 || true)
+if v2c_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
+  --conf=/etc/spine/spine.conf -f 2 -l 2 -S 2>&1); then
+  v2c_status=0
+else
+  v2c_status=$?
+  fail "SNMPv2c poll exited unsuccessfully (status=$v2c_status)"
+fi
 echo "$v2c_output"
 
 if echo "$v2c_output" | grep -q "Device\[2\]"; then
@@ -236,7 +246,7 @@ else
   fail "no evidence of SNMPv2c polling for device 2"
 fi
 
-if echo "$v2c_output" | grep -qi "segfault\|SIGSEGV\|Aborted"; then
+if [[ $v2c_status -ne 0 ]] || echo "$v2c_output" | grep -qi "segfault\|SIGSEGV\|Aborted"; then
   fail "spine crashed during SNMPv2c poll"
 else
   pass "SNMPv2c poll completed without crash"
@@ -267,8 +277,13 @@ echo "=== Phase 5: runtime fix validation ==="
 
 # Poll both devices simultaneously; exercises the poller.c switch statement
 # across two concurrent threads to confirm multi-device dispatch is intact.
-multi_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
-  --conf=/etc/spine/spine.conf -f 1 -l 2 -S 2>&1 || true)
+if multi_output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
+  --conf=/etc/spine/spine.conf -f 1 -l 2 -S 2>&1); then
+  pass "multi-device poll exited successfully"
+else
+  multi_status=$?
+  fail "multi-device poll exited unsuccessfully (status=$multi_status)"
+fi
 echo "$multi_output"
 
 if echo "$multi_output" | grep -q "Devices: 2"; then
