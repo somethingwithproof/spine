@@ -34,9 +34,12 @@ case "$coverage_base" in
     "$source_dir"/*) coverage_find_path="./${coverage_base#"$source_dir"/}";;
     *) ;;
 esac
-find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'Makefile.in' -o -name 'configure.ac' -o -name 'copyright_year.sh' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/*.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
+find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'configure.ac' -o -name 'copyright_year.sh' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/*.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
 xargs -0 sha256sum < "$coverage_dir/source-inputs.nul" > "$coverage_dir/source.sha256"
 tar -czf "$coverage_dir/source-inputs.tar.gz" --null -T "$coverage_dir/source-inputs.nul"
+# Autoreconf replaces this tracked template. Preserve its original bytes and
+# hash the generated template actually used by configure separately below.
+cp Makefile.in "$coverage_dir/source-Makefile.in"
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git rev-parse HEAD > "$coverage_dir/revision.txt"
     git status --porcelain > "$coverage_dir/worktree-status.txt"
@@ -49,6 +52,8 @@ gcc --version > "$coverage_dir/compiler.txt"
 gcc -dumpmachine >> "$coverage_dir/compiler.txt"
 if command -v dpkg-query >/dev/null; then
     dpkg-query -W gcc libc6-dev libmariadb-dev libsnmp-dev libssl-dev snmpd lcov autoconf automake libtool > "$coverage_dir/dependencies.txt"
+else
+    printf '%s\n' 'Package version inventory unavailable: dpkg-query is not installed.' > "$coverage_dir/dependencies.txt"
 fi
 gcov --version > "$coverage_dir/gcov.txt"
 lcov --version > "$coverage_dir/lcov.txt"
@@ -88,7 +93,7 @@ printf '%s\n' "${producer_units[@]}" > "$coverage_dir/producers.txt"
 make clean >> "$coverage_dir/build.log" 2>&1
 find . -maxdepth 1 -name '*.gcda' -delete
 make -j2 spine test_spine_regressions test_spine_faults >> "$coverage_dir/build.log" 2>&1
-sha256sum config/config.h > "$coverage_dir/generated-config.sha256"
+sha256sum config/config.h Makefile.in > "$coverage_dir/generated-config.sha256"
 cp config/config.h "$coverage_dir/generated-config.h"
 sha256sum spine test_spine_regressions test_spine_faults > "$coverage_dir/binaries.sha256"
 cp config.log "$coverage_dir/config.log"
@@ -161,6 +166,6 @@ sha256sum --check "$coverage_dir/generated-config.sha256" >> "$coverage_dir/sour
 sha256sum --check "$coverage_dir/binaries.sha256" >> "$coverage_dir/source-verification.log"
 sha256sum --check "$coverage_dir/notes.sha256" >> "$coverage_dir/source-verification.log"
 printf '%s\n' default numeric-error-boundaries config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome output-write-failure-retry output-recollection-new-timestamp simultaneous-output-failure-ordering remote-output-destination-failure-recollection output-sql-batch-boundary nullable-snmp-profile live-reindex snmp local-silent-udp-snmp-multi-timeout snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry fault-ping-only-session worker-launch-admitted worker-launch-rejected worker-launch-eagain-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
-(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt compiler.txt generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
+(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt worktree-status.txt compiler.txt dependencies.txt gcov.txt lcov.txt source-Makefile.in generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1
