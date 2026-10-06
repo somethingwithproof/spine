@@ -2059,6 +2059,76 @@ static void test_system_information(host_t *host) {
 	mysql_close(&mysql);
 }
 
+static void test_snmp_multi_timeout(void) {
+	int previous_retries = set.snmp.snmp_retries;
+	set.snmp.snmp_retries = 1;
+	int silent = socket(AF_INET, SOCK_DGRAM, 0);
+	assert(silent >= 0);
+	struct sockaddr_in address = {0};
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	address.sin_port = 0;
+	assert(bind(silent, (struct sockaddr *)&address, sizeof(address)) == 0);
+	socklen_t address_length = sizeof(address);
+	assert(getsockname(silent, (struct sockaddr *)&address, &address_length) == 0);
+	assert(address.sin_family == AF_INET && ntohs(address.sin_port) > 0);
+	/* Keep the UDP endpoint bound, without receiving or answering requests.
+	 * This produces a real transport timeout instead of ICMP port rejection. */
+	for (int version = 1; version <= 2; version++) {
+		host_t host = {0};
+		STRNCOPY(host.hostname, "127.0.0.1");
+		STRNCOPY(host.snmp.profile.community, "regression");
+		host.snmp.profile.version = version;
+		host.snmp.profile.port = ntohs(address.sin_port);
+		host.snmp.profile.timeout = 100;
+		host.snmp.session = snmp_host_init(&(snmp_connection_t){
+			.host_id = 1,
+			.hostname = host.hostname,
+			.snmp_version = host.snmp.profile.version,
+			.snmp_community = host.snmp.profile.community,
+			.snmp_username = "",
+			.snmp_password = "",
+			.snmp_auth_protocol = "SHA",
+			.snmp_priv_passphrase = "",
+			.snmp_priv_protocol = "[None]",
+			.snmp_context = "",
+			.snmp_engine_id = "",
+			.snmp_port = host.snmp.profile.port,
+			.snmp_timeout = host.snmp.profile.timeout,
+		});
+		assert(host.snmp.session != NULL);
+		const struct snmp_session *session = snmp_sess_session(host.snmp.session);
+		assert(session != NULL && session->timeout == 100000L && session->retries == 1);
+		const struct netsnmp_transport_s *transport = snmp_sess_transport(host.snmp.session);
+		assert(transport != NULL && transport->sock >= 0 && transport->sock != silent);
+		int session_fd = transport->sock;
+		target_t items[2] = {0};
+		snmp_oids_t oids[2] = {0};
+		STRNCOPY(oids[0].oid, ".1.3.6.1.2.1.1.3.0");
+		STRNCOPY(oids[1].oid, ".1.3.6.1.2.1.1.1.0");
+		for (int index = 0; index < 2; index++) {
+			oids[index].array_position = index;
+			items[index].local_data_id = 100 + index;
+			STRNCOPY(oids[index].result, "123");
+		}
+		snmp_get_multi(&host, items, oids, 2);
+		assert(host.snmp.status == STAT_TIMEOUT && host.ignore_host);
+		assert(IS_UNDEFINED(oids[0].result) && IS_UNDEFINED(oids[1].result));
+		assert(fcntl(session_fd, F_GETFD) >= 0);
+		snmp_host_cleanup(host.snmp.session);
+		host.snmp.session = NULL;
+		errno = 0;
+		assert(fcntl(session_fd, F_GETFD) == -1 && errno == EBADF);
+	}
+	/* Readiness proves requests reached our local fixture; do not drain them. */
+	assert(spine_wait_readable(silent, spine_monotonic_time() + 1) == 1);
+	assert(close(silent) == 0);
+	errno = 0;
+	assert(fcntl(silent, F_GETFD) == -1 && errno == EBADF);
+	set.snmp.snmp_retries = previous_retries;
+	puts("production local silent UDP SNMP multi timeout regressions passed");
+}
+
 static void test_snmp_agent(void) {
 	const char *address = getenv("SPINE_TEST_SNMP_HOST");
 	assert(address != NULL && address[0] != '\0');
@@ -2118,6 +2188,7 @@ static void test_snmp_agent(void) {
 		assert(ping_host(&host, &ping) == HOST_UP);
 		snmp_host_cleanup(host.snmp.session);
 	}
+	test_snmp_multi_timeout();
 	snmp_spine_close();
 }
 
