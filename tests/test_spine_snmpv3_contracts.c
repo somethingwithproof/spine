@@ -114,7 +114,6 @@ static void assert_v3_response(const snmp_connection_t *options, bool admitted, 
 		assert(session != NULL && session->securityLevel == level);
 		char *response = snmp_get(&host, ".1.3.6.1.2.1.1.6.0");
 		assert(response != NULL);
-		fprintf(stderr, "SNMPv3 fixture user=%s level=%d admitted=%d status=%d ignored=%d response=%s\n", options->snmp_username, level, admitted, host.snmp_status, host.ignore_host, response);
 		if (admitted) {
 			assert(strcmp(response, "isolated-regression-v3-agent") == 0);
 			assert(!host.ignore_host);

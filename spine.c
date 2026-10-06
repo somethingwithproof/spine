@@ -689,52 +689,140 @@ static void report_worker_completion(int num_rows) {
 
 }
 
-int main(int argc, char *argv[]) {
-	char *conf_file = NULL;
-	double begin_time;
-	double end_time;
-	int num_rows = 0;
-	int device_counter = 0;
-	char querybuf[MEGA_BUFSIZE];
-	char *host_time = NULL;
-	poller_partition_t partition = {0};
-	spine_permits_t thread_init_sem;
-	int a_threads_value;
-
-	start_time = get_time_as_double();
-	total_time = 0;
-
-	#ifdef HAVE_LCAP
-	if (geteuid() == 0) {
-		drop_root(getuid(), getgid());
-	}
-	#endif /* HAVE_LCAP */
-
-	pthread_t* threads = NULL;
-	poller_thread_t* poller_details = NULL;
-	pthread_attr_t attr;
-
-	int* ids = NULL;
-	int mode = REMOTE;
-	MYSQL mysql;
-	MYSQL mysqlr;
-	MYSQL_RES *result  = NULL;
+static void launch_poll_workers(MYSQL *mysql, MYSQL_RES *result, int num_rows,
+	pthread_t *threads, spine_permits_t *thread_init_sem,
+	const pthread_attr_t *attr, char *host_time) {
+	poller_partition_t partition = {.timestamp = host_time};
+	poller_thread_t *poller_details = NULL;
 	MYSQL_ROW mysql_row;
-	int canexit = FALSE;
-	int host_id = 0;
-	int i;
-	int change_host   = TRUE;
+	int device_counter = 0;
 	int current_thread;
-	int threads_final = 0;
-
-	/* we must initialize snmp in the main thread */
+	int host_id = 0;
+	int change_host = TRUE;
+	int canexit = FALSE;
 	struct snmp_session session;
+	/* initialize the threading code */
+	partition.threads   = 1;
+	current_thread   = 0;
 
-	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
+	/* poller 1 always polls host 0 but only if it exists */
+	if (set.poller_id == 1 && set.has_device_0 == TRUE) {
+		host_id     = 0;
+		change_host = FALSE;
+	} else {
+		change_host = TRUE;
+	}
 
-	/* install the spine signal handler */
-	install_spine_signal_handler();
+	/**
+     * We must initialize the first snmp session
+     * in the main thread to initialize the mib files
+     * and other structures.  After which it's snmp
+     * is thread safe in threads
+     */
+	snmp_sess_init(&session);
 
+	/* loop through devices until done */
+	while (canexit == FALSE && device_counter < num_rows) {
+		if (change_host) {
+			mysql_row       = mysql_fetch_row(result);
+			host_id         = atoi(mysql_row[0]);
+			partition.threads  = atoi(mysql_row[1]);
+			current_thread  = 1;
+
+			if (partition.threads < 1) {
+				partition.threads = 1;
+			}
+		} else {
+			current_thread++;
+		}
+
+		prepare_device_partition(mysql, host_id, current_thread, &partition);
+		change_host = (current_thread >= partition.threads) ? TRUE : FALSE;
+
+		if (current_thread == 1) {
+			/* populate the thread structure */
+			if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
+				die("ERROR: Fatal malloc error: spine.c poller_details!");
+			}
+
+			poller_details->device_counter   = device_counter;
+			poller_details->host_id          = host_id;
+			poller_details->host_thread      = partition.threads;
+			poller_details->host_threads     = partition.threads;
+			poller_details->host_data_ids    = partition.items;
+
+			snprintf(poller_details->host_time, 40, "%s", host_time);
+
+			poller_details->host_time_double = partition.time;
+			poller_details->thread_init_sem  = thread_init_sem;
+			poller_details->complete         = FALSE;
+			poller_details->threads_complete = 0;
+
+			thread_mutex_lock(LOCK_THDET);
+			details[device_counter] = poller_details;
+			thread_mutex_unlock(LOCK_THDET);
+		} else {
+			poller_details = details[device_counter];
+		}
+
+
+		if (start_poll_worker(poller_details, current_thread, thread_init_sem, attr, &threads[device_counter])) {
+			if (change_host) device_counter++;
+			report_worker_launch(poller_details, device_counter);
+		} else {
+			canexit = TRUE;
+		}
+	}
+
+}
+
+static void prepare_worker_storage(MYSQL_RES *result, int *rows,
+	pthread_t **worker_threads, int **host_ids, char **timestamp) {
+	int num_rows;
+	pthread_t *threads = NULL;
+	int *ids = NULL;
+	char *host_time = NULL;
+	if (set.poller_id == 1) {
+		if (set.has_device_0) {
+			num_rows = spine_count_to_int(mysql_num_rows(result) + 1); /* pollerid 1 takes care of non host based data sources */
+		} else {
+			num_rows = spine_count_to_int(mysql_num_rows(result)); /* pollerid 1 takes care of non host based data sources */
+		}
+	} else {
+		num_rows = spine_count_to_int(mysql_num_rows(result));
+	}
+
+	if (num_rows > 0) {
+		if (!(threads = (pthread_t *)malloc(num_rows * sizeof(pthread_t)))) {
+			die("ERROR: Fatal malloc error: spine.c threads!");
+		}
+
+		if (!(details = (poller_thread_t **)calloc((size_t)num_rows, sizeof(poller_thread_t*)))) {
+			die("ERROR: Fatal malloc error: spine.c details!");
+		}
+
+		if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
+			die("ERROR: Fatal malloc error: spine.c host id's!");
+		}
+
+		if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
+			die("ERROR: Fatal malloc error: util.c host_time");
+		}
+
+		memset(host_time, 0, SMALL_BUFSIZE);
+	}
+
+
+	*rows = num_rows;
+	*worker_threads = threads;
+	*host_ids = ids;
+	*timestamp = host_time;
+
+}
+
+static double initialize_process_defaults(void) {
+	int i;
+	double begin_time;
 	/* establish php processes and initialize space */
 	php_processes = (php_t*) calloc(MAX_PHP_SERVERS, sizeof(php_t));
 	if (php_processes == NULL) die("ERROR: Fatal malloc error: PHP process list!");
@@ -788,6 +876,133 @@ int main(int argc, char *argv[]) {
 
 	/* get static defaults for system */
 	config_defaults();
+
+	return begin_time;
+
+}
+
+static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
+	MYSQL_RES *result;
+	int mode;
+	/* initialize mysql objects for threads */
+	mysql_library_init(0, NULL, NULL);
+
+	/* connect for main loop */
+	db_connect(LOCAL, mysql);
+
+	/* setup local connection pool for hosts */
+	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
+	db_create_connection_pool(LOCAL);
+
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+		db_connect(REMOTE, mysqlr);
+		mode = REMOTE;
+
+		/* setup remote connection pool for hosts */
+		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
+		db_create_connection_pool(REMOTE);
+	} else {
+		mode = LOCAL;
+	}
+
+
+	/* check for device 0 items */
+	result = db_query(mysql, LOCAL, "SELECT * FROM (SELECT COUNT(*) AS items FROM poller_item WHERE host_id = 0 AND poller_id = 1) AS rs WHERE rs.items > 0");
+	if (mysql_num_rows(result)) {
+		set.has_device_0 = TRUE;
+	}
+	db_free_result(result);
+
+	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
+	db_insert(mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
+	db_insert(mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+
+	return mode;
+
+}
+
+static void initialize_main_php(void) {
+	/* initialize the script server */
+	if (set.php_required && !set.ping_only) {
+		if (!php_init(PHP_INIT)) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: PHP Script Server initialization failed");
+		}
+		set.php_initialized    = TRUE;
+		set.php_current_server = 0;
+	}
+
+}
+
+static void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode) {
+	char querybuf[MEGA_BUFSIZE];
+	/* push data back to the main server */
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE && !set.SQL_readonly) {
+		poller_push_data_to_main();
+	}
+
+	/* update the db for |data_time| on graphs */
+	if (!set.ping_only) {
+		if (set.poller_id == 1) {
+			db_insert(mysql, LOCAL, "REPLACE INTO settings (name,value) VALUES ('date',NOW())");
+		}
+
+		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller_id, getpid());
+
+		if (mode == REMOTE) {
+			db_insert(mysqlr, REMOTE, querybuf);
+		} else {
+			db_insert(mysql, LOCAL, querybuf);
+		}
+	}
+
+	if (db_pool_local) {
+		db_close_connection_pool(LOCAL);
+	}
+
+	if (db_pool_remote) {
+		db_close_connection_pool(REMOTE);
+	}
+
+}
+
+int main(int argc, char *argv[]) {
+	char *conf_file = NULL;
+	double begin_time;
+	double end_time;
+	int num_rows = 0;
+	char querybuf[MEGA_BUFSIZE];
+	char *host_time = NULL;
+	spine_permits_t thread_init_sem;
+	int a_threads_value;
+
+	start_time = get_time_as_double();
+	total_time = 0;
+
+	#ifdef HAVE_LCAP
+	if (geteuid() == 0) {
+		drop_root(getuid(), getgid());
+	}
+	#endif /* HAVE_LCAP */
+
+	pthread_t* threads = NULL;
+	pthread_attr_t attr;
+
+	int* ids = NULL;
+	int mode = REMOTE;
+	MYSQL mysql;
+	MYSQL mysqlr;
+	MYSQL_RES *result  = NULL;
+	int i;
+	int threads_final = 0;
+
+
+	UNUSED_PARAMETER(argc);		/* we operate strictly with argv */
+
+	/* install the spine signal handler */
+	install_spine_signal_handler();
+
+	begin_time = initialize_process_defaults();
 
 	/*! ----------------------------------------------------------------
 	 * PROCESS COMMAND LINE
@@ -872,38 +1087,7 @@ int main(int argc, char *argv[]) {
 		debug_devices[0] = '\0';
 	}
 
-	/* initialize mysql objects for threads */
-	mysql_library_init(0, NULL, NULL);
-
-	/* connect for main loop */
-	db_connect(LOCAL, &mysql);
-
-	/* setup local connection pool for hosts */
-	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
-	db_create_connection_pool(LOCAL);
-
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-		db_connect(REMOTE, &mysqlr);
-		mode = REMOTE;
-
-		/* setup remote connection pool for hosts */
-		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
-		db_create_connection_pool(REMOTE);
-	} else {
-		mode = LOCAL;
-	}
-
-
-	/* check for device 0 items */
-	result = db_query(&mysql, LOCAL, "SELECT * FROM (SELECT COUNT(*) AS items FROM poller_item WHERE host_id = 0 AND poller_id = 1) AS rs WHERE rs.items > 0");
-	if (mysql_num_rows(result)) {
-		set.has_device_0 = TRUE;
-	}
-	db_free_result(result);
-
-	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+	mode = initialize_main_database(&mysql, &mysqlr);
 
 	report_startup(mode);
 
@@ -920,48 +1104,11 @@ int main(int argc, char *argv[]) {
 	/* tell spine that it is parent, and set the poller id */
 	set.parent_fork = SPINE_PARENT;
 
-	/* initialize the script server */
-	if (set.php_required && !set.ping_only) {
-		if (!php_init(PHP_INIT)) {
-			set.exit_code = EXIT_FAILURE;
-			die("ERROR: PHP Script Server initialization failed");
-		}
-		set.php_initialized    = TRUE;
-		set.php_current_server = 0;
-	}
+	initialize_main_php();
 
 	result = select_poll_hosts(&mysql);
 
-	if (set.poller_id == 1) {
-		if (set.has_device_0) {
-			num_rows = spine_count_to_int(mysql_num_rows(result) + 1); /* pollerid 1 takes care of non host based data sources */
-		} else {
-			num_rows = spine_count_to_int(mysql_num_rows(result)); /* pollerid 1 takes care of non host based data sources */
-		}
-	} else {
-		num_rows = spine_count_to_int(mysql_num_rows(result));
-	}
-
-	if (num_rows > 0) {
-		if (!(threads = (pthread_t *)malloc(num_rows * sizeof(pthread_t)))) {
-			die("ERROR: Fatal malloc error: spine.c threads!");
-		}
-
-		if (!(details = (poller_thread_t **)calloc((size_t)num_rows, sizeof(poller_thread_t*)))) {
-			die("ERROR: Fatal malloc error: spine.c details!");
-		}
-
-		if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
-			die("ERROR: Fatal malloc error: spine.c host id's!");
-		}
-
-		if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
-			die("ERROR: Fatal malloc error: util.c host_time");
-		}
-
-		memset(host_time, 0, SMALL_BUFSIZE);
-		partition.timestamp = host_time;
-	}
+	prepare_worker_storage(result, &num_rows, &threads, &ids, &host_time);
 
 	/* initialize winsock library on Windows */
 	SOCK_STARTUP;
@@ -998,78 +1145,7 @@ int main(int argc, char *argv[]) {
 	/* tell fork processes that they are now active */
 	set.parent_fork = SPINE_FORK;
 
-	/* initialize the threading code */
-	partition.threads   = 1;
-	current_thread   = 0;
-
-	/* poller 1 always polls host 0 but only if it exists */
-	if (set.poller_id == 1 && set.has_device_0 == TRUE) {
-		host_id     = 0;
-		change_host = FALSE;
-	} else {
-		change_host = TRUE;
-	}
-
-	/**
-     * We must initialize the first snmp session
-     * in the main thread to initialize the mib files
-     * and other structures.  After which it's snmp
-     * is thread safe in threads
-     */
-	snmp_sess_init(&session);
-
-	/* loop through devices until done */
-	while (canexit == FALSE && device_counter < num_rows) {
-		if (change_host) {
-			mysql_row       = mysql_fetch_row(result);
-			host_id         = atoi(mysql_row[0]);
-			partition.threads  = atoi(mysql_row[1]);
-			current_thread  = 1;
-
-			if (partition.threads < 1) {
-				partition.threads = 1;
-			}
-		} else {
-			current_thread++;
-		}
-
-		prepare_device_partition(&mysql, host_id, current_thread, &partition);
-		change_host = (current_thread >= partition.threads) ? TRUE : FALSE;
-
-		if (current_thread == 1) {
-			/* populate the thread structure */
-			if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
-				die("ERROR: Fatal malloc error: spine.c poller_details!");
-			}
-
-			poller_details->device_counter   = device_counter;
-			poller_details->host_id          = host_id;
-			poller_details->host_thread      = partition.threads;
-			poller_details->host_threads     = partition.threads;
-			poller_details->host_data_ids    = partition.items;
-
-			snprintf(poller_details->host_time, 40, "%s", host_time);
-
-			poller_details->host_time_double = partition.time;
-			poller_details->thread_init_sem  = &thread_init_sem;
-			poller_details->complete         = FALSE;
-			poller_details->threads_complete = 0;
-
-			thread_mutex_lock(LOCK_THDET);
-			details[device_counter] = poller_details;
-			thread_mutex_unlock(LOCK_THDET);
-		} else {
-			poller_details = details[device_counter];
-		}
-
-
-		if (start_poll_worker(poller_details, current_thread, &thread_init_sem, &attr, &threads[device_counter])) {
-			if (change_host) device_counter++;
-			report_worker_launch(poller_details, device_counter);
-		} else {
-			canexit = TRUE;
-		}
-	}
+	launch_poll_workers(&mysql, result, num_rows, threads, &thread_init_sem, &attr, host_time);
 
 	a_threads_value = wait_for_workers(begin_time);
 
@@ -1082,33 +1158,7 @@ int main(int argc, char *argv[]) {
 	/* tell Spine that it is now parent */
 	set.parent_fork = SPINE_PARENT;
 
-	/* push data back to the main server */
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE && !set.SQL_readonly) {
-		poller_push_data_to_main();
-	}
-
-	/* update the db for |data_time| on graphs */
-	if (!set.ping_only) {
-		if (set.poller_id == 1) {
-			db_insert(&mysql, LOCAL, "REPLACE INTO settings (name,value) VALUES ('date',NOW())");
-		}
-
-		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller_id, getpid());
-
-		if (mode == REMOTE) {
-			db_insert(&mysqlr, REMOTE, querybuf);
-		} else {
-			db_insert(&mysql, LOCAL, querybuf);
-		}
-	}
-
-	if (db_pool_local) {
-		db_close_connection_pool(LOCAL);
-	}
-
-	if (db_pool_remote) {
-		db_close_connection_pool(REMOTE);
-	}
+	persist_poll_completion(&mysql, &mysqlr, mode);
 
 	/* cleanup and exit program */
 	pthread_attr_destroy(&attr);
