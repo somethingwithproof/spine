@@ -1780,11 +1780,15 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	set = previous;
 }
 
-static void run_cli_poll_profile(const char *config, const char *poller, const char *threads, const char *interval, const char *profiles, int expected) {
+static void run_cli_poll_profile(const char *config, const char *poller, const char *threads, const char *interval, const char *profiles, const char *hostlist, int expected) {
 	pid_t child = fork();
 	assert(child >= 0);
 	if (child == 0) {
 		alarm(15);
+		if (hostlist != NULL) {
+			execl("./spine", "spine", "--conf", config, "-p", poller, "-t", threads, "-H", hostlist, "--mode=online", "-O", interval, "-O", profiles, "-S", "-V", "2", NULL);
+			_exit(127);
+		}
 		execl("./spine", "spine", "-C", "/nonexistent/spine-regression.conf", "--conf", config, "-p", poller, "-t", threads, "--mode=online", "-O", interval, "-O", profiles, "-S", "-V", "2", NULL);
 		_exit(127);
 	}
@@ -1796,7 +1800,7 @@ static void run_cli_poll_profile(const char *config, const char *poller, const c
 }
 
 static void run_cli_poll(const char *config, const char *poller, const char *threads, const char *interval, int expected) {
-	run_cli_poll_profile(config, poller, threads, interval, "active_profiles:1", expected);
+	run_cli_poll_profile(config, poller, threads, interval, "active_profiles:1", NULL, expected);
 }
 
 static void test_cli_workers(MYSQL *source, const char *config) {
@@ -1811,9 +1815,17 @@ static void test_cli_workers(MYSQL *source, const char *config) {
 	run_cli_poll(config, "1", "2", "poller_interval:5", EXIT_SUCCESS);
 	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
 	assert(db_insert(source, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(source, LOCAL, "INSERT INTO host(id,hostname,poller_id,disabled,device_threads,availability_method,status_fail_date,status_rec_date) VALUES(43,'127.0.0.1',1,'',1,0,'2026-10-05 00:00:00','2026-10-05 00:00:00')"));
+	assert(db_insert(source, LOCAL, "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES(704,43,1,1,'/usr/bin/printf 789','excluded')"));
+	run_cli_poll_profile(config, "1", "2", "poller_interval:5", "active_profiles:1", " 0042 , 42 ", EXIT_SUCCESS);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=704") == 0);
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item WHERE local_data_id=704"));
+	assert(db_insert(source, LOCAL, "DELETE FROM host WHERE id=43"));
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_output"));
 	assert(db_insert(source, LOCAL, "UPDATE poller_item SET rrd_next_step=0 WHERE local_data_id IN (701,702)"));
 	assert(db_insert(source, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name,rrd_next_step) VALUES (703,42,1,1,'/usr/bin/printf 789','not-due',100)"));
-	run_cli_poll_profile(config, "1", "2", "poller_interval:5", "active_profiles:2", EXIT_SUCCESS);
+	run_cli_poll_profile(config, "1", "2", "poller_interval:5", "active_profiles:2", NULL, EXIT_SUCCESS);
 	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
 	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=703") == 0);
 	assert(db_insert(source, LOCAL, "DELETE FROM poller_item WHERE local_data_id=703"));

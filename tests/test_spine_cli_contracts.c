@@ -69,6 +69,9 @@ void test_cli_alias_contracts(void) {
 		{"spine", "-H", "17,18", "--version", NULL},
 		{"spine", "-H=17,18", "--version", NULL},
 		{"spine", "--hostlist=17,18", "--version", NULL},
+		{"spine", "-H", " 0 , 0017, 18 ", "--version", NULL},
+		{"spine", "-H", "2147483647", "--version", NULL},
+		{"spine", "-H", "17,17", "--version", NULL},
 	};
 	for (size_t index = 0; index < sizeof(value_forms) / sizeof(value_forms[0]); index++) {
 		run_cli_contract(value_forms[index], EXIT_SUCCESS, output, sizeof(output));
@@ -88,5 +91,19 @@ void test_cli_alias_contracts(void) {
 	char *missing_hostlist[] = {"spine", "-H", NULL};
 	run_cli_contract(missing_hostlist, EXIT_FAILURE, output, sizeof(output));
 	assert(strstr(output, "ERROR: option -H requires a parameter") != NULL);
+	const char *invalid_lists[] = {"", " ", ",17", "17,", "17,,18", "17 18", "-1", "+1", "1.5", "1e2", "17x", "17;18", "2147483648", "999999999999999999999999999999999999"};
+	for (size_t index = 0; index < sizeof(invalid_lists) / sizeof(invalid_lists[0]); index++) {
+		char *arguments[] = {"spine", "-H", (char *)invalid_lists[index], "--version", NULL};
+		run_cli_contract(arguments, EXIT_FAILURE, output, sizeof(output));
+		assert(strstr(output, "ERROR: invalid or oversized host list") != NULL);
+	}
+	char *oversized = malloc(BIG_BUFSIZE + 1);
+	assert(oversized != NULL);
+	memset(oversized, '0', BIG_BUFSIZE);
+	oversized[BIG_BUFSIZE] = '\0';
+	char *oversized_args[] = {"spine", "-H", oversized, "--version", NULL};
+	run_cli_contract(oversized_args, EXIT_FAILURE, output, sizeof(output));
+	assert(strstr(output, "ERROR: invalid or oversized host list") != NULL);
+	free(oversized);
 	puts("production CLI alias regressions passed");
 }

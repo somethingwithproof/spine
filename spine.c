@@ -96,6 +96,7 @@
 
 #include "common.h"
 #include "spine.h"
+#include <limits.h>
 
 #ifdef SPINE_TEST_PROGRAM_ENTRY
 #define main spine_program_main
@@ -274,6 +275,29 @@ static void parse_polling_mode(const char *requested_mode) {
 	}
 }
 
+static void parse_host_list(const char *input) {
+	if (strnlen(input, sizeof(set.hosts.host_id_list)) == sizeof(set.hosts.host_id_list)) {
+		die("ERROR: invalid or oversized host list");
+	}
+	size_t used = 0;
+	const char *cursor = input;
+	for (;;) {
+		while (isspace((unsigned char)*cursor)) cursor++;
+		if (*cursor < '0' || *cursor > '9') die("ERROR: invalid or oversized host list");
+		errno = 0;
+		char *end;
+		unsigned long id = strtoul(cursor, &end, 10);
+		if (errno == ERANGE || id > INT_MAX) die("ERROR: invalid or oversized host list");
+		while (isspace((unsigned char)*end)) end++;
+		if (*end != '\0' && *end != ',') die("ERROR: invalid or oversized host list");
+		/* SQL receives only converted integer values and owned separators. */
+		used += (size_t)spine_snprintf(set.hosts.host_id_list + used,
+			sizeof(set.hosts.host_id_list) - used, "%s%lu", used == 0 ? "" : ",", id);
+		if (*end == '\0') return;
+		cursor = end + 1;
+	}
+}
+
 static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **conf_file) {
 	switch (lookup_cli_option(arg)) {
 		case CLI_FIRST: {
@@ -320,7 +344,7 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		case CLI_HOSTLIST: {
-			snprintf(set.hosts.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, argv));
+			parse_host_list(getarg(opt, argv));
 			break;
 		}
 		case CLI_MIBS: {
