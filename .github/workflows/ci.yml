@@ -53,6 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
+        buffers: [default, small]
     env:
       CC: ${{ matrix.compiler }}
     steps:
@@ -69,7 +70,11 @@ jobs:
       - name: Configure
         run: |
           set -euo pipefail
-          cmake --preset ci-main
+          if [ "${{ matrix.buffers }}" = "small" ]; then
+            cmake --preset ci-main -DRESULTS_BUFFER=4096 -DMAX_MYSQL_BUF_SIZE=4096
+          else
+            cmake --preset ci-main
+          fi
 
       - name: Build
         run: cmake --build --preset ci-main

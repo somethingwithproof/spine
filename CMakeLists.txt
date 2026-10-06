@@ -112,6 +112,7 @@ endif()
 
 set(SPINE_CORE_SOURCES
     src/sql.c
+    src/output_buffer.c
     src/spine.c
     src/util.c
     src/snmp.c

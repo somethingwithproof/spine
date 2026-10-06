@@ -10,7 +10,9 @@
 #include "common.h"
 #include "spine.h"
 #include "sql.h"
+#include "output_buffer.h"
 #include "test_platform_helpers.h"
+#include <stdint.h>
 
 int spine_log(const char *format, ...) {
 	(void) format;
@@ -97,6 +99,84 @@ static void test_degenerate_destination(MYSQL *mysql) {
 	ASSERT_TRUE(strcmp(out, "\\'") == 0 && out[3] == '\0');
 }
 
+static void test_output_query_assembly(MYSQL *mysql, const char *prefix) {
+	const char suffix[] = " ON DUPLICATE KEY UPDATE output=VALUES(output)";
+	char input[RESULTS_BUFFER];
+	char escaped[(RESULTS_BUFFER * 2) + 1];
+	char name[sizeof(((target_t *)0)->rrd_name)];
+	char escaped_name[DBL_BUFSIZE];
+	char tuple[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
+	const size_t capacity = spine_output_buffer_size(MAX_MYSQL_BUF_SIZE,
+		sizeof(tuple), strlen(prefix), strlen(suffix));
+	ASSERT_TRUE(capacity > 0 && capacity < SIZE_MAX - 2);
+	if (capacity == 0 || capacity >= SIZE_MAX - 2) return;
+	unsigned char *guarded = malloc(capacity + 2);
+	ASSERT_TRUE(guarded != NULL);
+	if (guarded == NULL) return;
+	char *query = (char *)guarded + 1;
+	memset(input, '\'', sizeof(input) - 1);
+	input[sizeof(input) - 1] = '\0';
+	db_escape(mysql, escaped, sizeof(escaped), input);
+	ASSERT_TRUE(strlen(escaped) == 2 * (sizeof(input) - 1));
+	memset(name, '\'', sizeof(name) - 1);
+	name[sizeof(name) - 1] = '\0';
+	db_escape(mysql, escaped_name, sizeof(escaped_name), name);
+	ASSERT_TRUE(strlen(escaped_name) == 2 * (sizeof(name) - 1));
+
+	/* Exercise two consecutive maximum-expansion rows. The real writers flush at the
+	 * shared threshold before appending each row and reset to this prefix.
+	 * Test the actual assembly primitives, not a fake mysql writer. */
+	for (int row = 1; row <= 2; row++) {
+		memset(guarded, 0xa5, capacity + 2);
+		query[0] = '\0';
+		const int prefix_appended = spine_output_buffer_append(query, capacity, prefix, strlen(prefix));
+		ASSERT_TRUE(prefix_appended);
+		if (!prefix_appended) break;
+		const int formatted = snprintf(tuple, sizeof(tuple),
+			" (%i, '%s', FROM_UNIXTIME(1700000000), '%s')", row, escaped_name, escaped);
+		ASSERT_TRUE(formatted >= 0 && (size_t)formatted < sizeof(tuple));
+		if (formatted < 0 || (size_t)formatted >= sizeof(tuple)) break;
+		const size_t length = (size_t)formatted;
+		if (length >= MAX_MYSQL_BUF_SIZE) {
+			ASSERT_TRUE(spine_output_buffer_needs_flush(strlen(prefix), length, MAX_MYSQL_BUF_SIZE));
+		}
+		const int tuple_appended = spine_output_buffer_append(query, capacity, tuple, length);
+		ASSERT_TRUE(tuple_appended);
+		if (!tuple_appended) break;
+		const int suffix_appended = spine_output_buffer_append(query, capacity, suffix, strlen(suffix));
+		ASSERT_TRUE(suffix_appended);
+		if (!suffix_appended) break;
+		ASSERT_TRUE(strlen(query) == strlen(prefix) + length + strlen(suffix));
+		ASSERT_TRUE(memcmp(query, prefix, strlen(prefix)) == 0);
+		ASSERT_TRUE(memcmp(query + strlen(prefix), tuple, length) == 0);
+		ASSERT_TRUE(strcmp(query + strlen(prefix) + length, suffix) == 0);
+		ASSERT_TRUE(guarded[0] == 0xa5 && guarded[capacity + 1] == 0xa5);
+	}
+	free(guarded);
+}
+
+static void test_output_buffer_boundaries(void) {
+	char buffer[8] = "prefix";
+	ASSERT_TRUE(!spine_output_buffer_append(buffer, sizeof(buffer), "ab", 2));
+	ASSERT_TRUE(strcmp(buffer, "prefix") == 0);
+	ASSERT_TRUE(spine_output_buffer_append(buffer, sizeof(buffer), "x", 1));
+	ASSERT_TRUE(strcmp(buffer, "prefixx") == 0);
+	ASSERT_TRUE(!spine_output_buffer_append(buffer, sizeof(buffer), "x", 1));
+	memset(buffer, 'x', sizeof(buffer));
+	ASSERT_TRUE(!spine_output_buffer_append(buffer, sizeof(buffer), "y", 1));
+	for (size_t i = 0; i < sizeof(buffer); i++) ASSERT_TRUE(buffer[i] == 'x');
+	ASSERT_TRUE(!spine_output_buffer_append(NULL, 8, "x", 1));
+	ASSERT_TRUE(!spine_output_buffer_append(buffer, 0, "x", 1));
+	ASSERT_TRUE(!spine_output_buffer_append(buffer, sizeof(buffer), NULL, 0));
+	ASSERT_TRUE(spine_output_buffer_size(SIZE_MAX, 1, 1, 1) == 0);
+	ASSERT_TRUE(spine_output_buffer_size(1, SIZE_MAX, 1, 1) == 0);
+	ASSERT_TRUE(spine_output_buffer_size(1, 1, SIZE_MAX, 1) == 0);
+	ASSERT_TRUE(spine_output_buffer_size(1, 1, 1, SIZE_MAX) == 0);
+	ASSERT_TRUE(!spine_output_buffer_needs_flush(10, 20, 31));
+	ASSERT_TRUE(spine_output_buffer_needs_flush(10, 20, 30));
+	ASSERT_TRUE(spine_output_buffer_needs_flush(SIZE_MAX, 1, SIZE_MAX));
+}
+
 int main(void) {
 	MYSQL *mysql = mysql_init(NULL);
 	if (mysql == NULL) {
@@ -109,6 +189,11 @@ int main(void) {
 	test_staging_boundary(mysql);
 	test_small_destination(mysql);
 	test_degenerate_destination(mysql);
+	test_output_query_assembly(mysql,
+		"INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES");
+	test_output_query_assembly(mysql,
+		"INSERT INTO poller_output_boost (local_data_id, rrd_name, time, output) VALUES");
+	test_output_buffer_boundaries();
 	mysql_close(mysql);
 	return finish_tests("db_escape tests");
 }
