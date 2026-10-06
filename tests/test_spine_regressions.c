@@ -1560,6 +1560,48 @@ static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *agg
 	set = previous;
 }
 
+static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const char *agent) {
+	char escaped_agent[BUFSIZE];
+	db_escape(mysql, escaped_agent, sizeof(escaped_agent), agent);
+	for (int scenario = 0; scenario < 8; scenario++) {
+		bool change_version = (scenario & 2) != 0;
+		bool spike = (scenario & 4) != 0;
+		char query[LRG_BUFSIZE];
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+		spine_snprintf(query, sizeof(query), "UPDATE host SET max_oids=%d WHERE id=44", 1 + (scenario & 1));
+		assert(db_insert(mysql, LOCAL, query));
+		spine_snprintf(query, sizeof(query), "UPDATE poller_item SET action=0,hostname='%s',snmp_community='regression',snmp_version=2,snmp_port=1161,snmp_timeout=500,arg1='.1.3.6.1.2.1.1.3.0' WHERE host_id=44", escaped_agent);
+		assert(db_insert(mysql, LOCAL, query));
+		spine_snprintf(query, sizeof(query), "UPDATE poller_item SET snmp_version=%d,arg1='%s' WHERE local_data_id=602", change_version ? 1 : 2, spike ? ".1.3.6.1.2.1.1.3.0" : ".1.3.6.1.2.1.1.999.0");
+		assert(db_insert(mysql, LOCAL, query));
+		if (spike) assert(db_insert(mysql, LOCAL, "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (44,7,1,'<','124','/usr/bin/printf 123')"));
+		work->thread.complete = FALSE;
+		work->thread.threads_complete = 0;
+		work->errors = 0;
+		pthread_t worker;
+		assert(pthread_create(&worker, NULL, test_poll_worker, work) == 0);
+		assert(pthread_join(worker, NULL) == 0);
+		assert(work->thread.complete && work->thread.threads_complete == 1);
+		assert(work->errors == (spike ? 0 : 1));
+		assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+		bool first_discarded = spike && !change_version;
+		const char *first_check = first_discarded ? "output='U'" : "output REGEXP '^[0-9]+$' AND CAST(output AS UNSIGNED)>0";
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id=601 AND %s", first_check);
+		assert(database_count(mysql, query) == 1);
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=601 AND %s", first_check);
+		assert(database_count(mysql, query) == 1);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=602 AND output='U'") == 1);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=602 AND output='U'") == 1);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output") == 2);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost") == 2);
+		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_command") == (spike ? 1 : 0));
+	}
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+}
+
 static void test_poll_pipeline(MYSQL *mysql) {
 	extern poller_thread_t **details;
 	config_t previous = set;
@@ -1635,6 +1677,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
 			assert(database_count(mysql, query) == 1);
 		}
+		if (host_id == 44) test_snmp_item_pipeline(mysql, &work, agent);
 		if (host_id == 43) {
 			test_reindex_pipeline(mysql, &work);
 			test_profile_schedule_completion(mysql, &work);

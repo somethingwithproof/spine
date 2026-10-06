@@ -155,6 +155,34 @@ static void record_result_error(const poll_error_context_t *context, const host_
 	}
 }
 
+static void store_snmp_results(const host_t *host, target_t *poller_items, snmp_oids_t *snmp_oids,
+	int num_oids, const poll_error_context_t *errors, double thread_start, bool spike_kill) {
+	for (int j = 0; j < num_oids; j++) {
+		const target_t *item = &poller_items[snmp_oids[j].array_position];
+		if (host->ignore_host) {
+			SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
+				errors->host_id, errors->thread_id, item->local_data_id, host->snmp_timeout, host->hostname));
+			SET_UNDEFINED(snmp_oids[j].result);
+		} else {
+			enum poll_result_status status = normalize_poll_result(snmp_oids[j].result, true);
+			if (status != POLL_RESULT_VALID) {
+				record_result_error(errors, host, item, snmp_oids[j].result, true);
+				if (status == POLL_RESULT_INVALID) SET_UNDEFINED(snmp_oids[j].result);
+			}
+		}
+
+		snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
+
+		double thread_end = get_time_as_double();
+
+		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SNMP: v%i: %s, dsname: %s, oid: %s, value: %s", errors->host_id, errors->thread_id, poller_items[snmp_oids[j].array_position].local_data_id, (float) ((thread_end - thread_start) * 1000), host->snmp_version, host->hostname, poller_items[snmp_oids[j].array_position].rrd_name, poller_items[snmp_oids[j].array_position].arg1, poller_items[snmp_oids[j].array_position].result));
+
+		if ((!IS_UNDEFINED(poller_items[snmp_oids[j].array_position].result)) && (spike_kill && (!strstr(poller_items[snmp_oids[j].array_position].result,":")))) {
+			SET_UNDEFINED(poller_items[snmp_oids[j].array_position].result);
+		}
+	}
+}
+
 typedef struct {
 	int host_id;
 	const char *limits;
@@ -731,7 +759,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	int    i = 0;
-	int    j = 0;
 	int    k = 0;
 	int    num_oids = 0;
 	int    snmp_poller_items = 0;
@@ -1088,26 +1115,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 					if (num_oids > 0) {
 						snmp_get_multi(host, poller_items, snmp_oids, num_oids);
 
-						for (j = 0; j < num_oids; j++) {
-							const target_t *item = &poller_items[snmp_oids[j].array_position];
-							if (host->ignore_host) {
-								SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
-									host_id, host_thread, item->local_data_id, host->snmp_timeout, host->hostname));
-								SET_UNDEFINED(snmp_oids[j].result);
-							} else {
-								enum poll_result_status status = normalize_poll_result(snmp_oids[j].result, true);
-								if (status != POLL_RESULT_VALID) {
-									record_result_error(&error_context, host, item, snmp_oids[j].result, true);
-									if (status == POLL_RESULT_INVALID) SET_UNDEFINED(snmp_oids[j].result);
-								}
-							}
-
-							snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
-
-							thread_end = get_time_as_double();
-
-							SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SNMP: v%i: %s, dsname: %s, oid: %s, value: %s", host_id, host_thread, poller_items[snmp_oids[j].array_position].local_data_id, (float) ((thread_end - thread_start) * 1000), host->snmp_version, host->hostname, poller_items[snmp_oids[j].array_position].rrd_name, poller_items[snmp_oids[j].array_position].arg1, poller_items[snmp_oids[j].array_position].result));
-						}
+						store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, FALSE);
 
 						/* reset num_snmps */
 						num_oids = 0;
@@ -1153,30 +1161,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 				if (num_oids >= host->max_oids) {
 					snmp_get_multi(host, poller_items, snmp_oids, num_oids);
 
-					for (j = 0; j < num_oids; j++) {
-						const target_t *item = &poller_items[snmp_oids[j].array_position];
-						if (host->ignore_host) {
-							SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
-								host_id, host_thread, item->local_data_id, host->snmp_timeout, host->hostname));
-							SET_UNDEFINED(snmp_oids[j].result);
-						} else {
-							enum poll_result_status status = normalize_poll_result(snmp_oids[j].result, true);
-							if (status != POLL_RESULT_VALID) {
-								record_result_error(&error_context, host, item, snmp_oids[j].result, true);
-								if (status == POLL_RESULT_INVALID) SET_UNDEFINED(snmp_oids[j].result);
-							}
-						}
-
-						snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
-
-						thread_end = get_time_as_double();
-
-						SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SNMP: v%i: %s, dsname: %s, oid: %s, value: %s", host_id, host_thread, poller_items[snmp_oids[j].array_position].local_data_id, (float) ((thread_end - thread_start) * 1000), host->snmp_version, host->hostname, poller_items[snmp_oids[j].array_position].rrd_name, poller_items[snmp_oids[j].array_position].arg1, poller_items[snmp_oids[j].array_position].result));
-
-						if ((!IS_UNDEFINED(poller_items[snmp_oids[j].array_position].result)) && (spike_kill && (!strstr(poller_items[snmp_oids[j].array_position].result,":")))) {
-							SET_UNDEFINED(poller_items[snmp_oids[j].array_position].result);
-						}
-					}
+					store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, spike_kill);
 
 					/* reset num_snmps */
 					num_oids = 0;
@@ -1252,30 +1237,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		if (num_oids > 0) {
 			snmp_get_multi(host, poller_items, snmp_oids, num_oids);
 
-			for (j = 0; j < num_oids; j++) {
-				const target_t *item = &poller_items[snmp_oids[j].array_position];
-				if (host->ignore_host) {
-					SPINE_LOG(("Device[%i] HT[%i] DS[%i] WARNING: SNMP timeout detected [%i ms], ignoring host '%s'",
-						host_id, host_thread, item->local_data_id, host->snmp_timeout, host->hostname));
-					SET_UNDEFINED(snmp_oids[j].result);
-				} else {
-					enum poll_result_status status = normalize_poll_result(snmp_oids[j].result, true);
-					if (status != POLL_RESULT_VALID) {
-						record_result_error(&error_context, host, item, snmp_oids[j].result, true);
-						if (status == POLL_RESULT_INVALID) SET_UNDEFINED(snmp_oids[j].result);
-					}
-				}
-
-				snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
-
-				thread_end = get_time_as_double();
-
-				SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SNMP: v%i: %s, dsname: %s, oid: %s, value: %s", host_id, host_thread, poller_items[snmp_oids[j].array_position].local_data_id, (float) ((thread_end - thread_start) * 1000), host->snmp_version, host->hostname, poller_items[snmp_oids[j].array_position].rrd_name, poller_items[snmp_oids[j].array_position].arg1, poller_items[snmp_oids[j].array_position].result));
-
-				if ((!IS_UNDEFINED(poller_items[snmp_oids[j].array_position].result)) && (spike_kill && (!strstr(poller_items[snmp_oids[j].array_position].result,":")))) {
-					SET_UNDEFINED(poller_items[snmp_oids[j].array_position].result);
-				}
-			}
+			store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, spike_kill);
 		}
 
 		buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
