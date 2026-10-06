@@ -46,6 +46,15 @@
  *  \return TRUE if successful, or FALSE if not.
  *
  */
+static void retry_disconnected_query(MYSQL *mysql, int error, char *function, int *error_count) {
+	if (errno == EINTR) {
+		spine_sleep_usec(50000);
+		return;
+	}
+	db_reconnect(mysql, error, function);
+	if (++*error_count > 30) die("FATAL: Too many Reconnect Attempts!");
+}
+
 int db_insert(MYSQL *mysql, int type, const char *query) {
 	(void)type; /* The supplied connection determines the database. */
 	int error_count = 0;
@@ -56,12 +65,7 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	while (mysql_query(mysql, query) != 0) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
-			if (errno == EINTR) {
-				spine_sleep_usec(50000);
-			} else {
-				db_reconnect(mysql, error, "db_insert");
-				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
-			}
+			retry_disconnected_query(mysql, error, "db_insert", &error_count);
 			continue;
 		}
 		if (error == 1213 || error == 1205) {
@@ -124,12 +128,7 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 	while (mysql_query(mysql, query) != 0) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
-			if (errno == EINTR) {
-				spine_sleep_usec(50000);
-			} else {
-				db_reconnect(mysql, error, "db_query");
-				if (++error_count > 30) die("FATAL: Too many Reconnect Attempts!");
-			}
+			retry_disconnected_query(mysql, error, "db_query", &error_count);
 			continue;
 		}
 		if (error == 1213 || error == 1205) {
