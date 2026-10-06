@@ -493,7 +493,6 @@ static MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
 static void report_startup_version(int mode) {
 	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
 		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
-
 		if (set.poller_id > 1) {
 			if (mode == REMOTE) {
 				SPINE_LOG_DEBUG(("DEBUG: Sending entries to remote database in 'online' mode"));
@@ -501,20 +500,16 @@ static void report_startup_version(int mode) {
 				SPINE_LOG_DEBUG(("DEBUG: Sending entries to local database in 'offline', or 'recovery' mode"));
 			}
 		}
-	} else {
-		if (!set.stdout_notty) {
-			printf("Version %s starting\n", VERSION);
-
-			if (set.poller_id > 1) {
-				if (mode == REMOTE) {
-					printf("Sending entries to remote database in 'online' mode\n");
-				} else {
-					printf("Sending entries to local database in 'offline', or 'recovery' mode\n");
-				}
-			}
-		}
+		return;
 	}
-
+	if (set.stdout_notty) return;
+	printf("Version %s starting\n", VERSION);
+	if (set.poller_id <= 1) return;
+	if (mode == REMOTE) {
+		printf("Sending entries to remote database in 'online' mode\n");
+	} else {
+		printf("Sending entries to local database in 'offline', or 'recovery' mode\n");
+	}
 }
 
 static void report_startup(int mode) {
