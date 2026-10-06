@@ -24,10 +24,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <time.h>
 
 #ifdef HAVE_LIBSYSTEMD
+#include <syslog.h>
 #include <systemd/sd-daemon.h>
 #include <systemd/sd-journal.h>
 #endif
@@ -48,6 +48,7 @@ void spine_sd_ready(void) {
  * the output is always NUL-terminated. Shared by spine_sd_stopping and
  * spine_sd_status; NOT used for log MESSAGE sanitisation (that path has
  * a separate sanitiser in util.c so it can preserve structured keys). */
+#ifdef HAVE_LIBSYSTEMD
 static void sd_field_sanitize(const char *src, char *dst, size_t dstsz) {
     if (dst == NULL || dstsz == 0) return;
     if (src == NULL) {
@@ -69,6 +70,7 @@ static void sd_field_sanitize(const char *src, char *dst, size_t dstsz) {
     }
     dst[n] = '\0';
 }
+#endif
 
 void spine_sd_stopping(const char *reason) {
 #ifdef HAVE_LIBSYSTEMD
