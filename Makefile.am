@@ -40,8 +40,8 @@ dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql te
 TESTS = $(check_PROGRAMS)
 test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c tests/test_spine_contracts.c tests/test_spine_reindex_contracts.c tests/test_spine_snmpv3_contracts.c tests/test_spine_settings_contracts.c tests/test_spine_cli_contracts.c tests/test_spine_stream_contracts.c tests/test_spine_output_contracts.c
 # Link the real production translation units and globals, with a separate test
-# entry point. The test source undefines main before declaring its own entry.
-test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
+# entry point. Only spine.c maps its own entry point in the test build.
+test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -DSPINE_TEST_PROGRAM_ENTRY
 
 if HAVE_LINKER_WRAP
 check_PROGRAMS += test_spine_faults
@@ -53,7 +53,7 @@ test_spine_faults_LDADD = test_spine_regressions-spine.$(OBJEXT)
 test_spine_faults_LDFLAGS = $(AM_LDFLAGS) -Wl,--wrap=strftime -Wl,--wrap=mysql_query -Wl,--wrap=mysql_ping \
  -Wl,--wrap=pipe -Wl,--wrap=socketpair -Wl,--wrap=fork -Wl,--wrap=dup2 \
  -Wl,--wrap=execve -Wl,--wrap=malloc -Wl,--wrap=strdup \
- -Wl,--wrap=snmp_sess_open -Wl,--wrap=snmp_sess_close
+ -Wl,--wrap=snmp_sess_open -Wl,--wrap=snmp_sess_close -Wl,--wrap=pthread_create
 endif
 
 

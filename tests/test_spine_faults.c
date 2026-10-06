@@ -29,6 +29,9 @@ extern void *__real_malloc(size_t);
 extern char *__real_strdup(const char *);
 extern void *__real_snmp_sess_open(netsnmp_session *);
 extern int __real_snmp_sess_close(void *);
+extern int __real_pthread_create(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
+extern int spine_program_main(int, char **);
+extern poller_thread_t **details;
 
 static int format_failures;
 static int format_fault_calls;
@@ -53,6 +56,60 @@ static void *owned_snmp_session;
 static int session_opens;
 static int session_close_attempts;
 static int session_closes;
+static bool launch_case_active;
+static int launch_error;
+static int launch_failures;
+static int launch_expected_faults;
+static int launch_calls;
+static int launch_fault_calls;
+static int launch_checkpoints;
+static int launch_device_counter;
+static spine_permits_t *launch_startup;
+
+int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
+	void *(*start)(void *), void *arg) {
+	if (!launch_case_active || start != &child) return __real_pthread_create(thread, attributes, start, arg);
+	const poller_thread_t *work = arg;
+	assert(work != NULL && work->host_id == 902);
+	launch_calls++;
+	launch_device_counter = work->device_counter;
+	launch_startup = work->thread_init_sem;
+	if (launch_failures > 0) {
+		launch_failures--;
+		launch_fault_calls++;
+		return launch_error;
+	}
+	return __real_pthread_create(thread, attributes, start, arg);
+}
+
+static void inspect_worker_launch_completion(void) {
+	assert(launch_startup != NULL && launch_calls > 0);
+	assert(spine_permits_available(&available_threads) == 1);
+	assert(spine_permits_available(launch_startup) == 1);
+	assert(spine_permits_available(&available_scripts) == MAX_SIMULTANEOUS_SCRIPTS);
+	assert(db_pool_local != NULL && db_pool_local[0].free);
+	thread_mutex_lock(LOCK_THDET);
+	const poller_thread_t *device = details[launch_device_counter];
+	assert(device != NULL && device->host_id == 902);
+	if (launch_error == EPERM) {
+		assert(set.exit.exit_code == EXIT_FAILURE && !device->complete);
+		assert(device->threads_complete == 0 && !device->output_failed);
+	} else {
+		assert(set.exit.exit_code == EXIT_SUCCESS && device->complete);
+		assert(device->threads_complete == 1 && !device->output_failed);
+	}
+	thread_mutex_unlock(LOCK_THDET);
+	launch_checkpoints++;
+}
+
+static void verify_worker_launch_exit(void) {
+	fflush(NULL);
+	fprintf(stderr, "worker launch checkpoint: checkpoints=%i calls=%i faults=%i pending=%i exit=%i\n", launch_checkpoints, launch_calls, launch_fault_calls, launch_failures, set.exit.exit_code);
+	assert(launch_checkpoints == 1 && launch_failures == 0);
+	assert(launch_fault_calls == launch_expected_faults);
+	assert(launch_calls == (launch_error == EAGAIN ? 2 : 1));
+	puts("production worker launch completion checkpoint passed");
+}
 
 void *__wrap_snmp_sess_open(netsnmp_session *session) {
 	void *handle = __real_snmp_sess_open(session);
@@ -85,6 +142,10 @@ size_t __wrap_strftime(char *output, size_t capacity, const char *format, const 
 }
 
 int __wrap_mysql_query(MYSQL *mysql, const char *query) {
+	static const char completion[] = "UPDATE poller_time SET end_time=NOW() WHERE poller_id=";
+	if (launch_case_active && strncmp(query, completion, sizeof(completion) - 1) == 0) {
+		inspect_worker_launch_completion();
+	}
 	if (query_fault_armed && mysql == query_fault_connection && strcmp(query, query_fault_statement) == 0) {
 		query_fault_armed = 0;
 		bool reconnect = FALSE;
@@ -451,7 +512,112 @@ static void test_ping_only_session_lifetime(void) {
 	puts("production ping-only SNMP session ownership regressions passed");
 }
 
+static int execute_worker_launch_case(const char *scenario, char *config) {
+	assert(strcmp(scenario, "admitted") == 0 || strcmp(scenario, "rejected") == 0 || strcmp(scenario, "retry") == 0);
+	launch_case_active = TRUE;
+	if (strcmp(scenario, "rejected") == 0) launch_error = EPERM;
+	else if (strcmp(scenario, "retry") == 0) launch_error = EAGAIN;
+	launch_expected_faults = launch_error == 0 ? 0 : 1;
+	launch_failures = launch_expected_faults;
+	assert(atexit(verify_worker_launch_exit) == 0);
+	alarm(15);
+	char interval[] = "poller_interval:5";
+	char profiles[] = "active_profiles:2";
+	char boost[] = "boost_rrd_update_enable:0";
+	char redirect[] = "boost_redirect:0";
+	char *arguments[] = {"spine", "-C", "/nonexistent/spine-fault.conf", "--conf", config,
+		"-p", "1", "-t", "1", "-H", "902", "-O", interval, "-O", profiles,
+		"-O", boost, "-O", redirect, "-S", "-V", "2", NULL};
+	return spine_program_main((int)(sizeof(arguments) / sizeof(arguments[0]) - 1), arguments);
+}
+
+static pid_t run_worker_launch_case(const char *scenario, const char *config, int expected) {
+	fflush(NULL);
+	pid_t process = fork();
+	assert(process >= 0);
+	if (process == 0) {
+		execl("./test_spine_faults", "test_spine_faults", "--worker-launch-case", scenario, config, NULL);
+		_exit(127);
+	}
+	int status;
+	assert(waitpid(process, &status, 0) == process);
+	fprintf(stderr, "worker launch case=%s expected=%i status=%i\n", scenario, expected, status);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+	return process;
+}
+
+static void test_worker_launch_failures(void) {
+	MYSQL mysql;
+	db_connect(LOCAL, &mysql);
+	/* Refuse any pre-existing spelling of this fixture identity. Grants are
+	 * limited to DML on the isolated fixture; no global administrative rights. */
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM mysql.user WHERE User='spine_owned_launch'") == 0);
+	assert(db_insert(&mysql, LOCAL, "CREATE USER 'spine_owned_launch'@'%' IDENTIFIED BY 'regression-only'"));
+	assert(db_insert(&mysql, LOCAL, "GRANT SELECT,INSERT,UPDATE,DELETE ON spine_regressions.* TO 'spine_owned_launch'@'%'"));
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(CHAR(39),'spine_owned_launch',CHAR(39),'@',CHAR(39),'%',CHAR(39))") == 4);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=CONCAT(CHAR(39),'spine_owned_launch',CHAR(39),'@',CHAR(39),'%',CHAR(39)) AND TABLE_SCHEMA='spine_regressions' AND PRIVILEGE_TYPE IN('SELECT','INSERT','UPDATE','DELETE') AND IS_GRANTABLE='NO'") == 4);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=CONCAT(CHAR(39),'spine_owned_launch',CHAR(39),'@',CHAR(39),'%',CHAR(39)) AND PRIVILEGE_TYPE<>'USAGE'") == 0);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM host WHERE id=902") == 0);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=902 OR local_data_id=942001") == 0);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=942001") == 0);
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=942001") == 0);
+	/* Poller1 always includes device0 if present, regardless of hostlist. */
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=0 AND poller_id=1") == 0);
+	assert(db_insert(&mysql, LOCAL, "INSERT INTO host(id,hostname,poller_id,disabled,device_threads,availability_method,snmp_version,status_fail_date,status_rec_date) VALUES(902,'127.0.0.1',1,'',1,0,0,'2026-10-06 00:00:00','2026-10-06 00:00:00')"));
+	char query[BUFSIZE];
+	spine_snprintf(query, sizeof(query), "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name,snmp_port,rrd_step,rrd_next_step) VALUES(942001,902,1,%i,'/usr/bin/printf 123','owned',161,300,0)", POLLER_ACTION_SCRIPT);
+	assert(db_insert(&mysql, LOCAL, query));
+	char directory[] = "/tmp/spine-worker-launch-XXXXXX";
+	assert(mkdtemp(directory) != NULL);
+	struct stat owned;
+	assert(lstat(directory, &owned) == 0 && S_ISDIR(owned.st_mode));
+	assert(owned.st_uid == geteuid() && (owned.st_mode & 0777) == 0700);
+	char config[SMALL_BUFSIZE];
+	char log_path[SMALL_BUFSIZE];
+	spine_snprintf(config, sizeof(config), "%s/spine.conf", directory);
+	spine_snprintf(log_path, sizeof(log_path), "%s/spine.log", directory);
+	int descriptor = open(config, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	assert(descriptor >= 0);
+	assert(fstat(descriptor, &owned) == 0 && S_ISREG(owned.st_mode));
+	assert(owned.st_uid == geteuid() && (owned.st_mode & 0777) == 0600);
+	FILE *file = fdopen(descriptor, "w");
+	assert(file != NULL);
+	/* Public fixture-only credentials follow the parser's two-token grammar.
+	 * A value-less DB_Pass line retains its configured default. */
+	assert(fprintf(file, "DB_Host %s\nDB_Database spine_regressions\nDB_User spine_owned_launch\nDB_Pass regression-only\nDB_Port 3306\nCacti_Log %s\n", set.database.host, log_path) > 0);
+	assert(fclose(file) == 0);
+	const char *const scenarios[] = {"admitted", "rejected", "retry"};
+	for (size_t index = 0; index < sizeof(scenarios) / sizeof(scenarios[0]); index++) {
+		assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id=942001"));
+		assert(db_insert(&mysql, LOCAL, "UPDATE poller_item SET rrd_next_step=0 WHERE host_id=902 AND local_data_id=942001"));
+		unsigned long long first_id = fault_database_count(&mysql, "SELECT COALESCE(MAX(id),0) FROM poller_time");
+		bool rejected = index == 1;
+		pid_t process = run_worker_launch_case(scenarios[index], config, rejected ? EXIT_FAILURE : EXIT_SUCCESS);
+		assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=942001 AND output='123'") == (rejected ? 0 : 1));
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_item WHERE host_id=902 AND local_data_id=942001 AND rrd_next_step=%i", rejected ? 0 : 295);
+		assert(fault_database_count(&mysql, query) == 1);
+		assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=942001") == 0);
+		spine_snprintf(query, sizeof(query), "DELETE FROM poller_time WHERE poller_id=1 AND pid=%ld AND id>%llu", (long)process, first_id);
+		assert(db_insert(&mysql, LOCAL, query));
+	}
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id=942001"));
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=902 AND local_data_id=942001"));
+	assert(db_insert(&mysql, LOCAL, "DELETE FROM host WHERE id=902"));
+	assert(db_insert(&mysql, LOCAL, "DROP USER 'spine_owned_launch'@'%'"));
+	assert(fault_database_count(&mysql, "SELECT COUNT(*) FROM mysql.user WHERE User='spine_owned_launch'") == 0);
+	assert(unlink(config) == 0);
+	if (unlink(log_path) != 0) assert(errno == ENOENT);
+	assert(rmdir(directory) == 0);
+	db_disconnect(&mysql);
+	puts("production actual main worker launch failure and retry regressions passed");
+}
+
 int main(int argc, char **argv) {
+	/* Fresh exec enters production initialization exactly once, without
+	 * reinitializing the ordinary fault harness's inherited mutexes. */
+	if (argc == 4 && strcmp(argv[1], "--worker-launch-case") == 0) {
+		return execute_worker_launch_case(argv[2], argv[3]);
+	}
 	config_defaults();
 	init_mutexes();
 	alarm(20);
@@ -460,6 +626,7 @@ int main(int argc, char **argv) {
 	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
 		test_real_database_retry();
 		test_ping_only_session_lifetime();
+		test_worker_launch_failures();
 	}
 	else assert(argc == 1);
 	alarm(0);

@@ -34,6 +34,22 @@ AC_PROG_CC
 AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_HEADERS(config/config.h)
 
+# These generic package macros belong to the generated configuration header.
+# Leave them available for Net-SNMP to define; snmp_spine_init uses its
+# PACKAGE_VERSION when header/library version verification is enabled.
+# Continue each directive so config.status preserves the literal cleanup
+# instead of substituting another package definition into the header footer.
+AH_BOTTOM([#undef \
+PACKAGE_NAME
+#undef \
+PACKAGE_VERSION
+#undef \
+PACKAGE_BUGREPORT
+#undef \
+PACKAGE_STRING
+#undef \
+PACKAGE_TARNAME])
+
 # static libraries
 AC_ARG_WITH(static,
   AS_HELP_STRING([--with-static],[Build using static libraries

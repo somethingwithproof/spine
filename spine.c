@@ -97,6 +97,10 @@
 #include "common.h"
 #include "spine.h"
 
+#ifdef SPINE_TEST_PROGRAM_ENTRY
+#define main spine_program_main
+#endif
+
 /* Global Variables */
 int entries = 0;
 int num_hosts = 0;
@@ -1333,3 +1337,7 @@ static char *getarg(char *opt, char ***pargv) {
 
 	die("ERROR: option %s requires a parameter", optname);
 }
+
+#ifdef SPINE_TEST_PROGRAM_ENTRY
+#undef main
+#endif

@@ -17,10 +17,6 @@
 #include <sys/un.h>
 #include <limits.h>
 
-#ifdef main
-#undef main
-#endif
-
 extern int spine_program_main(int argc, char **argv);
 extern void test_output_write_contracts(MYSQL *mysql);
 extern void test_additional_contracts(void);
