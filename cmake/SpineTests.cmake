@@ -295,7 +295,7 @@ function(spine_add_tests)
     target_link_libraries(test_dry_run PRIVATE spine_hardening)
     add_test(NAME dry_run COMMAND test_dry_run)
 
-    add_executable(test_db_escape tests/unit/test_db_escape.c tests/unit/test_sql_stubs.c src/sql.c src/db_session.c)
+    add_executable(test_db_escape tests/unit/test_db_escape.c tests/unit/test_sql_stubs.c src/sql.c src/db_session.c src/output_buffer.c)
     target_include_directories(
       test_db_escape
       PRIVATE ${CMAKE_BINARY_DIR}

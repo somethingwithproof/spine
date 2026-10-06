@@ -38,9 +38,17 @@
 #include "host_polling_service.h"
 #include "host_polling_stages.h"
 #include "poll_state.h"
+#include "output_buffer.h"
 #include "platform/platform_fd.h"
 
 static int poll_host_run(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
+
+static void append_output_query(char *buffer, size_t capacity, const char *part, size_t length) {
+	if (!spine_output_buffer_append(buffer, capacity, part, length)) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Poller output query exceeds its allocated buffer");
+	}
+}
 
 #ifdef HAVE_LIBUV
 typedef struct {
@@ -293,7 +301,7 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	int mode;
 	int i;
 	int new_buffer = TRUE;
-	int buf_length;
+	size_t buf_length;
 	char poller_next_step_query[BUFSIZE];
 	int error_query_len;
 	char *error_query;
@@ -328,7 +336,14 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	}
 
 	if (pipeline_data->poller_items != NULL && pipeline_data->rows_processed > 0) {
-		buf_length = MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER;
+		buf_length = spine_output_buffer_size(MAX_MYSQL_BUF_SIZE, sizeof(result_string),
+			(size_t)(pipeline_data->query8_len > pipeline_data->query11_len ?
+				pipeline_data->query8_len : pipeline_data->query11_len),
+			(size_t)pipeline_data->posuffix_len);
+		if (buf_length == 0) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Poller output query buffer size overflow");
+		}
 		query3 = malloc((size_t)buf_length);
 		if (query3 == NULL) {
 			SPINE_FREE(pipeline_data->poller_items);
@@ -341,7 +356,7 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 		}
 
 		memset(query3, 0, (size_t)buf_length);
-		strncat(query3, pipeline_data->query8, (size_t)pipeline_data->query8_len);
+		append_output_query(query3, buf_length, pipeline_data->query8, (size_t)pipeline_data->query8_len);
 		out_buffer = strlen(query3);
 
 		if (set.boost_redirect && set.boost_enabled) {
@@ -357,7 +372,7 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 				return RESULT_CODE_ERROR;
 			}
 			memset(query12, 0, (size_t)buf_length);
-			strncat(query12, pipeline_data->query11, (size_t)pipeline_data->query11_len);
+			append_output_query(query12, buf_length, pipeline_data->query11, (size_t)pipeline_data->query11_len);
 		}
 
 		for (i = 0; i < pipeline_data->rows_processed; i++) {
@@ -375,17 +390,17 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 				escaped_result);
 			result_length = (int)strlen(result_string);
 
-			if ((out_buffer + (size_t)result_length) >= MAX_MYSQL_BUF_SIZE) {
-				strncat(query3, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+			if (spine_output_buffer_needs_flush(out_buffer, (size_t)result_length, MAX_MYSQL_BUF_SIZE)) {
+				append_output_query(query3, buf_length, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
 				db_insert(&mysqlt, mode, query3);
 				memset(query3, 0, (size_t)buf_length);
-				strncat(query3, pipeline_data->query8, (size_t)pipeline_data->query8_len);
+				append_output_query(query3, buf_length, pipeline_data->query8, (size_t)pipeline_data->query8_len);
 
 				if (set.boost_redirect && set.boost_enabled) {
-					strncat(query12, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+					append_output_query(query12, buf_length, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
 					db_insert(&mysqlt, mode, query12);
 					memset(query12, 0, (size_t)buf_length);
-					strncat(query12, pipeline_data->query11, (size_t)pipeline_data->query11_len);
+					append_output_query(query12, buf_length, pipeline_data->query11, (size_t)pipeline_data->query11_len);
 				}
 
 				out_buffer = strlen(query3);
@@ -393,9 +408,9 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 			}
 
 			result_string[0] = new_buffer ? ' ' : ',';
-			strncat(query3, result_string, (size_t)result_length);
+			append_output_query(query3, buf_length, result_string, (size_t)result_length);
 			if (set.boost_redirect && set.boost_enabled) {
-				strncat(query12, result_string, (size_t)result_length);
+				append_output_query(query12, buf_length, result_string, (size_t)result_length);
 			}
 
 			out_buffer += strlen(result_string);
@@ -403,10 +418,10 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 		}
 
 		if (out_buffer > strlen(pipeline_data->query8)) {
-			strncat(query3, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+			append_output_query(query3, buf_length, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
 			db_insert(&mysqlt, mode, query3);
 			if (set.boost_redirect && set.boost_enabled) {
-				strncat(query12, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
+				append_output_query(query12, buf_length, pipeline_data->posuffix, (size_t)pipeline_data->posuffix_len);
 				db_insert(&mysqlt, mode, query12);
 			}
 		}
@@ -592,7 +607,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	int perform_assert          = TRUE;
 	int new_buffer              = TRUE;
 	int ignore_sysinfo          = TRUE;
-	int buf_length              = 0;
+	size_t buf_length           = 0;
 
 	pool_t *local_cnn = NULL;
 	pool_t *remote_cnn = NULL;
@@ -2239,7 +2254,12 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				pipeline_data->posuffix_len = posuffix_len;
 				poller_items = NULL;
 			} else {
-				buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
+				buf_length = spine_output_buffer_size(MAX_MYSQL_BUF_SIZE, sizeof(result_string),
+					(size_t)(query8_len > query11_len ? query8_len : query11_len), (size_t)posuffix_len);
+				if (buf_length == 0) {
+					set.exit_code = EXIT_FAILURE;
+					die("ERROR: Poller output query buffer size overflow");
+				}
 
 				/* insert the query results into the database */
 				if (!(query3 = (char *)malloc(buf_length))) {
@@ -2250,7 +2270,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				memset(query3, 0, buf_length);
 
 				/* append data */
-				strncat(query3, query8, query8_len);
+				append_output_query(query3, buf_length, query8, query8_len);
 
 				out_buffer = strlen(query3);
 
@@ -2264,7 +2284,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 					memset(query12, 0, buf_length);
 
 					/* append data */
-					strncat(query12, query11, query11_len);
+					append_output_query(query12, buf_length, query11, query11_len);
 				}
 
 				int mode;
@@ -2296,28 +2316,28 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 					result_length = strlen(result_string);
 
 					/* if the next element to the buffer will overflow it, write to the database */
-					if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
+					if (spine_output_buffer_needs_flush((size_t)out_buffer, (size_t)result_length, MAX_MYSQL_BUF_SIZE)) {
 						/* append the suffix */
-						strncat(query3, posuffix, posuffix_len);
+						append_output_query(query3, buf_length, posuffix, posuffix_len);
 
 						/* insert the record */
 						db_insert(&mysqlt, mode, query3);
 
 						/* re-initialize the query buffer */
-						memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+						memset(query3, 0, buf_length);
 
-						strncat(query3, query8, query8_len);
+						append_output_query(query3, buf_length, query8, query8_len);
 
 						/* insert the record for boost */
 						if (set.boost_redirect && set.boost_enabled) {
 							/* append the suffix */
-							strncat(query12, posuffix, posuffix_len);
+							append_output_query(query12, buf_length, posuffix, posuffix_len);
 
 							db_insert(&mysqlt, mode, query12);
 
-							memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
+							memset(query12, 0, buf_length);
 
-							strncat(query12, query11, query11_len);
+							append_output_query(query12, buf_length, query11, query11_len);
 						}
 
 						/* reset the output buffer length */
@@ -2334,10 +2354,10 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 						result_string[0] = ',';
 					}
 
-					strncat(query3, result_string, result_length);
+					append_output_query(query3, buf_length, result_string, result_length);
 
 					if (set.boost_redirect && set.boost_enabled) {
-						strncat(query12, result_string, result_length);
+						append_output_query(query12, buf_length, result_string, result_length);
 					}
 
 					out_buffer = out_buffer + strlen(result_string);
@@ -2348,7 +2368,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				/* perform the last insert if there is data to process */
 				if (out_buffer > strlen(query8)) {
 					/* append the suffix */
-					strncat(query3, posuffix, posuffix_len);
+					append_output_query(query3, buf_length, posuffix, posuffix_len);
 
 					/* insert records into database */
 					db_insert(&mysqlt, mode, query3);
@@ -2356,7 +2376,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 					/* insert the record for boost */
 					if (set.boost_redirect && set.boost_enabled) {
 						/* append the suffix */
-						strncat(query12, posuffix, posuffix_len);
+						append_output_query(query12, buf_length, posuffix, posuffix_len);
 
 						db_insert(&mysqlt, mode, query12);
 					}
