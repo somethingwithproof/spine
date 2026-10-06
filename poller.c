@@ -435,6 +435,71 @@ static bool refresh_host_availability(MYSQL *mysql, host_t *host, ping_t *ping, 
 	return TRUE;
 }
 
+typedef struct {
+	MYSQL *local;
+	MYSQL *remote;
+	const host_t *host;
+	const poller_thread_t *work;
+	int *errors;
+	int *spike_kill;
+} reindex_evaluation_t;
+
+static bool reindex_assertion_failed(const reindex_t *reindex, const char *value) {
+	if (value == NULL || IS_UNDEFINED(value) || STRIMATCH(value, "No Such Instance")) return FALSE;
+	if (STRMATCH(reindex->op, "=")) return strcmp(reindex->assert_value, value) != 0;
+	if (STRMATCH(reindex->op, ">")) return atoll(reindex->assert_value) < atoll(value);
+	if (STRMATCH(reindex->op, "<")) return !STRMATCH(reindex->assert_value, "0") && atoll(reindex->assert_value) > atoll(value);
+	return FALSE;
+}
+
+static void log_reindex_assertion(const reindex_evaluation_t *evaluation, const reindex_t *reindex, const char *value, bool failed) {
+	bool highlighted = is_debug_device(evaluation->host->id) || set.spine_log_level == 2;
+	if (!failed && !highlighted) return;
+	if (failed && !highlighted && set.spine_log_level == 1) (*evaluation->errors)++;
+	SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s%s%s'", evaluation->host->id, evaluation->work->host_thread, reindex->data_query_id, reindex->assert_value, failed ? reindex->op : "=", value != NULL ? value : "(null)"));
+}
+
+static void queue_reindex(const reindex_evaluation_t *evaluation, const reindex_t *reindex) {
+	if (evaluation->work->host_thread != 1) return;
+	char query[LRG_BUFSIZE];
+	snprintf(query, sizeof(query), "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, evaluation->host->id, reindex->data_query_id);
+	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) db_insert(evaluation->remote, REMOTE, query);
+	else db_insert(evaluation->local, LOCAL, query);
+}
+
+static void update_reindex_value(const reindex_evaluation_t *evaluation, const reindex_t *reindex, const char *value) {
+	/* An unavailable result cannot replace the stored assertion with uninitialized bytes. */
+	if (evaluation->work->host_thread != 1 || value == NULL) return;
+	char escaped_value[BUFSIZE];
+	char escaped_argument[BUFSIZE];
+	char query[LRG_BUFSIZE];
+	db_escape(evaluation->local, escaped_value, sizeof(escaped_value), value);
+	db_escape(evaluation->local, escaped_argument, sizeof(escaped_argument), reindex->arg1);
+	snprintf(query, sizeof(query), "UPDATE poller_reindex SET assert_value='%s' WHERE host_id='%i' AND data_query_id='%i' AND arg1='%s'", escaped_value, evaluation->work->host_id, reindex->data_query_id, escaped_argument);
+	db_insert(evaluation->local, LOCAL, query);
+}
+
+static void discard_reindex_spike(const reindex_evaluation_t *evaluation) {
+	*evaluation->spike_kill = TRUE;
+	if (is_debug_device(evaluation->host->id) || set.spine_log_level == 2) {
+		SPINE_LOG(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", evaluation->work->host_id, evaluation->work->host_thread, evaluation->host->hostname));
+	} else {
+		if (set.spine_log_level == 1) (*evaluation->errors)++;
+		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", evaluation->work->host_id, evaluation->work->host_thread, evaluation->host->hostname));
+	}
+}
+
+static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, const reindex_t *reindex, const char *value) {
+	bool failed = reindex_assertion_failed(reindex, value);
+	bool unavailable = value == NULL || IS_UNDEFINED(value) || STRIMATCH(value, "No Such Instance");
+	if (failed || unavailable) log_reindex_assertion(evaluation, reindex, value, failed);
+	if (failed) queue_reindex(evaluation, reindex);
+	if (failed || STRMATCH(reindex->op, ">") || STRMATCH(reindex->op, "<")) update_reindex_value(evaluation, reindex, value);
+	/* The old additional condition required one OID to equal two different strings. */
+	if (failed && STRMATCH(reindex->op, "<")) discard_reindex_spike(evaluation);
+	return failed;
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -461,7 +526,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	char *error_string;
 
 	int    num_rows;
-	int    assert_fail = FALSE;
 	int    reindex_err = FALSE;
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
@@ -474,8 +538,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    php_process;
 
 	char *poll_result = NULL;
-	char temp_poll_result[BUFSIZE];
-	char temp_arg1[BUFSIZE];
 
 	int  last_snmp_version = 0;
 	int  last_snmp_port    = 0;
@@ -669,7 +731,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 				// Cache uptime in case we need it again
 				sysUptime[0] = '\0';
 				while ((row = mysql_fetch_row(result))) {
-					assert_fail = FALSE;
 					reindex_err = FALSE;
 
 					/* initialize the reindex struction */
@@ -823,133 +884,8 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 						}
 
 						if (!reindex_err) {
-							if (!(query3 = (char *)malloc(LRG_BUFSIZE))) {
-								die("ERROR: Fatal malloc error: poller.c reindex insert!");
-							}
-							query3[0] = '\0';
-
-							/* assume ok if host is up and result wasn't obtained */
-							if (poll_result == NULL || (IS_UNDEFINED(poll_result)) || (STRIMATCH(poll_result, "No Such Instance"))) {
-								if (is_debug_device(host->id) || set.spine_log_level == 2) {
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s=%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								}
-
-								assert_fail = FALSE;
-							} else if ((!strcmp(reindex->op, "=")) && (strcmp(reindex->assert_value, poll_result))) {
-								if (is_debug_device(host->id) || set.spine_log_level == 2) {
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s=%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								} else {
-									if (set.spine_log_level == 1) {
-										errors++;
-									}
-
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s=%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								}
-
-								if (host_thread == 1) {
-									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action,command) values (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
-
-									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(mysqlr, REMOTE, query3);
-									} else {
-										db_insert(mysql, LOCAL, query3);
-									}
-
-									/* set zeros */
-									memset(query3, 0, buf_length);
-								}
-
-								assert_fail = TRUE;
-								previous_assert_failure = TRUE;
-							} else if ((!strcmp(reindex->op, ">")) && (atoll(reindex->assert_value) < atoll(poll_result))) {
-								if (is_debug_device(host->id) || set.spine_log_level == 2) {
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s>%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								} else {
-									if (set.spine_log_level == 1) {
-										errors++;
-									}
-
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s>%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								}
-
-								if (host_thread == 1) {
-									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action, command) ValueS (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
-
-									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(mysqlr, REMOTE, query3);
-									} else {
-										db_insert(mysql, LOCAL, query3);
-									}
-
-									/* set zeros */
-									memset(query3, 0, buf_length);
-								}
-
-								assert_fail = TRUE;
-								previous_assert_failure = TRUE;
-							/* if uptime is set to '0' don't fail out */
-							} else if ((strcmp(reindex->assert_value, "0")) && ((!strcmp(reindex->op, "<")) && (atoll(reindex->assert_value) > atoll(poll_result)))) {
-								if (is_debug_device(host->id) || set.spine_log_level == 2) {
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s<%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								} else {
-									if (set.spine_log_level == 1) {
-										errors++;
-									}
-
-									SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s<%s'", host->id, host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
-								}
-
-								if (host_thread == 1) {
-									snprintf(query3, LRG_BUFSIZE, "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, host->id, reindex->data_query_id);
-
-									if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-										db_insert(mysqlr, REMOTE, query3);
-									} else {
-										db_insert(mysql, LOCAL, query3);
-									}
-
-									/* set zeros */
-									memset(query3, 0, buf_length);
-								}
-
-								assert_fail = TRUE;
-								previous_assert_failure = TRUE;
-							}
-
-							/* update 'poller_reindex' with the correct information if:
-							 * 1) the assert fails
-							 * 2) the OP code is > or < meaning the current value could have changed without causing
-							 *     the assert to fail */
-							if (assert_fail || (!strcmp(reindex->op, ">")) || (!strcmp(reindex->op, "<"))) {
-								if (host_thread == 1) {
-									db_escape(mysql, temp_poll_result, sizeof(temp_poll_result), poll_result);
-									db_escape(mysql, temp_arg1, sizeof(temp_arg1), reindex->arg1);
-
-									snprintf(query3, LRG_BUFSIZE, "UPDATE poller_reindex SET assert_value='%s' WHERE host_id='%i' AND data_query_id='%i' AND arg1='%s'", temp_poll_result, host_id, reindex->data_query_id, temp_arg1);
-
-									db_insert(mysql, LOCAL, query3);
-
-									/* set zeros */
-									memset(query3, 0, buf_length);
-								}
-
-								if (assert_fail &&
-									((!strcmp(reindex->op, "<")) || (!strcmp(reindex->arg1,".1.3.6.1.2.1.1.3.0") && !strcmp(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")))) {
-									spike_kill = TRUE;
-
-									if (is_debug_device(host->id) || set.spine_log_level == 2) {
-										SPINE_LOG(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", host_id, host_thread, host->hostname));
-									} else {
-										if (set.spine_log_level == 1) {
-											errors++;
-										}
-
-										SPINE_LOG_MEDIUM(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", host_id, host_thread, host->hostname));
-									}
-								}
-							}
-
-							SPINE_FREE(query3);
+							const reindex_evaluation_t evaluation = {mysql, mysqlr, host, work, &errors, &spike_kill};
+							if (evaluate_reindex_assertion(&evaluation, reindex, poll_result)) previous_assert_failure = TRUE;
 							SPINE_FREE(poll_result);
 						}
 					}

@@ -1462,6 +1462,69 @@ static void test_poll_missing_connection(const poller_thread_t *work) {
 	}
 }
 
+static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
+	static const struct {
+		const char *op;
+		const char *expected;
+		const char *command;
+		int action;
+		int queued;
+		const char *stored;
+		const char *output;
+	} cases[] = {
+		{"=", "123", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 0, "123", "123"},
+		{"=", "122", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 1, "123", "123"},
+		{">", "122", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 1, "123", "123"},
+		{">", "124", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 0, "123", "123"},
+		{"<", "124", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 1, "123", "U"},
+		{"<", "122", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 0, "123", "123"},
+		{"<", "0", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 0, "123", "123"},
+		{"=", "123", "/usr/bin/printf 'a\\nb\\n'", POLLER_ACTION_SCRIPT_COUNT, 1, "2", "123"},
+		{"=", "123", "/usr/bin/printf U", POLLER_ACTION_SCRIPT, 0, "123", "123"},
+		{"<", "124", "/usr/bin/printf U", POLLER_ACTION_SCRIPT, 0, "U", "123"},
+		{"<", "124", "unknown", 99, 0, "124", "123"}
+	};
+	for (int level = 0; level <= 2; level++) {
+		set.spine_log_level = level;
+		for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
+			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+			char escaped_command[BUFSIZE];
+			db_escape(mysql, escaped_command, sizeof(escaped_command), cases[index].command);
+			char query[LRG_BUFSIZE];
+			spine_snprintf(query, sizeof(query), "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (%d,7,%d,'%s','%s','%s')", work->thread.host_id, cases[index].action, cases[index].op, cases[index].expected, escaped_command);
+			assert(db_insert(mysql, LOCAL, query));
+			work->thread.complete = FALSE;
+			work->thread.threads_complete = 0;
+			work->errors = 0;
+			pthread_t worker;
+			assert(pthread_create(&worker, NULL, test_poll_worker, work) == 0);
+			assert(pthread_join(worker, NULL) == 0);
+			assert(work->thread.complete && work->thread.threads_complete == 1);
+			int expected_errors = 1;
+			if (level == 1) {
+				expected_errors += cases[index].queued;
+				if (cases[index].queued && STRMATCH(cases[index].output, "U")) expected_errors++;
+			}
+			assert(work->errors == expected_errors);
+			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_command WHERE poller_id=1 AND action=%d AND command='%d:7'", POLLER_COMMAND_REINDEX, work->thread.host_id);
+			assert(database_count(mysql, query) == cases[index].queued);
+			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_reindex WHERE assert_value='%s'", cases[index].stored);
+			assert(database_count(mysql, query) == 1);
+			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id=601 AND output='%s'", cases[index].output);
+			assert(database_count(mysql, query) == 1);
+			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=601 AND output='%s'", cases[index].output);
+			assert(database_count(mysql, query) == 1);
+			assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+		}
+	}
+	set.spine_log_level = 0;
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
+}
+
 static void test_poll_pipeline(MYSQL *mysql) {
 	extern poller_thread_t **details;
 	config_t previous = set;
@@ -1537,6 +1600,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
 			assert(database_count(mysql, query) == 1);
 		}
+		if (host_id == 43) test_reindex_pipeline(mysql, &work);
 	}
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);
