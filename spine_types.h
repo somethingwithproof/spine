@@ -124,11 +124,11 @@
  * not being used.
  */
 #define SPINE_LOG(format_and_args)        (spine_log format_and_args)
-#define SPINE_LOG_LOW(format_and_args)    (void)(set.log_level >= POLLER_VERBOSITY_LOW && spine_log format_and_args)
-#define SPINE_LOG_MEDIUM(format_and_args) (void)(set.log_level >= POLLER_VERBOSITY_MEDIUM && spine_log format_and_args)
-#define SPINE_LOG_HIGH(format_and_args)   (void)(set.log_level >= POLLER_VERBOSITY_HIGH && spine_log format_and_args)
-#define SPINE_LOG_DEBUG(format_and_args)  (void)(set.log_level >= POLLER_VERBOSITY_DEBUG && spine_log format_and_args)
-#define SPINE_LOG_DEVDBG(format_and_args) (void)(set.log_level >= POLLER_VERBOSITY_DEVDBG && spine_log format_and_args)
+#define SPINE_LOG_LOW(format_and_args)    (void)(set.logging.log_level >= POLLER_VERBOSITY_LOW && spine_log format_and_args)
+#define SPINE_LOG_MEDIUM(format_and_args) (void)(set.logging.log_level >= POLLER_VERBOSITY_MEDIUM && spine_log format_and_args)
+#define SPINE_LOG_HIGH(format_and_args)   (void)(set.logging.log_level >= POLLER_VERBOSITY_HIGH && spine_log format_and_args)
+#define SPINE_LOG_DEBUG(format_and_args)  (void)(set.logging.log_level >= POLLER_VERBOSITY_DEBUG && spine_log format_and_args)
+#define SPINE_LOG_DEVDBG(format_and_args) (void)(set.logging.log_level >= POLLER_VERBOSITY_DEVDBG && spine_log format_and_args)
 #define SPINE_LOG_DEVICE(host_id, verbosity, format_and_args) \
 	(void)(spine_should_log_device(host_id, verbosity) && spine_log format_and_args)
 
@@ -235,9 +235,9 @@
 #define LOGDEST_SYSLOG 3
 #define LOGDEST_STDOUT 4
 
-#define IS_LOGGING_TO_FILE()   ((set.log_destination) == LOGDEST_FILE   || (set.log_destination) == LOGDEST_BOTH)
-#define IS_LOGGING_TO_SYSLOG() ((set.log_destination) == LOGDEST_SYSLOG || (set.log_destination) == LOGDEST_BOTH)
-#define IS_LOGGING_TO_STDOUT() ((set.log_destination) == LOGDEST_STDOUT )
+#define IS_LOGGING_TO_FILE()   ((set.logging.log_destination) == LOGDEST_FILE   || (set.logging.log_destination) == LOGDEST_BOTH)
+#define IS_LOGGING_TO_SYSLOG() ((set.logging.log_destination) == LOGDEST_SYSLOG || (set.logging.log_destination) == LOGDEST_BOTH)
+#define IS_LOGGING_TO_STDOUT() ((set.logging.log_destination) == LOGDEST_STDOUT )
 
 #define SPINE_FREE(s) do { if (s) { free((void *)s); s = NULL; } } while(0)
 
@@ -343,98 +343,125 @@
  * it contains runtime status information.
  *
  */
-typedef struct config_struct {
-	/* stdout, stderr TTY protection */
-	int    stdout_notty;
-	int    stderr_notty;
-	/* general configuration/runtime settings */
-	int    poller_id;
-	int    poller_interval;
-	int    parent_fork;
-	int    num_parent_processes;
-	int    script_timeout;
-	int    active_profiles;
-	int    total_snmp_ports;
-	int    threads;
-	int    threads_set;
-	int    logfile_processed;
-	int    boost_enabled;
-	int    boost_redirect;
-	int    cygwinshloc;
-	/* debugging options */
-	int    snmponly;
-	int    SQL_readonly;
-	/* host range to be poller with this spine process */
-	int    start_host_id;
-	int    end_host_id;
-	char   host_id_list[BIG_BUFSIZE];
-	int    has_device_0;
-	/* database connection information */
-	char   db_host[BUFSIZE];
-	char   db_db[BUFSIZE];
-	char   db_user[BUFSIZE];
-	char   db_pass[BUFSIZE];
-	int    db_ssl;
-	char   db_ssl_key[BIG_BUFSIZE];
-	char   db_ssl_cert[BIG_BUFSIZE];
-	char   db_ssl_ca[BIG_BUFSIZE];
-	int    d_b;
-	unsigned int db_port;
-	char   dbversion[BUFSIZE];
-	int    dbonupdate;
-	int    cacti_version;
-	/* path information */
-	char   path_logfile[DBL_BUFSIZE];
-	char   path_php[BUFSIZE];
-	char   path_php_server[BUFSIZE];
-	/* logging options */
-	int    log_level;
-	int    log_destination;
-	int    log_perror;
-	int    log_pwarn;
-	int    log_pstats;
-	char   selective_device_debug[LRG_BUFSIZE];
-	int    spine_log_level;
-	int    log_datetime_separator;
-	int    log_datetime_format;
-	/* ping settings */
-	int    icmp_avail;
-	int    availability_method;
-	int    ping_method;
-	int    ping_retries;
-	int    ping_timeout;
-	int    ping_failure_count;
-	int    ping_recovery_count;
-	int    ping_only;
-	/* snmp options */
-	int    snmp_max_get_size;
-	int    snmp_retries;
-	char   snmp_clientaddr[BUFSIZE];
-	int    mibs;
-	/* PHP Script Server Options */
-	int    php_required;
-	int    php_initialized;
-	int    php_servers;
-	int    php_current_server;
-	/* Exit code if we need it */
-	int    exit_code;
-	size_t exit_size;
-	void*  exit_stack[10];
+/* Console configuration and runtime state. */
+typedef struct {
+	int stdout_notty;
+	int stderr_notty;
+} spine_console_config_t;
 
-	/* Remote polling mode */
-	int    mode;
-	/* remote database connection information */
-	char   rdb_host[BUFSIZE];
-	char   rdb_db[BUFSIZE];
-	char   rdb_user[BUFSIZE];
-	char   rdb_pass[BUFSIZE];
-	int    rdb_ssl;
-	char   rdb_ssl_key[BIG_BUFSIZE];
-	char   rdb_ssl_cert[BIG_BUFSIZE];
-	char   rdb_ssl_ca[BIG_BUFSIZE];
-	unsigned int rdb_port;
-	char   rdbversion[BUFSIZE];
-	int    rdbonupdate;
+/* Poller configuration and runtime state. */
+typedef struct {
+	int poller_id;
+	int poller_interval;
+	int parent_fork;
+	int num_parent_processes;
+	int active_profiles;
+	int threads;
+	int threads_set;
+	int snmponly;
+	int SQL_readonly;
+	int mode;
+} spine_poller_config_t;
+
+/* Hosts configuration and runtime state. */
+typedef struct {
+	int start_host_id;
+	int end_host_id;
+	char host_id_list[BIG_BUFSIZE];
+	int has_device_0;
+} spine_hosts_config_t;
+
+/* Database configuration and runtime state. */
+typedef struct {
+	char host[BUFSIZE];
+	char database[BUFSIZE];
+	char user[BUFSIZE];
+	char password[BUFSIZE];
+	int ssl;
+	char ssl_key[BIG_BUFSIZE];
+	char ssl_cert[BIG_BUFSIZE];
+	char ssl_ca[BIG_BUFSIZE];
+	unsigned int port;
+	char version[BUFSIZE];
+	int onupdate;
+} spine_database_config_t;
+
+/* Php configuration and runtime state. */
+typedef struct {
+	char path_php[BUFSIZE];
+	char path_php_server[BUFSIZE];
+	int script_timeout;
+	int php_required;
+	int php_initialized;
+	int php_servers;
+	int php_current_server;
+} spine_php_config_t;
+
+/* Logging configuration and runtime state. */
+typedef struct {
+	char path_logfile[DBL_BUFSIZE];
+	int logfile_processed;
+	int log_level;
+	int log_destination;
+	int log_perror;
+	int log_pwarn;
+	int log_pstats;
+	char selective_device_debug[LRG_BUFSIZE];
+	int spine_log_level;
+	int log_datetime_separator;
+	int log_datetime_format;
+} spine_logging_config_t;
+
+/* Availability configuration and runtime state. */
+typedef struct {
+	int icmp_avail;
+	int availability_method;
+	int ping_method;
+	int ping_retries;
+	int ping_timeout;
+	int ping_failure_count;
+	int ping_recovery_count;
+	int ping_only;
+} spine_availability_config_t;
+
+/* Snmp configuration and runtime state. */
+typedef struct {
+	int total_snmp_ports;
+	int snmp_max_get_size;
+	int snmp_retries;
+	char snmp_clientaddr[BUFSIZE];
+	int mibs;
+} spine_snmp_config_t;
+
+/* Boost configuration and runtime state. */
+typedef struct {
+	int boost_enabled;
+	int boost_redirect;
+} spine_boost_config_t;
+
+/* Exit configuration and runtime state. */
+typedef struct {
+	int exit_code;
+	size_t exit_size;
+	void* exit_stack[10];
+} spine_exit_config_t;
+
+/* Process-local aggregate. A full rebuild is required when its layout changes. */
+typedef struct config_struct {
+	spine_console_config_t console;
+	spine_poller_config_t poller;
+	spine_hosts_config_t hosts;
+	spine_database_config_t database;
+	spine_database_config_t remote_database;
+	spine_php_config_t php;
+	spine_logging_config_t logging;
+	spine_availability_config_t availability;
+	spine_snmp_config_t snmp;
+	spine_boost_config_t boost;
+	spine_exit_config_t exit;
+	int d_b;
+	int cacti_version;
+	int cygwinshloc;
 } config_t;
 
 /*! Target Structure

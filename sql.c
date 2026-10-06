@@ -61,7 +61,7 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	char query_frag[LRG_BUFSIZE];
 	snprintf(query_frag, sizeof(query_frag), "%s", query);
 	SPINE_LOG_DEVDBG(("DEVDBG: SQL:%s", query_frag));
-	if (set.SQL_readonly != FALSE) return TRUE;
+	if (set.poller.SQL_readonly != FALSE) return TRUE;
 	while (mysql_query(mysql, query) != 0) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
@@ -183,7 +183,7 @@ void db_address_release(db_address_t *address) {
 
 void db_set_option(MYSQL *mysql, enum mysql_option option, const void *value, const char *description) {
 	if (mysql_options(mysql, option, value) != 0) {
-		set.exit_code = EXIT_FAILURE;
+		set.exit.exit_code = EXIT_FAILURE;
 		die("FATAL: MySQL options unable to set %s option", description);
 	}
 }
@@ -191,15 +191,15 @@ void db_set_option(MYSQL *mysql, enum mysql_option option, const void *value, co
 #ifdef HAS_MYSQL_OPT_SSL_KEY
 static void db_set_ssl_options(MYSQL *mysql, int type) {
 	#ifdef HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT
-	int ssl_enabled = type == LOCAL ? set.db_ssl : set.rdb_ssl;
+	int ssl_enabled = type == LOCAL ? set.database.ssl : set.remote_database.ssl;
 	if (ssl_enabled == 0) {
 		bool ssl_enforce = false;
 		db_set_option(mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &ssl_enforce, "ssl disable");
 	}
 	#endif
-	const char *key = type == REMOTE ? set.rdb_ssl_key : set.db_ssl_key;
-	const char *ca = type == REMOTE ? set.rdb_ssl_ca : set.db_ssl_ca;
-	const char *cert = type == REMOTE ? set.rdb_ssl_cert : set.db_ssl_cert;
+	const char *key = type == REMOTE ? set.remote_database.ssl_key : set.database.ssl_key;
+	const char *ca = type == REMOTE ? set.remote_database.ssl_ca : set.database.ssl_ca;
+	const char *cert = type == REMOTE ? set.remote_database.ssl_cert : set.database.ssl_cert;
 	if (key[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_KEY, key, "ssl key");
 	if (ca[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_CA, ca, "ssl ca");
 	if (cert[0] != '\0') db_set_option(mysql, MYSQL_OPT_SSL_CERT, cert, "ssl cert");
@@ -219,8 +219,8 @@ void db_connect(int type, MYSQL *mysql) {
 	db_address_t address;
 	static int connections = 0;
 
-	bool local_address = set.poller_id <= 1 || type == LOCAL;
-	db_address_init(&address, local_address ? set.db_host : set.rdb_host, local_address);
+	bool local_address = set.poller.poller_id <= 1 || type == LOCAL;
+	db_address_init(&address, local_address ? set.database.host : set.remote_database.host, local_address);
 
 	/* initialalize variables */
 	tries     = 2;
@@ -256,14 +256,14 @@ void db_connect(int type, MYSQL *mysql) {
 	while (tries > 0) {
 		tries--;
 
-		if (set.poller_id > 1) {
+		if (set.poller.poller_id > 1) {
 			if (type == LOCAL) {
-				connect_error = mysql_real_connect(mysql, address.hostname, set.db_user, set.db_pass, set.db_db, set.db_port, address.socket, 0);
+				connect_error = mysql_real_connect(mysql, address.hostname, set.database.user, set.database.password, set.database.database, set.database.port, address.socket, 0);
 			} else {
-				connect_error = mysql_real_connect(mysql, address.hostname, set.rdb_user, set.rdb_pass, set.rdb_db, set.rdb_port, address.socket, 0);
+				connect_error = mysql_real_connect(mysql, address.hostname, set.remote_database.user, set.remote_database.password, set.remote_database.database, set.remote_database.port, address.socket, 0);
 			}
 		} else {
-			connect_error = mysql_real_connect(mysql, address.hostname, set.db_user, set.db_pass, set.db_db, set.db_port, address.socket, 0);
+			connect_error = mysql_real_connect(mysql, address.hostname, set.database.user, set.database.password, set.database.database, set.database.port, address.socket, 0);
 		}
 
 		if (!connect_error) {
@@ -329,9 +329,9 @@ void db_create_connection_pool(int type) {
 	int id;
 
 	if (type == LOCAL) {
-		SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection Pool of %i threads.", set.threads));
+		SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection Pool of %i threads.", set.poller.threads));
 
-		for(id = 0; id < set.threads; id++) {
+		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection %i.", id));
 
 			db_connect(type, &db_pool_local[id].mysql);
@@ -348,9 +348,9 @@ void db_create_connection_pool(int type) {
 			db_pool_local[id].id   = id;
 		}
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection Pool of %i threads.", set.threads));
+		SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection Pool of %i threads.", set.poller.threads));
 
-		for(id = 0; id < set.threads; id++) {
+		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection %i.", id));
 
 			db_connect(type, &db_pool_remote[id].mysql);
@@ -378,14 +378,14 @@ void db_close_connection_pool(int type) {
 	int id;
 
 	if (type == LOCAL) {
-		for(id = 0; id < set.threads; id++) {
+		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Closing Local Connection Pool ID %i", id));
 			db_disconnect(&db_pool_local[id].mysql);
 		}
 
 		free(db_pool_local);
 	} else {
-		for(id = 0; id < set.threads; id++) {
+		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Closing Remote Connection Pool ID %i", id));
 			db_disconnect(&db_pool_remote[id].mysql);
 		}
@@ -406,7 +406,7 @@ pool_t *db_get_connection(int type) {
 
 	if (type == LOCAL) {
 		SPINE_LOG_DEBUG(("DEBUG: Traversing Local Connection Pool for free connection."));
-		for (id = 0; id < set.threads; id++) {
+		for (id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Checking Local Pool ID %i.", id));
 			if (db_pool_local[id].free == TRUE) {
 				SPINE_LOG_DEBUG(("DEBUG: Allocating Local Pool ID %i.", id));
@@ -417,7 +417,7 @@ pool_t *db_get_connection(int type) {
 		}
 	} else {
 		SPINE_LOG_DEBUG(("DEBUG: Traversing Remote Connection Pool for free connection."));
-		for (id = 0; id < set.threads; id++) {
+		for (id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Checking Remote Pool ID %i.", id));
 			if (db_pool_remote[id].free == TRUE) {
 				SPINE_LOG_DEBUG(("DEBUG: Allocating Remote Pool ID %i.", id));
@@ -471,11 +471,11 @@ void db_release_connection(int type, int id) {
  *
  */
 int append_hostrange(char *obuf, size_t capacity, const char *colname) {
-	if (HOSTID_DEFINED(set.start_host_id) && HOSTID_DEFINED(set.end_host_id)) {
+	if (HOSTID_DEFINED(set.hosts.start_host_id) && HOSTID_DEFINED(set.hosts.end_host_id)) {
 		return spine_snprintf(obuf, capacity, " AND %s BETWEEN %d AND %d",
 			colname,
-			set.start_host_id,
-			set.end_host_id);
+			set.hosts.start_host_id,
+			set.hosts.end_host_id);
 	} else {
 		return 0;
 	}

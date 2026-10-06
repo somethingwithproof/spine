@@ -283,10 +283,10 @@ void *snmp_host_init(const snmp_connection_t *options) {
 	snmp_sess_init(&session);
 
 	/* Bind to snmp_clientaddr if specified */
-	size_t len = strlen(set.snmp_clientaddr);
+	size_t len = strlen(set.snmp.snmp_clientaddr);
 	if (len > 0 && len <= SMALL_BUFSIZE) {
 		#if SNMP_LOCALNAME == 1
-		session.localname = strdup(set.snmp_clientaddr);
+		session.localname = strdup(set.snmp.snmp_clientaddr);
 		#endif
 	}
 
@@ -342,7 +342,7 @@ void *snmp_host_init(const snmp_connection_t *options) {
 
 	snprintf(hostnameport, BUFSIZE, "%s:%i", options->hostname, options->snmp_port);
 	session.peername    = hostnameport;
-	session.retries     = set.snmp_retries;
+	session.retries     = set.snmp.snmp_retries;
 	session.timeout     = ((long)options->snmp_timeout * 1000L); /* net-snmp likes microseconds */
 
 	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", options->host_id, hostnameport, session.timeout, options->snmp_timeout, session.retries));

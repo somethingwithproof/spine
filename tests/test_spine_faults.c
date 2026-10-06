@@ -119,15 +119,15 @@ static void test_logger_format_failure(void) {
 	char filename[] = "spine-log-fault-XXXXXX";
 	int log = mkstemp(filename);
 	assert(log >= 0 && close(log) == 0);
-	set.log_destination = LOGDEST_FILE;
-	set.log_level = POLLER_VERBOSITY_LOW;
-	set.logfile_processed = TRUE;
-	set.stdout_notty = TRUE;
-	set.stderr_notty = FALSE;
-	STRNCOPY(set.path_logfile, filename);
+	set.logging.log_destination = LOGDEST_FILE;
+	set.logging.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.logfile_processed = TRUE;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = FALSE;
+	STRNCOPY(set.logging.path_logfile, filename);
 	#ifdef DISABLE_STDERR
 	const int diagnostic = STDOUT_FILENO;
-	set.stdout_notty = FALSE;
+	set.console.stdout_notty = FALSE;
 	#else
 	const int diagnostic = STDERR_FILENO;
 	#endif
@@ -150,8 +150,8 @@ static void test_logger_format_failure(void) {
 	assert(strstr(response, "ERROR: Could not get string from strftime()") != NULL);
 	assert(strstr(response, "regression date fallback") != NULL);
 
-	set.stdout_notty = TRUE;
-	set.stderr_notty = TRUE;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
 	saved = dup(diagnostic);
 	assert(saved >= 0 && pipe(capture) == 0);
 	assert(dup2(capture[1], diagnostic) == diagnostic && close(capture[1]) == 0);
@@ -272,15 +272,15 @@ static void test_real_database_retry(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
 	config_defaults();
-	strncopy(set.db_host, hostname, sizeof(set.db_host));
-	STRNCOPY(set.db_user, "root");
-	STRNCOPY(set.db_db, "spine_regressions");
-	set.db_pass[0] = '\0';
-	set.db_port = 3306;
-	set.SQL_readonly = FALSE;
-	set.log_destination = 0;
-	set.stdout_notty = TRUE;
-	set.stderr_notty = TRUE;
+	strncopy(set.database.host, hostname, sizeof(set.database.host));
+	STRNCOPY(set.database.user, "root");
+	STRNCOPY(set.database.database, "spine_regressions");
+	set.database.password[0] = '\0';
+	set.database.port = 3306;
+	set.poller.SQL_readonly = FALSE;
+	set.logging.log_destination = 0;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
 	MYSQL administrator;
 	MYSQL victim;
 	db_connect(LOCAL, &administrator);

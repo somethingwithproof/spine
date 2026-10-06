@@ -119,24 +119,24 @@ static void *next_php_process(void *unused) {
 }
 
 static void test_php_roundrobin(void) {
-	int previous_count = set.php_servers;
-	int previous_current = set.php_current_server;
-	set.php_servers = MAX_PHP_SERVERS;
-	set.php_current_server = 0;
+	int previous_count = set.php.php_servers;
+	int previous_current = set.php.php_current_server;
+	set.php.php_servers = MAX_PHP_SERVERS;
+	set.php.php_current_server = 0;
 	for (int i = 0; i < 2 * MAX_PHP_SERVERS; i++) assert(php_get_process() == i % MAX_PHP_SERVERS);
-	set.php_servers = 1;
-	set.php_current_server = MAX_PHP_SERVERS;
+	set.php.php_servers = 1;
+	set.php.php_current_server = MAX_PHP_SERVERS;
 	assert(php_get_process() == 0 && php_get_process() == 0);
-	set.php_servers = 3;
-	set.php_current_server = 0;
+	set.php.php_servers = 3;
+	set.php.php_current_server = 0;
 	memset(distribution, 0, sizeof(distribution));
 	pthread_t workers[4];
 	for (size_t i = 0; i < 4; i++) assert(pthread_create(&workers[i], NULL, next_php_process, NULL) == 0);
 	for (size_t i = 0; i < 4; i++) assert(pthread_join(workers[i], NULL) == 0);
 	for (int i = 0; i < 3; i++) assert(distribution[i] == 400);
-	assert(set.php_current_server == 3);
-	set.php_servers = previous_count;
-	set.php_current_server = previous_current;
+	assert(set.php.php_current_server == 3);
+	set.php.php_servers = previous_count;
+	set.php.php_current_server = previous_current;
 }
 
 static void test_legacy_ip_predicate(void) {
@@ -187,7 +187,7 @@ static void test_fatal_signal_contracts(void) {
 			assert(signal(cases[i].signal, SIG_DFL) != SIG_ERR);
 			install_spine_signal_handler();
 			assert(raise(cases[i].signal) == 0);
-			assert(set.exit_code == cases[i].signal);
+			assert(set.exit.exit_code == cases[i].signal);
 			struct sigaction restored;
 			assert(sigaction(cases[i].signal, NULL, &restored) == 0);
 			assert(restored.sa_handler == SIG_DFL);

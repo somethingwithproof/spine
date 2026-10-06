@@ -48,7 +48,7 @@ void child_cleanup_thread(void *arg) {
 	int a_threads_value;
 	a_threads_value = spine_permits_available(&available_threads) + 1;
 
-	SPINE_LOG_DEVDBG(("DEBUG: Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
+	SPINE_LOG_DEVDBG(("DEBUG: Available Threads is %i (%i outstanding)", a_threads_value, set.poller.threads - a_threads_value));
 	/* Releasing the permit publishes completion: no shared state is used after it. */
 	spine_permits_release(&available_threads);
 }
@@ -144,7 +144,7 @@ static void record_result_error(const poll_error_context_t *context, const host_
 	buffer_output_errors(context->buffer, context->size, context->count,
 		context->host_id, context->thread_id, item->local_data_id, false);
 	(*context->errors)++;
-	if (set.spine_log_level != 2) return;
+	if (set.logging.spine_log_level != 2) return;
 	if (snmp) {
 		SPINE_LOG(("WARNING: Invalid Response, Device[%i] HT[%i] DS[%i] SNMP: v%i: %s, dsname: %s, oid: %s, value: %s",
 			context->host_id, context->thread_id, item->local_data_id,
@@ -198,11 +198,11 @@ typedef struct {
 static void poller_item_query(char *buffer, size_t capacity, const char *columns, const poller_query_filter_t *filter) {
 	char *cursor = buffer;
 	cursor += spine_snprintf(cursor, capacity, "SELECT SQL_NO_CACHE %s FROM poller_item WHERE host_id = %i", columns, filter->host_id);
-	if (set.poller_id != 0) cursor += spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " AND poller_id = %i", set.poller_id);
+	if (set.poller.poller_id != 0) cursor += spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " AND poller_id = %i", set.poller.poller_id);
 	if (filter->due_only) cursor += spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " AND rrd_next_step <= 0");
 	if (filter->group_ports) {
 		cursor += spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " GROUP BY snmp_port");
-	} else if (set.total_snmp_ports != 1) {
+	} else if (set.snmp.total_snmp_ports != 1) {
 		cursor += spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " ORDER BY snmp_port");
 	}
 	spine_snprintf(cursor, capacity - (size_t)(cursor - buffer), " %s", filter->limits);
@@ -221,12 +221,12 @@ void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thr
 		"snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id";
 	poller_query_filter_t filter = {host_id, limits, FALSE, FALSE};
 	poller_item_query(queries->items, sizeof(queries->items), columns, &filter);
-	filter.due_only = set.active_profiles != 1;
+	filter.due_only = set.poller.active_profiles != 1;
 	poller_item_query(queries->due_items, sizeof(queries->due_items), columns, &filter);
 	filter.group_ports = TRUE;
 	filter.due_only = FALSE;
 	poller_item_query(queries->agents, sizeof(queries->agents), "snmp_port, count(snmp_port)", &filter);
-	filter.due_only = set.active_profiles != 1;
+	filter.due_only = set.poller.active_profiles != 1;
 	poller_item_query(queries->due_agents, sizeof(queries->due_agents), "snmp_port, count(snmp_port)", &filter);
 	spine_snprintf(queries->host, sizeof(queries->host),
 		"SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, "
@@ -239,14 +239,14 @@ void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thr
 		"SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = %i", host_id);
 	spine_snprintf(queries->schedule, sizeof(queries->schedule),
 		"UPDATE poller_item SET rrd_next_step = IF(rrd_step = %i, 0, IF(rrd_next_step - %i < 0, rrd_step - %i, rrd_next_step - %i)) WHERE host_id = %i",
-		set.poller_interval, set.poller_interval, set.poller_interval, set.poller_interval, host_id);
-	if (set.poller_id != 0) {
+		set.poller.poller_interval, set.poller.poller_interval, set.poller.poller_interval, set.poller.poller_interval, host_id);
+	if (set.poller.poller_id != 0) {
 		size_t length = strlen(queries->schedule);
-		spine_snprintf(queries->schedule + length, sizeof(queries->schedule) - length, " AND poller_id = %i", set.poller_id);
+		spine_snprintf(queries->schedule + length, sizeof(queries->schedule) - length, " AND poller_id = %i", set.poller.poller_id);
 	}
 	strncopy(queries->output, "INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES", sizeof(queries->output));
 	strncopy(queries->boost_output, "INSERT INTO poller_output_boost (local_data_id, rrd_name, time, output) VALUES", sizeof(queries->boost_output));
-	strncopy(queries->suffix, set.poller_id != 0 || set.dbonupdate == 0 ? " ON DUPLICATE KEY UPDATE output=VALUES(output)" : " AS rs ON DUPLICATE KEY UPDATE output=rs.output", sizeof(queries->suffix));
+	strncopy(queries->suffix, set.poller.poller_id != 0 || set.database.onupdate == 0 ? " ON DUPLICATE KEY UPDATE output=VALUES(output)" : " AS rs ON DUPLICATE KEY UPDATE output=rs.output", sizeof(queries->suffix));
 }
 
 static void host_metadata_defaults(host_t *host) {
@@ -265,7 +265,7 @@ static void host_metadata_defaults(host_t *host) {
 	host->snmp_engine_id[0]       = '\0';              // 10
 	host->snmp_port               = 161;               // 11
 	host->snmp_timeout            = 500;               // 12
-	host->snmp_retries            = set.snmp_retries;  // -
+	host->snmp_retries            = set.snmp.snmp_retries;  // -
 	host->max_oids                = 10;                // 13
 	host->availability_method     = 0;                 // 14
 	host->ping_method             = 0;                 // 15
@@ -463,7 +463,7 @@ static bool refresh_host_availability(MYSQL *mysql, host_t *host, ping_t *ping, 
 	host->ignore_host = !alive;
 	if (host_thread != 1) return FALSE;
 	update_host_status(alive ? HOST_UP : HOST_DOWN, host, ping, host->availability_method);
-	if (!alive || host->availability_method == AVAIL_PING || host->availability_method == AVAIL_NONE || host->snmp_session == NULL || !set.mibs) return FALSE;
+	if (!alive || host->availability_method == AVAIL_PING || host->availability_method == AVAIL_NONE || host->snmp_session == NULL || !set.snmp.mibs) return FALSE;
 	get_system_information(host, mysql, 1);
 	return TRUE;
 }
@@ -486,17 +486,17 @@ static bool reindex_assertion_failed(const reindex_t *reindex, const char *value
 }
 
 static void log_reindex_assertion(const reindex_evaluation_t *evaluation, const reindex_t *reindex, const char *value, bool failed) {
-	bool highlighted = is_debug_device(evaluation->host->id) || set.spine_log_level == 2;
+	bool highlighted = is_debug_device(evaluation->host->id) || set.logging.spine_log_level == 2;
 	if (!failed && !highlighted) return;
-	if (failed && !highlighted && set.spine_log_level == 1) (*evaluation->errors)++;
+	if (failed && !highlighted && set.logging.spine_log_level == 1) (*evaluation->errors)++;
 	SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s%s%s'", evaluation->host->id, evaluation->work->host_thread, reindex->data_query_id, reindex->assert_value, failed ? reindex->op : "=", value != NULL ? value : "(null)"));
 }
 
 static void queue_reindex(const reindex_evaluation_t *evaluation, const reindex_t *reindex) {
 	if (evaluation->work->host_thread != 1) return;
 	char query[LRG_BUFSIZE];
-	snprintf(query, sizeof(query), "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller_id, POLLER_COMMAND_REINDEX, evaluation->host->id, reindex->data_query_id);
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) db_insert(evaluation->remote, REMOTE, query);
+	snprintf(query, sizeof(query), "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller.poller_id, POLLER_COMMAND_REINDEX, evaluation->host->id, reindex->data_query_id);
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) db_insert(evaluation->remote, REMOTE, query);
 	else db_insert(evaluation->local, LOCAL, query);
 }
 
@@ -514,10 +514,10 @@ static void update_reindex_value(const reindex_evaluation_t *evaluation, const r
 
 static void discard_reindex_spike(const reindex_evaluation_t *evaluation) {
 	*evaluation->spike_kill = TRUE;
-	if (is_debug_device(evaluation->host->id) || set.spine_log_level == 2) {
+	if (is_debug_device(evaluation->host->id) || set.logging.spine_log_level == 2) {
 		SPINE_LOG(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", evaluation->work->host_id, evaluation->work->host_thread, evaluation->host->hostname));
 	} else {
-		if (set.spine_log_level == 1) (*evaluation->errors)++;
+		if (set.logging.spine_log_level == 1) (*evaluation->errors)++;
 		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] NOTICE: Spike Kill in Effect for '%s'", evaluation->work->host_id, evaluation->work->host_thread, evaluation->host->hostname));
 	}
 }
@@ -839,7 +839,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 
 	out_buffer = strlen(query3);
 
-	if (set.boost_redirect && set.boost_enabled) {
+	if (set.boost.boost_redirect && set.boost.boost_enabled) {
 		/* insert the query results into the database */
 		if (!(query12 = (char *)malloc(buf_length))) {
 			die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
@@ -853,7 +853,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	}
 
 	int mode;
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		SPINE_LOG_DEBUG(("DEBUG: Setting up writes to remote database"));
 		mysqlt = mysqlr;
 		mode   = REMOTE;
@@ -1018,7 +1018,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	if (local_cnn == NULL) die("ERROR: No local database connection available for polling");
 	mysql = &local_cnn->mysql;
 
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		remote_cnn = db_get_connection(REMOTE);
 		if (remote_cnn == NULL) die("ERROR: No remote database connection available for polling");
 		mysqlr = &remote_cnn->mysql;
@@ -1067,7 +1067,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 					SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
 				}
 
-				if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+				if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 					if (remote_cnn != NULL) {
 						db_release_connection(REMOTE, remote_cnn->id);
 					} else {
@@ -1114,7 +1114,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		host->ignore_host  = FALSE;
 	}
 
-	if (set.ping_only) {
+	if (set.availability.ping_only) {
 		SPINE_FREE(host);
 		SPINE_FREE(reindex);
 		SPINE_FREE(ping);
@@ -1128,7 +1128,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 			SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
 		}
 
-		if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+		if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 			if (remote_cnn != NULL) {
 				db_release_connection(REMOTE, remote_cnn->id);
 			} else {
@@ -1146,7 +1146,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 	/* calculate the number of poller items to poll this cycle */
 	num_rows = 0;
-	if (set.poller_interval == 0) {
+	if (set.poller.poller_interval == 0) {
 		/* get the poller items */
 		if ((result = db_query(mysql, LOCAL, queries.items)) != 0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result));
@@ -1373,7 +1373,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	details[device_counter]->threads_complete++;
 	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
 		/* Keep the due-item set stable until every device partition has finished. */
-		if (set.active_profiles != 1) {
+		if (set.poller.active_profiles != 1) {
 			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
 			db_query(mysql, LOCAL, queries.schedule);
 		}
@@ -1395,7 +1395,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 			" ON DUPLICATE KEY UPDATE"
 			" errors = errors + VALUES(errors),"
 			" local_data_ids = CONCAT(local_data_ids, \", \", VALUES(local_data_ids))",
-			host_id, set.poller_id, errors, error_string);
+			host_id, set.poller.poller_id, errors, error_string);
 
 		db_query(mysql, LOCAL, error_query);
 
@@ -1410,7 +1410,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
 	}
 
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		if (remote_cnn != NULL) {
 			db_release_connection(REMOTE, remote_cnn->id);
 		} else {
@@ -1422,7 +1422,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] DEBUG: HOST COMPLETE: About to Exit Device Polling Thread Function", host_id, host_thread));
 
-	if (set.spine_log_level == 1) {
+	if (set.logging.spine_log_level == 1) {
 		buffer_output_errors(error_string, buf_size, buf_errors, host_id, host_thread, 0, true);
 	}
 
@@ -1519,7 +1519,7 @@ static void poll_system_field(host_t *host, MYSQL *mysql, char *oid, char *desti
 
 void get_system_information(host_t *host, MYSQL *mysql, int system) {
 	SPINE_LOG_MEDIUM(("Device[%d] Checking for System Information Update", host->id));
-	bool full = set.mibs || system;
+	bool full = set.snmp.mibs || system;
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%d] Updating %s System Information Table", host->id, full ? "Full" : "Short"));
 	if (full) {
 		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.1.0", host->snmp_sysDescr, sizeof(host->snmp_sysDescr));
@@ -1561,9 +1561,9 @@ int validate_result(char *result) {
 }
 
 static int acquire_script_permit(const host_t *host) {
-	if (set.script_timeout <= 0) return EINVAL;
+	if (set.php.script_timeout <= 0) return EINVAL;
 	/* Preserve the existing retry budget without signed multiplication overflow. */
-	uint64_t attempts = (uint64_t)set.script_timeout * 15;
+	uint64_t attempts = (uint64_t)set.php.script_timeout * 15;
 	int error = EAGAIN;
 	for (uint64_t retry = 1; retry < attempts; retry++) {
 		error = spine_permits_try_acquire(&available_scripts);
@@ -1691,7 +1691,7 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 		needs_cleanup = 1;
 
 		/* record start time */
-		deadline = spine_monotonic_time() + set.script_timeout;
+		deadline = spine_monotonic_time() + set.php.script_timeout;
 
 		/* peel the executable from the command */
 		saveptr = proc_command;

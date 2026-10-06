@@ -36,7 +36,7 @@ static snmp_connection_t session_options(char *hostname, char *username) {
 
 void test_additional_snmp_session_boundaries(void) {
 	config_t previous = set;
-	set.snmp_retries = 0;
+	set.snmp.snmp_retries = 0;
 	/* Runs inside the default suite's single Net-SNMP init/shutdown lifecycle. */
 	snmp_connection_t options = session_options("127.0.0.1", "regression-v3-vector-auth");
 	void *handle = snmp_host_init(&options);
@@ -140,7 +140,7 @@ void test_snmpv3_agent_contracts(void) {
 	char *agent = getenv("SPINE_TEST_SNMPV3_HOST");
 	assert(agent != NULL && agent[0] != '\0');
 	config_t previous = set;
-	set.snmp_retries = 0;
+	set.snmp.snmp_retries = 0;
 	snmp_spine_init();
 	snmp_connection_t options = session_options(agent, "regression-v3-noauth");
 	options.snmp_password = "";

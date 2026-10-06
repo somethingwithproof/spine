@@ -99,7 +99,7 @@ char *php_cmd(const char *php_command, int php_process) {
 		SPINE_LOG(("ERROR: SS[%i] Invalid PHP Script Server command framing or length", php_process));
 		return php_undefined_result();
 	}
-	if (php_process < 0 || php_process >= set.php_servers || php_process >= MAX_PHP_SERVERS || php_processes == NULL) {
+	if (php_process < 0 || php_process >= set.php.php_servers || php_process >= MAX_PHP_SERVERS || php_processes == NULL) {
 		SPINE_LOG(("ERROR: SS[%i] Invalid PHP Script Server process", php_process));
 		return php_undefined_result();
 	}
@@ -136,11 +136,11 @@ int php_get_process(void) {
 	int i;
 
 	thread_mutex_lock(LOCK_PHP);
-	if (set.php_current_server >= set.php_servers) {
-		set.php_current_server = 0;
+	if (set.php.php_current_server >= set.php.php_servers) {
+		set.php.php_current_server = 0;
 	}
-	i = set.php_current_server;
-	set.php_current_server++;
+	i = set.php.php_current_server;
+	set.php.php_current_server++;
 	thread_mutex_unlock(LOCK_PHP);
 
 	return i;
@@ -182,13 +182,13 @@ enum php_response_status php_read_response(int fd, char *buffer, size_t capacity
 }
 
 char *php_readpipe(int php_process, const char *command) {
-	if (php_processes == NULL || php_process < 0 || php_process >= set.php_servers || php_process >= MAX_PHP_SERVERS) {
+	if (php_processes == NULL || php_process < 0 || php_process >= set.php.php_servers || php_process >= MAX_PHP_SERVERS) {
 		return php_undefined_result();
 	}
 	char *result = malloc(RESULTS_BUFFER);
 	if (result == NULL) die("ERROR: Fatal malloc error: php.c php_readpipe!");
 	enum php_response_status status = php_read_response(php_processes[php_process].php_read_fd,
-		result, RESULTS_BUFFER, set.script_timeout);
+		result, RESULTS_BUFFER, set.php.script_timeout);
 	if (status == PHP_RESPONSE_OK) {
 		php_processes[php_process].php_state = PHP_READY;
 		return result;
@@ -214,22 +214,22 @@ char *php_readpipe(int php_process, const char *command) {
  *  \return TRUE if the PHP Script Server is know running or FALSE otherwise
  */
 static void php_build_arguments(char **argv, char *poller_id, size_t capacity) {
-	argv[0] = set.path_php;
+	argv[0] = set.php.path_php;
 	argv[1] = "-q";
-	argv[2] = set.path_php_server;
+	argv[2] = set.php.path_php_server;
 	if (set.cacti_version <= 1222) {
 		argv[3] = "spine";
-		spine_snprintf(poller_id, capacity, "%d", set.poller_id);
+		spine_snprintf(poller_id, capacity, "%d", set.poller.poller_id);
 		argv[4] = poller_id;
 		argv[5] = NULL;
 		return;
 	}
 	argv[3] = "--environ=spine";
-	spine_snprintf(poller_id, capacity, "--poller=%d", set.poller_id);
+	spine_snprintf(poller_id, capacity, "--poller=%d", set.poller.poller_id);
 	argv[4] = poller_id;
 	argv[5] = NULL;
-	if (set.poller_id > 1) {
-		argv[5] = set.mode == REMOTE_ONLINE ? "--mode=online" : "--mode=offline";
+	if (set.poller.poller_id > 1) {
+		argv[5] = set.poller.mode == REMOTE_ONLINE ? "--mode=online" : "--mode=offline";
 		argv[6] = NULL;
 	}
 }
@@ -307,12 +307,12 @@ static bool php_start_process(int process) {
 }
 
 int php_init(int php_process) {
-	if (php_processes == NULL || set.php_servers < 0 || set.php_servers > MAX_PHP_SERVERS) return FALSE;
+	if (php_processes == NULL || set.php.php_servers < 0 || set.php.php_servers > MAX_PHP_SERVERS) return FALSE;
 	if (php_process != PHP_INIT) {
-		if (php_process < 0 || php_process >= set.php_servers) return FALSE;
+		if (php_process < 0 || php_process >= set.php.php_servers) return FALSE;
 		return php_start_process(php_process);
 	}
-	for (int process = 0; process < set.php_servers; process++) {
+	for (int process = 0; process < set.php.php_servers; process++) {
 		if (!php_start_process(process)) {
 			php_close(PHP_INIT);
 			return FALSE;
@@ -412,10 +412,10 @@ static bool php_close_process(int process) {
  */
 bool php_close(int php_process) {
 	if (php_processes == NULL) return TRUE;
-	if (set.php_servers < 0 || set.php_servers > MAX_PHP_SERVERS) return FALSE;
-	if (php_process != PHP_INIT && (php_process < 0 || php_process >= set.php_servers)) return FALSE;
+	if (set.php.php_servers < 0 || set.php.php_servers > MAX_PHP_SERVERS) return FALSE;
+	if (php_process != PHP_INIT && (php_process < 0 || php_process >= set.php.php_servers)) return FALSE;
 	int first = php_process == PHP_INIT ? 0 : php_process;
-	int end = php_process == PHP_INIT ? set.php_servers : php_process + 1;
+	int end = php_process == PHP_INIT ? set.php.php_servers : php_process + 1;
 	bool success = TRUE;
 	for (int index = first; index < end; index++) {
 		if (!php_close_process(index)) success = FALSE;

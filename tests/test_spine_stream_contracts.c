@@ -45,8 +45,8 @@ static void assert_stream_result(host_t *host, const char *scenario, const char 
 }
 
 void test_script_stream_contracts(void) {
-	int previous_timeout = set.script_timeout;
-	set.script_timeout = 5;
+	int previous_timeout = set.php.script_timeout;
+	set.php.script_timeout = 5;
 	assert(spine_permits_init(&available_scripts, 1) == 0);
 	host_t host = {0};
 	host.id = 991;
@@ -60,7 +60,7 @@ void test_script_stream_contracts(void) {
 	assert_stream_result(&host, "failure-output", "DS", "9");
 	assert_stream_result(&host, "failure-empty", "DQ", "U");
 	assert(spine_permits_destroy(&available_scripts) == 0);
-	set.script_timeout = previous_timeout;
+	set.php.script_timeout = previous_timeout;
 
 	int descriptor = nft_popen("./test_spine_regressions --script-stream failure-output", "r");
 	assert(descriptor >= 0);

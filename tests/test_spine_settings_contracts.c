@@ -28,8 +28,8 @@ static void assert_saved_setting(MYSQL *mysql, const char *name, const char *exp
 
 void test_settings_write_contracts(MYSQL *mysql) {
 	config_t previous = set;
-	set.dbonupdate = 0; /* MariaDB's supported INSERT ... VALUES upsert dialect. */
-	set.SQL_readonly = FALSE;
+	set.database.onupdate = 0; /* MariaDB's supported INSERT ... VALUES upsert dialect. */
+	set.poller.SQL_readonly = FALSE;
 	char name[100];
 	char trigger[100];
 	spine_snprintf(name, sizeof(name), "spine_settings_fault_%ld", (long)getpid());

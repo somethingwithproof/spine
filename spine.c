@@ -260,11 +260,11 @@ static cli_option_t lookup_cli_option(const char *arg) {
 
 static void parse_polling_mode(const char *requested_mode) {
 	if (STRIMATCH(requested_mode, "online")) {
-		set.mode = REMOTE_ONLINE;
+		set.poller.mode = REMOTE_ONLINE;
 	} else if (STRIMATCH(requested_mode, "offline")) {
-		set.mode = REMOTE_OFFLINE;
+		set.poller.mode = REMOTE_OFFLINE;
 	} else if (STRIMATCH(requested_mode, "recovery")) {
-		set.mode = REMOTE_RECOVERY;
+		set.poller.mode = REMOTE_RECOVERY;
 	} else {
 		die("ERROR: invalid polling mode '%s' specified", requested_mode);
 	}
@@ -273,42 +273,42 @@ static void parse_polling_mode(const char *requested_mode) {
 static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **conf_file) {
 	switch (lookup_cli_option(arg)) {
 		case CLI_FIRST: {
-			if (HOSTID_DEFINED(set.start_host_id)) {
+			if (HOSTID_DEFINED(set.hosts.start_host_id)) {
 				die("ERROR: %s can only be used once", arg);
 			}
 
 			opt = getarg(opt, argv);
-			set.start_host_id = atoi(opt);
+			set.hosts.start_host_id = atoi(opt);
 
-			if (!HOSTID_DEFINED(set.start_host_id)) {
+			if (!HOSTID_DEFINED(set.hosts.start_host_id)) {
 				die("ERROR: '%s=%s' is invalid first-host ID", arg, opt);
 			}
 			break;
 		}
 		case CLI_LAST: {
-			if (HOSTID_DEFINED(set.end_host_id)) {
+			if (HOSTID_DEFINED(set.hosts.end_host_id)) {
 				die("ERROR: %s can only be used once", arg);
 			}
 
 			opt = getarg(opt, argv);
-			set.end_host_id = atoi(opt);
+			set.hosts.end_host_id = atoi(opt);
 
-			if (!HOSTID_DEFINED(set.end_host_id)) {
+			if (!HOSTID_DEFINED(set.hosts.end_host_id)) {
 				die("ERROR: '%s=%s' is invalid last-host ID", arg, opt);
 			}
 			break;
 		}
 		case CLI_POLLER: {
-			set.poller_id = atoi(getarg(opt, argv));
+			set.poller.poller_id = atoi(getarg(opt, argv));
 			break;
 		}
 		case CLI_THREADS: {
-			set.threads = atoi(getarg(opt, argv));
-			set.threads_set = TRUE;
+			set.poller.threads = atoi(getarg(opt, argv));
+			set.poller.threads_set = TRUE;
 			break;
 		}
 		case CLI_PINGONLY: {
-			set.ping_only = TRUE;
+			set.availability.ping_only = TRUE;
 			break;
 		}
 		case CLI_MODE: {
@@ -316,11 +316,11 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		case CLI_HOSTLIST: {
-			snprintf(set.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, argv));
+			snprintf(set.hosts.host_id_list, BIG_BUFSIZE, "%s", getarg(opt, argv));
 			break;
 		}
 		case CLI_MIBS: {
-			set.mibs = 1;
+			set.snmp.mibs = 1;
 			break;
 		}
 		case CLI_HELP: {
@@ -347,7 +347,7 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		case CLI_READONLY: {
-			set.SQL_readonly = TRUE;
+			set.poller.SQL_readonly = TRUE;
 			break;
 		}
 		case CLI_CONF: {
@@ -370,12 +370,12 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		default:
-			if (!HOSTID_DEFINED(set.start_host_id) && all_digits(arg)) {
-				set.start_host_id = atoi(arg);
+			if (!HOSTID_DEFINED(set.hosts.start_host_id) && all_digits(arg)) {
+				set.hosts.start_host_id = atoi(arg);
 			}
 
-			else if (!HOSTID_DEFINED(set.end_host_id) && all_digits(arg)) {
-				set.end_host_id = atoi(arg);
+			else if (!HOSTID_DEFINED(set.hosts.end_host_id) && all_digits(arg)) {
+				set.hosts.end_host_id = atoi(arg);
 			}
 
 			else {
@@ -407,7 +407,7 @@ static bool wait_for_worker_permit(spine_permits_t *permit, int host_id, int hos
 			SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring %s", host_id, host_thread, error, label));
 		}
 		if (++retries == 10) {
-			if (get_time_as_double() - start_time + 1 > set.poller_interval) {
+			if (get_time_as_double() - start_time + 1 > set.poller.poller_interval) {
 				SPINE_LOG(("ERROR: Device[%i] HT[%i] polling timed out while acquiring %s", host_id, host_thread, label));
 				return FALSE;
 			}
@@ -415,7 +415,7 @@ static bool wait_for_worker_permit(spine_permits_t *permit, int host_id, int hos
 		}
 		spine_sleep_usec(10000);
 		total_time = get_time_as_double();
-		if (total_time - start_time > set.poller_interval) {
+		if (total_time - start_time > set.poller.poller_interval) {
 			SPINE_LOG(("ERROR: Device[%i] HT[%i] Spine Timed Out While Processing Devices (%s)", host_id, host_thread, label));
 			return FALSE;
 		}
@@ -476,13 +476,13 @@ static MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
 
 	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
 
-	if (!strlen(set.host_id_list)) {
+	if (!strlen(set.hosts.host_id_list)) {
 		qp += append_hostrange(qp, sizeof(querybuf) - (size_t)(qp - querybuf), "h.id");	/* AND id BETWEEN a AND b */
 	} else {
-		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.id IN(%s)", set.host_id_list);
+		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.id IN(%s)", set.hosts.host_id_list);
 	}
 
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller_id);
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " AND h.poller_id = %i", set.poller.poller_id);
 	spine_snprintf(qp, sizeof(querybuf) - (size_t)(qp - querybuf), " ORDER BY picount DESC");
 
 	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
@@ -491,9 +491,9 @@ static MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
 }
 
 static void report_startup_version(int mode) {
-	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+	if (set.logging.log_level == POLLER_VERBOSITY_DEBUG) {
 		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
-		if (set.poller_id > 1) {
+		if (set.poller.poller_id > 1) {
 			if (mode == REMOTE) {
 				SPINE_LOG_DEBUG(("DEBUG: Sending entries to remote database in 'online' mode"));
 			} else {
@@ -502,9 +502,9 @@ static void report_startup_version(int mode) {
 		}
 		return;
 	}
-	if (set.stdout_notty) return;
+	if (set.console.stdout_notty) return;
 	printf("Version %s starting\n", VERSION);
-	if (set.poller_id <= 1) return;
+	if (set.poller.poller_id <= 1) return;
 	if (mode == REMOTE) {
 		printf("Sending entries to remote database in 'online' mode\n");
 	} else {
@@ -514,7 +514,7 @@ static void report_startup_version(int mode) {
 
 static void report_startup(int mode) {
 	report_startup_version(mode);
-	if (set.has_device_0) {
+	if (set.hosts.has_device_0) {
 		SPINE_LOG_MEDIUM(("Device 0 Poller Items found.  Ensure that these entries are accurate"));
 	} else {
 		SPINE_LOG_MEDIUM(("No Device 0 Poller Items found."));
@@ -522,7 +522,7 @@ static void report_startup(int mode) {
 
 	/* see if mysql is thread safe */
 	if (mysql_thread_safe()) {
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+		if (set.logging.log_level == POLLER_VERBOSITY_DEBUG) {
 			SPINE_LOG(("DEBUG: MySQL is Thread Safe!"));
 		}
 	} else {
@@ -564,15 +564,15 @@ static void update_partition_time(poller_partition_t *partition) {
 }
 
 static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thread, poller_partition_t *partition) {
-	if (set.ping_only) {
+	if (set.availability.ping_only) {
 		partition->threads = 1;
 	} else {
-		int total_items = count_partition_items(mysql, host_id, 1, set.active_profiles != 1);
+		int total_items = count_partition_items(mysql, host_id, 1, set.poller.active_profiles != 1);
 		if (total_items && total_items < partition->threads) partition->threads = total_items;
 	}
 	if (partition->threads > 1) {
 		if (current_thread == 1) {
-			partition->items = count_partition_items(mysql, host_id, partition->threads, set.active_profiles != 1);
+			partition->items = count_partition_items(mysql, host_id, partition->threads, set.poller.active_profiles != 1);
 			update_partition_time(partition);
 		} else if (partition->time == 0 || partition->timestamp == NULL) {
 			update_partition_time(partition);
@@ -586,7 +586,7 @@ static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thre
 static bool start_poll_worker(const poller_thread_t *device, int current_thread, spine_permits_t *startup,
 	const pthread_attr_t *attributes, pthread_t *thread) {
 	if (!acquire_worker_permits(startup, device->host_id, current_thread)) {
-		set.exit_code = EXIT_FAILURE;
+		set.exit.exit_code = EXIT_FAILURE;
 		return FALSE;
 	}
 	poller_thread_t *worker = malloc(sizeof(*worker));
@@ -599,7 +599,7 @@ static bool start_poll_worker(const poller_thread_t *device, int current_thread,
 	do {
 		status = pthread_create(thread, attributes, child, worker);
 		if (status == EAGAIN) spine_sleep_usec(10000);
-	} while (status == EAGAIN && get_time_as_double() - start_time < set.poller_interval);
+	} while (status == EAGAIN && get_time_as_double() - start_time < set.poller.poller_interval);
 	if (status == 0) {
 		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", device->host_id, (unsigned long int)*thread));
 		return TRUE;
@@ -608,13 +608,13 @@ static bool start_poll_worker(const poller_thread_t *device, int current_thread,
 	free(worker);
 	spine_permits_release(startup);
 	spine_permits_release(&available_threads);
-	set.exit_code = EXIT_FAILURE;
+	set.exit.exit_code = EXIT_FAILURE;
 	return FALSE;
 }
 
 static void report_worker_launch(const poller_thread_t *device, int device_counter) {
 	int available = spine_permits_available(&available_threads);
-	SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", device->host_id, available, set.threads - available));
+	SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", device->host_id, available, set.poller.threads - available));
 	thread_mutex_lock(LOCK_THDET);
 	SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, host_thread = %d,"
 		" host_threads = %d, host_data_ids = %d, complete = %d",
@@ -631,18 +631,18 @@ static int wait_for_workers(double begin_time) {
 	/* wait for all threads to 'complete'
 	 * using the mutex here as the semaphore will
      * show zero before the children are done */
-	while (a_threads_value < set.threads) {
+	while (a_threads_value < set.poller.threads) {
 		cur_time = get_time_as_double();
 
-		if (cur_time - begin_time > set.poller_interval) {
-			SPINE_LOG(("ERROR: Polling timed out while waiting for %d Threads to End", set.threads - a_threads_value));
+		if (cur_time - begin_time > set.poller.poller_interval) {
+			SPINE_LOG(("ERROR: Polling timed out while waiting for %d Threads to End", set.poller.threads - a_threads_value));
 			/* Active workers still own pool entries and completion state. Exit the
 			 * process before normal cleanup can invalidate those borrowed objects. */
-			set.exit_code = EXIT_FAILURE;
+			set.exit.exit_code = EXIT_FAILURE;
 			die("ERROR: Polling deadline expired with active workers; polling is incomplete");
 		}
 
-		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.threads - a_threads_value));
+		SPINE_LOG_HIGH(("NOTE: Polling sleeping while waiting for %d Threads to End", set.poller.threads - a_threads_value));
 		spine_sleep_usec(500000);
 		a_threads_value = spine_permits_available(&available_threads);
 	}
@@ -652,7 +652,7 @@ static int wait_for_workers(double begin_time) {
 
 static void report_worker_completion(int num_rows) {
 	int threads_missing = -1;
-	if (!set.ping_only) {
+	if (!set.availability.ping_only) {
 		thread_mutex_lock(LOCK_THDET);
 
 		for (int threads_count = 0; threads_count < num_rows; threads_count++) {
@@ -706,7 +706,7 @@ static void launch_poll_workers(MYSQL *mysql, MYSQL_RES *result, int num_rows,
 	current_thread   = 0;
 
 	/* poller 1 always polls host 0 but only if it exists */
-	if (set.poller_id == 1 && set.has_device_0 == TRUE) {
+	if (set.poller.poller_id == 1 && set.hosts.has_device_0 == TRUE) {
 		host_id     = 0;
 		change_host = FALSE;
 	} else {
@@ -782,8 +782,8 @@ static void prepare_worker_storage(MYSQL_RES *result, int *rows,
 	pthread_t *threads = NULL;
 	int *ids = NULL;
 	char *host_time = NULL;
-	if (set.poller_id == 1) {
-		if (set.has_device_0) {
+	if (set.poller.poller_id == 1) {
+		if (set.hosts.has_device_0) {
 			num_rows = spine_count_to_int(mysql_num_rows(result) + 1); /* pollerid 1 takes care of non host based data sources */
 		} else {
 			num_rows = spine_count_to_int(mysql_num_rows(result)); /* pollerid 1 takes care of non host based data sources */
@@ -838,40 +838,40 @@ static double initialize_process_defaults(void) {
 	if (debug_devices == NULL) die("ERROR: Fatal malloc error: debug device list!");
 
 	/* initialize icmp_avail */
-	set.icmp_avail = TRUE;
+	set.availability.icmp_avail = TRUE;
 
 	/* initialize number of threads */
-	set.threads = 1;
-	set.threads_set = FALSE;
+	set.poller.threads = 1;
+	set.poller.threads_set = FALSE;
 
 	/* detect and compensate for stdin/stderr ttys */
 	if (!isatty(fileno(stdout))) {
-		set.stdout_notty = TRUE;
+		set.console.stdout_notty = TRUE;
 	} else {
-		set.stdout_notty = FALSE;
+		set.console.stdout_notty = FALSE;
 	}
 
 	if (!isatty(fileno(stderr))) {
-		set.stderr_notty = TRUE;
+		set.console.stderr_notty = TRUE;
 	} else {
-		set.stderr_notty = FALSE;
+		set.console.stderr_notty = FALSE;
 	}
 
 	/* set start time for cacti */
 	begin_time = get_time_as_double();
 
 	/* set default verbosity */
-	set.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.log_level = POLLER_VERBOSITY_LOW;
 
 	/* set default log separator */
-	set.log_datetime_separator = GDC_DEFAULT;
+	set.logging.log_datetime_separator = GDC_DEFAULT;
 
 	/* set default log format */
-	set.log_datetime_format = GD_DEFAULT;
+	set.logging.log_datetime_format = GD_DEFAULT;
 
 	/* set the default exit code */
-	set.exit_code = 0;
-	set.exit_size = 0;
+	set.exit.exit_code = 0;
+	set.exit.exit_size = 0;
 
 	/* get static defaults for system */
 	config_defaults();
@@ -890,15 +890,15 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 	db_connect(LOCAL, mysql);
 
 	/* setup local connection pool for hosts */
-	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
+	db_pool_local = (pool_t *) calloc(set.poller.threads, sizeof(pool_t));
 	db_create_connection_pool(LOCAL);
 
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		db_connect(REMOTE, mysqlr);
 		mode = REMOTE;
 
 		/* setup remote connection pool for hosts */
-		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
+		db_pool_remote = (pool_t *) calloc(set.poller.threads, sizeof(pool_t));
 		db_create_connection_pool(REMOTE);
 	} else {
 		mode = LOCAL;
@@ -908,7 +908,7 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 	/* check for device 0 items */
 	result = db_query(mysql, LOCAL, "SELECT * FROM (SELECT COUNT(*) AS items FROM poller_item WHERE host_id = 0 AND poller_id = 1) AS rs WHERE rs.items > 0");
 	if (mysql_num_rows(result)) {
-		set.has_device_0 = TRUE;
+		set.hosts.has_device_0 = TRUE;
 	}
 	db_free_result(result);
 
@@ -922,13 +922,13 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 
 static void initialize_main_php(void) {
 	/* initialize the script server */
-	if (set.php_required && !set.ping_only) {
+	if (set.php.php_required && !set.availability.ping_only) {
 		if (!php_init(PHP_INIT)) {
-			set.exit_code = EXIT_FAILURE;
+			set.exit.exit_code = EXIT_FAILURE;
 			die("ERROR: PHP Script Server initialization failed");
 		}
-		set.php_initialized    = TRUE;
-		set.php_current_server = 0;
+		set.php.php_initialized    = TRUE;
+		set.php.php_current_server = 0;
 	}
 
 }
@@ -936,17 +936,17 @@ static void initialize_main_php(void) {
 static void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode) {
 	char querybuf[MEGA_BUFSIZE];
 	/* push data back to the main server */
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE && !set.SQL_readonly) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE && !set.poller.SQL_readonly) {
 		poller_push_data_to_main();
 	}
 
 	/* update the db for |data_time| on graphs */
-	if (!set.ping_only) {
-		if (set.poller_id == 1) {
+	if (!set.availability.ping_only) {
+		if (set.poller.poller_id == 1) {
 			db_insert(mysql, LOCAL, "REPLACE INTO settings (name,value) VALUES ('date',NOW())");
 		}
 
-		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller_id, getpid());
+		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller.poller_id, getpid());
 
 		if (mode == REMOTE) {
 			db_insert(mysqlr, REMOTE, querybuf);
@@ -967,7 +967,7 @@ static void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode) {
 
 static void close_main_php(void) {
 	/* close the php script server */
-	if (set.php_required && !set.ping_only && !php_close(PHP_INIT)) set.exit_code = EXIT_FAILURE;
+	if (set.php.php_required && !set.availability.ping_only && !php_close(PHP_INIT)) set.exit.exit_code = EXIT_FAILURE;
 
 	SPINE_LOG_DEBUG(("DEBUG: PHP Script Server Pipes Closed"));
 
@@ -999,12 +999,12 @@ static void report_poll_statistics(double begin_time, int num_rows) {
 	/* finally add some statistics to the log and exit */
 	end_time = get_time_as_double();
 
-	if (set.log_level >= POLLER_VERBOSITY_MEDIUM) {
-		SPINE_LOG(("Time: %.4f s, Threads: %i, Devices: %i", (end_time - begin_time), set.threads, num_rows));
+	if (set.logging.log_level >= POLLER_VERBOSITY_MEDIUM) {
+		SPINE_LOG(("Time: %.4f s, Threads: %i, Devices: %i", (end_time - begin_time), set.poller.threads, num_rows));
 	} else {
 		/* provide output if running from command line */
-		if (!set.stdout_notty) {
-			fprintf(stdout, "Time: %.4f s, Threads: %i, Devices: %i\n", (end_time - begin_time), set.threads, num_rows);
+		if (!set.console.stdout_notty) {
+			fprintf(stdout, "Time: %.4f s, Threads: %i, Devices: %i\n", (end_time - begin_time), set.poller.threads, num_rows);
 		}
 	}
 
@@ -1072,20 +1072,20 @@ int main(int argc, char *argv[]) {
 	 */
 
 	/* initialize some global variables */
-	set.poller_id         = 1;
-	set.start_host_id     = -1;
-	set.end_host_id       = -1;
-	set.host_id_list[0]   = '\0';
-	set.php_initialized   = FALSE;
-	set.logfile_processed = FALSE;
-	set.parent_fork       = SPINE_PARENT;
-	set.mode              = REMOTE_ONLINE;
-	set.has_device_0      = FALSE;
+	set.poller.poller_id         = 1;
+	set.hosts.start_host_id     = -1;
+	set.hosts.end_host_id       = -1;
+	set.hosts.host_id_list[0]   = '\0';
+	set.php.php_initialized   = FALSE;
+	set.logging.logfile_processed = FALSE;
+	set.poller.parent_fork       = SPINE_PARENT;
+	set.poller.mode              = REMOTE_ONLINE;
+	set.hosts.has_device_0      = FALSE;
 
 	parse_command_line(argv, &conf_file);
 
-	if (set.ping_only) {
-		set.mibs = 0;
+	if (set.availability.ping_only) {
+		set.snmp.mibs = 0;
 	}
 
 	/* we attempt to support scripts better in cygwin */
@@ -1093,38 +1093,38 @@ int main(int argc, char *argv[]) {
 	setenv("CYGWIN", "nodosfilewarning", 1);
 	if (file_exists("./sh.exe")) {
 		set.cygwinshloc = 0;
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+		if (set.logging.log_level == POLLER_VERBOSITY_DEBUG) {
 			printf("The Shell Command Exists in the current directory\n");
 		}
 	} else {
 		set.cygwinshloc = 1;
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
+		if (set.logging.log_level == POLLER_VERBOSITY_DEBUG) {
 			printf("The Shell Command Exists in the /bin directory\n");
 		}
 	}
 	#endif
 
 	/* we require either both the first and last hosts, or neither host */
-	if ((HOSTID_DEFINED(set.start_host_id) != HOSTID_DEFINED(set.end_host_id)) &&
-		(!strlen(set.host_id_list))) {
+	if ((HOSTID_DEFINED(set.hosts.start_host_id) != HOSTID_DEFINED(set.hosts.end_host_id)) &&
+		(!strlen(set.hosts.host_id_list))) {
 		die("ERROR: must provide both -f/-l, a hostlist (-H/--hostlist), or neither");
 	}
 
-	if (set.start_host_id > set.end_host_id) {
+	if (set.hosts.start_host_id > set.hosts.end_host_id) {
 		die("ERROR: Invalid row spec; first host_id must be less than the second");
 	}
 
 	conf_file = load_startup_configuration(conf_file);
 
 	/* set the poller interval for those who use less than 5 minute intervals */
-	if (set.poller_interval == 0) {
-		set.poller_interval = 300;
+	if (set.poller.poller_interval == 0) {
+		set.poller.poller_interval = 300;
 	}
 
 	/* tokenize the debug devices */
-	if (strlen(set.selective_device_debug)) {
-		SPINE_LOG_DEBUG(("DEBUG: Selective Debug Devices %s", set.selective_device_debug));
-		parse_debug_devices(set.selective_device_debug, debug_devices, 100);
+	if (strlen(set.logging.selective_device_debug)) {
+		SPINE_LOG_DEBUG(("DEBUG: Selective Debug Devices %s", set.logging.selective_device_debug));
+		parse_debug_devices(set.logging.selective_device_debug, debug_devices, 100);
 	} else {
 		debug_devices[0] = '\0';
 	}
@@ -1144,7 +1144,7 @@ int main(int argc, char *argv[]) {
 	SPINE_LOG_DEBUG(("DEBUG: Initializing PHP Script Server(s)"));
 
 	/* tell spine that it is parent, and set the poller id */
-	set.parent_fork = SPINE_PARENT;
+	set.poller.parent_fork = SPINE_PARENT;
 
 	initialize_main_php();
 
@@ -1156,8 +1156,8 @@ int main(int argc, char *argv[]) {
 	SOCK_STARTUP;
 
 	/* mark the spine process as started */
-	if (!set.ping_only) {
-		snprintf(querybuf, BIG_BUFSIZE, "INSERT INTO poller_time (poller_id, pid, start_time, end_time) VALUES (%i, %i, NOW(), '0000-00-00 00:00:00')", set.poller_id, getpid());
+	if (!set.availability.ping_only) {
+		snprintf(querybuf, BIG_BUFSIZE, "INSERT INTO poller_time (poller_id, pid, start_time, end_time) VALUES (%i, %i, NOW(), '0000-00-00 00:00:00')", set.poller.poller_id, getpid());
 		if (mode == REMOTE) {
 			db_insert(&mysqlr, REMOTE, querybuf);
 		} else {
@@ -1172,33 +1172,33 @@ int main(int argc, char *argv[]) {
 	init_mutexes();
 
 	/* Initialize process-local concurrency permits before worker startup. */
-	if (spine_permits_init(&available_threads, set.threads) != 0 ||
+	if (spine_permits_init(&available_threads, set.poller.threads) != 0 ||
 		spine_permits_init(&available_scripts, MAX_SIMULTANEOUS_SCRIPTS) != 0 ||
 		spine_permits_init(&thread_init_sem, 1) != 0) {
-		set.exit_code = EXIT_FAILURE;
+		set.exit.exit_code = EXIT_FAILURE;
 		die("ERROR: Unable to initialize process permits");
 	}
 
 	/* specify the point of timeout for timedwait semaphores */
 
 	a_threads_value = spine_permits_available(&available_threads);
-	SPINE_LOG_HIGH(("DEBUG: Initial Value of Available Threads is %i (%i outstanding)", a_threads_value, set.threads - a_threads_value));
+	SPINE_LOG_HIGH(("DEBUG: Initial Value of Available Threads is %i (%i outstanding)", a_threads_value, set.poller.threads - a_threads_value));
 
 	/* tell fork processes that they are now active */
-	set.parent_fork = SPINE_FORK;
+	set.poller.parent_fork = SPINE_FORK;
 
 	launch_poll_workers(&mysql, result, num_rows, threads, &thread_init_sem, &attr, host_time);
 
 	a_threads_value = wait_for_workers(begin_time);
 
-	threads_final = set.threads - a_threads_value;
+	threads_final = set.poller.threads - a_threads_value;
 
 	SPINE_LOG_HIGH(("The final count of Threads is %i", threads_final));
 
 	report_worker_completion(num_rows);
 
 	/* tell Spine that it is now parent */
-	set.parent_fork = SPINE_PARENT;
+	set.poller.parent_fork = SPINE_PARENT;
 
 	persist_poll_completion(&mysql, &mysqlr, mode);
 
@@ -1215,7 +1215,7 @@ int main(int argc, char *argv[]) {
 	db_free_result(result);
 	db_disconnect(&mysql);
 
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		db_disconnect(&mysqlr);
 	}
 
@@ -1234,7 +1234,7 @@ int main(int argc, char *argv[]) {
 	/* clueanup winsock library on Windows */
 	SOCK_CLEANUP;
 
-	exit(set.exit_code);
+	exit(set.exit.exit_code);
 }
 
 /*! \fn static void display_help()

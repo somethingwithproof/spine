@@ -148,7 +148,7 @@ static void test_cli_option_shape(void) {
 		assert(close(errors[0]) == 0);
 		assert(dup2(errors[1], STDERR_FILENO) == STDERR_FILENO);
 		assert(close(errors[1]) == 0);
-		set.exit_code = EXIT_SUCCESS;
+		set.exit.exit_code = EXIT_SUCCESS;
 		for (int i = 0; i < 257; i++) set_option("regression", "value");
 		_exit(99);
 	}
@@ -371,9 +371,9 @@ static void test_log_boundary(void) {
 	assert(message != NULL);
 	memset(message, 'x', LOGSIZE);
 	message[LOGSIZE] = '\0';
-	set.log_level = POLLER_VERBOSITY_NONE;
-	set.log_destination = 0;
-	set.stdout_notty = TRUE;
+	set.logging.log_level = POLLER_VERBOSITY_NONE;
+	set.logging.log_destination = 0;
+	set.console.stdout_notty = TRUE;
 	spine_log("%s", message);
 	free(message);
 }
@@ -391,10 +391,10 @@ static void test_log_sanitization(void) {
 	char path[] = "spine-log-test-XXXXXX";
 	int fd = mkstemp(path);
 	assert(fd >= 0 && close(fd) == 0);
-	set.log_destination = LOGDEST_FILE;
-	set.log_level = POLLER_VERBOSITY_LOW;
-	set.logfile_processed = TRUE;
-	strncopy(set.path_logfile, path, sizeof(set.path_logfile));
+	set.logging.log_destination = LOGDEST_FILE;
+	set.logging.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.logfile_processed = TRUE;
+	strncopy(set.logging.path_logfile, path, sizeof(set.logging.path_logfile));
 	spine_log("device: %s", "first\r\nsecond");
 	FILE *file = fopen(path, "r");
 	assert(file != NULL);
@@ -403,7 +403,7 @@ static void test_log_sanitization(void) {
 	assert(strstr(line, "device: first  second") != NULL);
 	assert(fgets(line, sizeof(line), file) == NULL && !ferror(file));
 	assert(fclose(file) == 0 && unlink(path) == 0);
-	set.log_destination = 0;
+	set.logging.log_destination = 0;
 }
 
 static void *test_log_writer(void *argument) {
@@ -420,12 +420,12 @@ static void test_log_append_and_failures(void) {
 	static const char retained[] = "retained record\n";
 	assert(write(fd, retained, sizeof(retained) - 1) == (ssize_t)(sizeof(retained) - 1));
 	assert(close(fd) == 0);
-	set.log_destination = LOGDEST_FILE;
-	set.log_level = POLLER_VERBOSITY_LOW;
-	set.logfile_processed = TRUE;
-	set.stdout_notty = TRUE;
-	set.stderr_notty = TRUE;
-	strncopy(set.path_logfile, path, sizeof(set.path_logfile));
+	set.logging.log_destination = LOGDEST_FILE;
+	set.logging.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.logfile_processed = TRUE;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
+	strncopy(set.logging.path_logfile, path, sizeof(set.logging.path_logfile));
 	char first[20001];
 	char second[20001];
 	memset(first, 'a', sizeof(first) - 1);
@@ -459,11 +459,11 @@ static void test_log_append_and_failures(void) {
 	assert(file_exists(path) && unlink(path) == 0);
 	char directory[] = "spine-log-directory-XXXXXX";
 	assert(mkdtemp(directory) != NULL);
-	strncopy(set.path_logfile, directory, sizeof(set.path_logfile));
+	strncopy(set.logging.path_logfile, directory, sizeof(set.logging.path_logfile));
 	assert(!spine_log("must fail to open directory"));
 	assert(rmdir(directory) == 0);
 	#ifdef __linux__
-	STRNCOPY(set.path_logfile, "/dev/full");
+	STRNCOPY(set.logging.path_logfile, "/dev/full");
 	assert(!spine_log("must detect buffered write/close failure"));
 	#endif
 	set = previous;
@@ -480,18 +480,70 @@ static void test_config_directives(void) {
 	      "SNMP_Clientaddr 127.0.0.1\nDB_Pass\nDB_Database final_line", file);
 	assert(fclose(file) == 0);
 	memset(&set, 0, sizeof set);
-	set.stdout_notty = TRUE;
-	set.stderr_notty = TRUE;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
 	config_defaults();
 	assert(read_spine_config(path) == 0);
-	assert(strcmp(set.db_host, "localhost") == 0);
-	assert(set.db_port == 3307 && set.rdb_ssl == 1 && set.poller_id == 2);
-	assert(strcmp(set.path_logfile, "/tmp/spine-test.log") == 0);
-	assert(strcmp(set.snmp_clientaddr, "127.0.0.1") == 0);
-	assert(strcmp(set.db_db, "final_line") == 0);
-	assert(set.logfile_processed == 1 && set.log_destination == LOGDEST_BOTH);
+	assert(strcmp(set.database.host, "localhost") == 0);
+	assert(set.database.port == 3307 && set.remote_database.ssl == 1 && set.poller.poller_id == 2);
+	assert(strcmp(set.logging.path_logfile, "/tmp/spine-test.log") == 0);
+	assert(strcmp(set.snmp.snmp_clientaddr, "127.0.0.1") == 0);
+	assert(strcmp(set.database.database, "final_line") == 0);
+	assert(set.logging.logfile_processed == 1 && set.logging.log_destination == LOGDEST_BOTH);
 	assert(unlink(path) == 0);
 	assert(read_spine_config(path) == -1);
+}
+
+static void test_config_structure_bindings(void) {
+	config_t previous = set;
+	memset(&set, 0, sizeof set);
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
+	set.d_b = 37;
+	set.cacti_version = 1232;
+	set.cygwinshloc = 1;
+	config_defaults();
+	assert(strcmp(set.database.host, DEFAULT_DB_HOST) == 0);
+	assert(strcmp(set.remote_database.host, DEFAULT_DB_HOST) == 0);
+	assert(set.database.port == DEFAULT_DB_PORT && set.remote_database.port == DEFAULT_DB_PORT);
+	assert(set.poller.threads == DEFAULT_THREADS && set.logging.log_destination == LOGDEST_FILE);
+	char path[] = "spine-config-bindings-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	FILE *file = fdopen(fd, "w");
+	assert(file != NULL);
+	assert(fputs("DB_Host local-fixture\nDB_Database local-schema\nDB_User local-user\n"
+		"DB_Pass fixture-local-password\nDB_SSL_Key local-key\nDB_SSL_Cert local-cert\nDB_SSL_CA local-ca\n"
+		"RDB_Host remote-fixture\nRDB_Database remote-schema\nRDB_User remote-user\n"
+		"RDB_Pass fixture-remote-password\nRDB_SSL_Key remote-key\nRDB_SSL_Cert remote-cert\nRDB_SSL_CA remote-ca\n"
+		"DB_Port 3307\nRDB_Port 3308\nDB_UseSSL 1\nRDB_UseSSL 2\nPoller 3\n"
+		"SNMP_Clientaddr 127.0.0.2\nCacti_Log /tmp/spine-bindings.log\n", file) != EOF);
+	assert(fclose(file) == 0 && read_spine_config(path) == 0);
+	assert(strcmp(set.database.host, "local-fixture") == 0);
+	assert(strcmp(set.database.database, "local-schema") == 0);
+	assert(strcmp(set.database.user, "local-user") == 0);
+	assert(strcmp(set.database.password, "fixture-local-password") == 0);
+	assert(strcmp(set.database.ssl_key, "local-key") == 0);
+	assert(strcmp(set.database.ssl_cert, "local-cert") == 0);
+	assert(strcmp(set.database.ssl_ca, "local-ca") == 0);
+	assert(strcmp(set.remote_database.host, "remote-fixture") == 0);
+	assert(strcmp(set.remote_database.database, "remote-schema") == 0);
+	assert(strcmp(set.remote_database.user, "remote-user") == 0);
+	assert(strcmp(set.remote_database.password, "fixture-remote-password") == 0);
+	assert(strcmp(set.remote_database.ssl_key, "remote-key") == 0);
+	assert(strcmp(set.remote_database.ssl_cert, "remote-cert") == 0);
+	assert(strcmp(set.remote_database.ssl_ca, "remote-ca") == 0);
+	assert(set.database.port == 3307 && set.remote_database.port == 3308);
+	assert(set.database.ssl == 1 && set.remote_database.ssl == 2);
+	assert(set.poller.poller_id == 3 && set.poller.threads == DEFAULT_THREADS);
+	assert(strcmp(set.snmp.snmp_clientaddr, "127.0.0.2") == 0);
+	assert(strcmp(set.logging.path_logfile, "/tmp/spine-bindings.log") == 0);
+	assert(set.logging.logfile_processed == 1 && set.logging.log_destination == LOGDEST_BOTH);
+	assert(set.d_b == 37 && set.cacti_version == 1232 && set.cygwinshloc == 1);
+	assert(set.console.stdout_notty && set.console.stderr_notty);
+	assert(unlink(path) == 0);
+	set = previous;
+	puts("production config structure bindings passed");
 }
 
 static void test_date_formats(void) {
@@ -500,15 +552,15 @@ static void test_date_formats(void) {
 		"%d/%m/%Y %H:%M:%S - ", "%d/%b/%Y %H:%M:%S - ",
 		"%Y/%m/%d %H:%M:%S - ", "%Y/%b/%d %H:%M:%S - "
 	};
-	set.log_datetime_separator = GDC_SLASH;
+	set.logging.log_datetime_separator = GDC_SLASH;
 	for (int i = GD_MIN; i <= GD_MAX; i++) {
-		set.log_datetime_format = i;
+		set.logging.log_datetime_format = i;
 		char *format = get_date_format();
 		assert(strcmp(format, expected[i]) == 0);
 		free(format);
 	}
-	set.log_datetime_format = -1;
-	set.log_datetime_separator = -1;
+	set.logging.log_datetime_format = -1;
+	set.logging.log_datetime_separator = -1;
 	char *format = get_date_format();
 	assert(strcmp(format, expected[GD_DEFAULT]) == 0);
 	free(format);
@@ -520,13 +572,13 @@ static void test_device_logging(void) {
 	int *previous = debug_devices;
 	debug_devices = devices;
 	for (int level = POLLER_VERBOSITY_NONE; level <= POLLER_VERBOSITY_DEVDBG; level++) {
-		set.log_level = level;
+		set.logging.log_level = level;
 		for (int minimum = POLLER_VERBOSITY_LOW; minimum <= POLLER_VERBOSITY_DEVDBG; minimum++) {
 			assert(spine_should_log_device(7, minimum));
 			assert(spine_should_log_device(8, minimum) == (level >= minimum));
 		}
 	}
-	set.log_level = POLLER_VERBOSITY_NONE;
+	set.logging.log_level = POLLER_VERBOSITY_NONE;
 	int evaluated = 0;
 	SPINE_LOG_DEVICE(8, POLLER_VERBOSITY_DEBUG, ("hidden %i", ++evaluated));
 	assert(evaluated == 0);
@@ -844,8 +896,8 @@ static void test_script_execution(void) {
 	assert(spine_permits_init(&available_scripts, 1) == 0);
 	host_t host = {0};
 	STRNCOPY(host.hostname, "regression-device");
-	int previous_timeout = set.script_timeout;
-	set.script_timeout = 1;
+	int previous_timeout = set.php.script_timeout;
+	set.php.script_timeout = 1;
 	char command[] = "/usr/bin/printf 7";
 	char *result = exec_poll(&host, command, 1, "DS");
 	assert(strcmp(result, "7") == 0);
@@ -858,13 +910,13 @@ static void test_script_execution(void) {
 	free(result);
 	assert(spine_permits_available(&available_scripts) == 1);
 	for (int timeout = -1; timeout <= 0; timeout++) {
-		set.script_timeout = timeout;
+		set.php.script_timeout = timeout;
 		result = exec_poll(&host, command, 1, "DS");
 		assert(strcmp(result, "U") == 0);
 		free(result);
 		assert(spine_permits_available(&available_scripts) == 1);
 	}
-	set.script_timeout = 1;
+	set.php.script_timeout = 1;
 	assert(spine_permits_try_acquire(&available_scripts) == 0);
 	begin = spine_monotonic_time();
 	result = exec_poll(&host, command, 1, "DS");
@@ -892,7 +944,7 @@ static void test_script_execution(void) {
 	free(result);
 	assert(spine_permits_available(&available_scripts) == 1);
 	assert(spine_permits_destroy(&available_scripts) == 0);
-	set.script_timeout = previous_timeout;
+	set.php.script_timeout = previous_timeout;
 }
 
 static void test_php_command(size_t length) {
@@ -930,8 +982,8 @@ static void test_php_command(size_t length) {
 	process.php_read_fd = responses[0];
 	php_t *previous = php_processes;
 	php_processes = &process;
-	set.php_servers = 1;
-	set.script_timeout = 5;
+	set.php.php_servers = 1;
+	set.php.script_timeout = 5;
 	char *result = php_cmd(command, 0);
 	assert(strcmp(result, "7\n") == 0);
 	free(result);
@@ -1000,20 +1052,20 @@ static void test_php_startup(const char *executable) {
 	php_t processes[2];
 	memset(processes, 0, sizeof(processes));
 	php_processes = processes;
-	STRNCOPY(set.path_php, absolute);
+	STRNCOPY(set.php.path_php, absolute);
 	free(absolute);
-	STRNCOPY(set.path_php_server, "regression-server");
-	set.script_timeout = 5;
-	set.php_servers = 2;
+	STRNCOPY(set.php.path_php_server, "regression-server");
+	set.php.script_timeout = 5;
+	set.php.php_servers = 2;
 	const int versions[] = {1222, 1223, 1223, 1223};
 	const int pollers[] = {1, 1, 2, 2};
 	const int modes[] = {REMOTE_ONLINE, REMOTE_ONLINE, REMOTE_ONLINE, REMOTE_OFFLINE};
 	for (size_t i = 0; i < sizeof(versions) / sizeof(versions[0]); i++) {
 		set.cacti_version = versions[i];
-		set.poller_id = pollers[i];
-		set.mode = modes[i];
+		set.poller.poller_id = pollers[i];
+		set.poller.mode = modes[i];
 		assert(php_init(PHP_INIT));
-		for (int index = 0; index < set.php_servers; index++) {
+		for (int index = 0; index < set.php.php_servers; index++) {
 			assert(processes[index].php_state == PHP_READY);
 			char *result = php_cmd("regression request", index);
 			assert(strcmp(result, "7\n") == 0);
@@ -1032,15 +1084,15 @@ static void test_php_startup(const char *executable) {
 	int admissions[2];
 	assert(pipe(admissions) == 0);
 	assert(write(admissions[1], "R", 1) == 1 && close(admissions[1]) == 0);
-	spine_snprintf(set.path_php_server, sizeof(set.path_php_server), "regression-server:%d", admissions[0]);
+	spine_snprintf(set.php.path_php_server, sizeof(set.php.path_php_server), "regression-server:%d", admissions[0]);
 	assert(!php_init(PHP_INIT));
 	assert(processes[0].php_pid == -1 && processes[1].php_pid == -1);
 	assert(WIFEXITED(processes[0].php_exit_status) && WEXITSTATUS(processes[0].php_exit_status) == 0);
 	assert(WIFEXITED(processes[1].php_exit_status) && WEXITSTATUS(processes[1].php_exit_status) == 127);
 	assert(close(admissions[0]) == 0);
-	STRNCOPY(set.path_php_server, "regression-server");
-	assert(!php_init(-2) && !php_init(set.php_servers));
-	STRNCOPY(set.path_php, "/nonexistent-spine-regression-executable");
+	STRNCOPY(set.php.path_php_server, "regression-server");
+	assert(!php_init(-2) && !php_init(set.php.php_servers));
+	STRNCOPY(set.php.path_php, "/nonexistent-spine-regression-executable");
 	assert(!php_init(0));
 	assert(processes[0].php_state == PHP_BUSY);
 	assert(processes[0].php_read_fd == -1 && processes[0].php_write_fd == -1);
@@ -1084,9 +1136,9 @@ static void test_php_owned_shutdown(void) {
 	server.php_write_fd = requests[1];
 	server.php_read_fd = responses[0];
 	php_t *previous_processes = php_processes;
-	int previous_count = set.php_servers;
+	int previous_count = set.php.php_servers;
 	php_processes = &server;
-	set.php_servers = 1;
+	set.php.php_servers = 1;
 	double begin = spine_monotonic_time();
 	alarm(5);
 	assert(php_close(0));
@@ -1104,7 +1156,7 @@ static void test_php_owned_shutdown(void) {
 	assert(php_close(0) && server.php_pid == -1);
 	assert(!php_close(-2) && !php_close(1));
 	php_processes = previous_processes;
-	set.php_servers = previous_count;
+	set.php.php_servers = previous_count;
 }
 
 static void test_udp_deadline(void) {
@@ -1208,9 +1260,9 @@ static unsigned int query_sample_count(MYSQL *mysql, const char *query) {
 static void test_poller_query_case(MYSQL *mysql, int poller, int active, int ports) {
 	static const unsigned int all_rows[] = {3, 2, 1};
 	static const unsigned int due_rows[] = {2, 1, 1};
-	set.poller_id = poller;
-	set.active_profiles = active;
-	set.total_snmp_ports = ports;
+	set.poller.poller_id = poller;
+	set.poller.active_profiles = active;
+	set.snmp.total_snmp_ports = ports;
 	poller_queries_t queries;
 	poller_prepare_queries(&queries, 42, 1, 0);
 	MYSQL_RES *result = db_query(mysql, LOCAL, queries.items);
@@ -1227,8 +1279,8 @@ static void test_poller_query_case(MYSQL *mysql, int poller, int active, int por
 
 static void test_poller_schedule(MYSQL *mysql) {
 	poller_queries_t queries;
-	set.poller_interval = 60;
-	set.poller_id = 1;
+	set.poller.poller_interval = 60;
+	set.poller.poller_id = 1;
 	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET rrd_step=300,rrd_next_step=180 WHERE host_id=42") == TRUE);
 	poller_prepare_queries(&queries, 42, 1, 0);
 	assert(db_insert(mysql, LOCAL, queries.schedule) == TRUE);
@@ -1241,7 +1293,7 @@ static void test_poller_schedule(MYSQL *mysql) {
 	row = mysql_fetch_row(result);
 	assert(row != NULL && strcmp(row[0], "103") == 0 && strcmp(row[1], "180") == 0);
 	db_free_result(result);
-	set.poller_id = 0;
+	set.poller.poller_id = 0;
 	poller_prepare_queries(&queries, 42, 1, 0);
 	assert(db_insert(mysql, LOCAL, queries.schedule) == TRUE);
 	result = db_query(mysql, LOCAL, "SELECT rrd_next_step FROM poller_item WHERE local_data_id=103");
@@ -1264,7 +1316,7 @@ static void test_poller_queries(MYSQL *mysql) {
 			}
 		}
 	}
-	set.poller_id = 1;
+	set.poller.poller_id = 1;
 	poller_prepare_queries(&queries, 42, 1, 1);
 	MYSQL_RES *result = db_query(mysql, LOCAL, queries.items);
 	assert(result != NULL && mysql_num_rows(result) == 1);
@@ -1347,17 +1399,17 @@ static void test_transfer_failure_and_filter(MYSQL *source, MYSQL *destination) 
 	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
 	assert(db_insert(destination, REMOTE, "CREATE TRIGGER reject_transfer BEFORE INSERT ON host FOR EACH ROW BEGIN IF NEW.id=501 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='regression late-batch failure'; END IF; END"));
 	assert(!poller_transfer_status(source, destination));
-	set.exit_code = EXIT_SUCCESS;
+	set.exit.exit_code = EXIT_SUCCESS;
 	poller_push_data_to_main();
-	assert(set.exit_code == EXIT_FAILURE);
+	assert(set.exit.exit_code == EXIT_FAILURE);
 	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 500);
 	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 0);
 	assert(database_count(source, "SELECT COUNT(*) FROM host") == 502);
 	assert(database_count(source, "SELECT COUNT(*) FROM poller_item") == 10002);
 	assert(db_insert(destination, REMOTE, "DROP TRIGGER reject_transfer"));
-	set.exit_code = EXIT_SUCCESS;
+	set.exit.exit_code = EXIT_SUCCESS;
 	poller_push_data_to_main();
-	assert(set.exit_code == EXIT_SUCCESS);
+	assert(set.exit.exit_code == EXIT_SUCCESS);
 	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 501);
 	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 10001);
 	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
@@ -1375,11 +1427,11 @@ static void test_transfer_failure_and_filter(MYSQL *source, MYSQL *destination) 
 	assert(database_count(destination, "SELECT COUNT(*) FROM host WHERE OCTET_LENGTH(snmp_sysDescr)=1200 AND OCTET_LENGTH(snmp_sysLocation)=1200") == 501);
 	assert(db_insert(destination, REMOTE, "DELETE FROM host"));
 	assert(db_insert(destination, REMOTE, "DELETE FROM poller_item"));
-	STRNCOPY(set.host_id_list, "1");
+	STRNCOPY(set.hosts.host_id_list, "1");
 	assert(poller_transfer_status(source, destination));
 	assert(database_count(destination, "SELECT COUNT(*) FROM host") == 1);
 	assert(database_count(destination, "SELECT COUNT(*) FROM poller_item") == 0);
-	set.host_id_list[0] = '\0';
+	set.hosts.host_id_list[0] = '\0';
 	assert(db_insert(source, LOCAL, "DELETE FROM host"));
 	assert(db_insert(source, LOCAL, "DELETE FROM poller_item"));
 	assert(poller_transfer_status(source, destination));
@@ -1388,18 +1440,18 @@ static void test_transfer_failure_and_filter(MYSQL *source, MYSQL *destination) 
 
 static void test_collector_transfer(MYSQL *source) {
 	config_t previous = set;
-	set.poller_id = 2;
-	set.dbonupdate = 0;
-	set.host_id_list[0] = '\0';
+	set.poller.poller_id = 2;
+	set.database.onupdate = 0;
+	set.hosts.host_id_list[0] = '\0';
 	char database[80];
 	char query[BUFSIZE];
 	spine_snprintf(database, sizeof(database), "spine_transfer_%ld", (long)getpid());
-	STRNCOPY(set.rdb_host, set.db_host);
-	STRNCOPY(set.rdb_user, set.db_user);
-	STRNCOPY(set.rdb_pass, set.db_pass);
-	STRNCOPY(set.rdb_db, database);
-	set.rdb_port = set.db_port;
-	set.rdb_ssl = FALSE;
+	STRNCOPY(set.remote_database.host, set.database.host);
+	STRNCOPY(set.remote_database.user, set.database.user);
+	STRNCOPY(set.remote_database.password, set.database.password);
+	STRNCOPY(set.remote_database.database, database);
+	set.remote_database.port = set.database.port;
+	set.remote_database.ssl = FALSE;
 	spine_snprintf(query, sizeof(query), "CREATE DATABASE %s CHARACTER SET utf8mb4", database);
 	assert(db_insert(source, LOCAL, query));
 	MYSQL destination;
@@ -1458,8 +1510,8 @@ static void test_poll_missing_connection(const poller_thread_t *work) {
 		if (child == 0) {
 			pool_t unavailable = {0};
 			if (remote) {
-				set.poller_id = 2;
-				set.mode = REMOTE_ONLINE;
+				set.poller.poller_id = 2;
+				set.poller.mode = REMOTE_ONLINE;
 				db_pool_remote = &unavailable;
 			} else db_pool_local[0].free = FALSE;
 			int errors = 0;
@@ -1495,7 +1547,7 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 		{"<", "124", "unknown", 99, 0, "124", "123"}
 	};
 	for (int level = 0; level <= 2; level++) {
-		set.spine_log_level = level;
+		set.logging.spine_log_level = level;
 		for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
 			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
 			assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
@@ -1527,7 +1579,7 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 			assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
 		}
 	}
-	set.spine_log_level = 0;
+	set.logging.spine_log_level = 0;
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
 }
@@ -1555,9 +1607,9 @@ static void test_reindex_query_shortcut(MYSQL *mysql, test_poll_work_t *work) {
 static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *aggregate) {
 	config_t previous = set;
 	test_poll_work_t original = *aggregate;
-	set.active_profiles = 2;
-	set.poller_interval = 5;
-	set.total_snmp_ports = 1;
+	set.poller.active_profiles = 2;
+	set.poller.poller_interval = 5;
+	set.snmp.total_snmp_ports = 1;
 	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET rrd_step=300,rrd_next_step=0 WHERE host_id=43"));
 	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name,rrd_step,rrd_next_step) VALUES (603,43,1,1,'/usr/bin/printf 789','not-due',300,100)"));
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
@@ -1637,23 +1689,23 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	config_t previous = set;
 	pool_t *previous_pool = db_pool_local;
 	poller_thread_t **previous_details = details;
-	set.threads = 1;
-	set.poller_id = 1;
-	set.poller_interval = 0;
-	set.active_profiles = 1;
-	set.boost_enabled = TRUE;
-	set.boost_redirect = TRUE;
-	set.ping_only = FALSE;
-	set.script_timeout = 2;
-	set.spine_log_level = 0;
-	set.log_destination = 0;
+	set.poller.threads = 1;
+	set.poller.poller_id = 1;
+	set.poller.poller_interval = 0;
+	set.poller.active_profiles = 1;
+	set.boost.boost_enabled = TRUE;
+	set.boost.boost_redirect = TRUE;
+	set.availability.ping_only = FALSE;
+	set.php.script_timeout = 2;
+	set.logging.spine_log_level = 0;
+	set.logging.log_destination = 0;
 	db_pool_local = calloc(1, sizeof(*db_pool_local));
 	assert(db_pool_local != NULL);
 	db_create_connection_pool(LOCAL);
 	assert(spine_permits_init(&available_scripts, 2) == 0);
-	set.mibs = FALSE;
-	set.ping_recovery_count = 1;
-	set.ping_failure_count = 1;
+	set.snmp.mibs = FALSE;
+	set.availability.ping_recovery_count = 1;
+	set.availability.ping_failure_count = 1;
 	const char *agent = getenv("SPINE_TEST_SNMP_HOST");
 	const int hosts[] = {0, 42, 43, 44};
 	size_t host_count = sizeof(hosts) / sizeof(hosts[0]);
@@ -1661,7 +1713,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	else snmp_spine_init();
 	for (size_t index = 0; index < host_count; index++) {
 		int host_id = hosts[index];
-		set.mibs = host_id == 44;
+		set.snmp.mibs = host_id == 44;
 		assert(db_insert(mysql, LOCAL, "DELETE FROM host"));
 		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item"));
 		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
@@ -1804,7 +1856,7 @@ static void test_cli_transfer_exit(MYSQL *source) {
 	assert(fd >= 0);
 	FILE *file = fdopen(fd, "w");
 	assert(file != NULL);
-	assert(fprintf(file, "DB_Host %s\nDB_Database spine_regressions\nDB_User %s\nDB_Pass regression-only\nDB_Port 3306\nRDB_Host %s\nRDB_Database %s\nRDB_User %s\nRDB_Pass regression-only\nRDB_Port 3306\nCacti_Log %s.log\n", set.db_host, username, set.db_host, database, username, config) > 0);
+	assert(fprintf(file, "DB_Host %s\nDB_Database spine_regressions\nDB_User %s\nDB_Pass regression-only\nDB_Port 3306\nRDB_Host %s\nRDB_Database %s\nRDB_User %s\nRDB_Pass regression-only\nRDB_Port 3306\nCacti_Log %s.log\n", set.database.host, username, set.database.host, database, username, config) > 0);
 	assert(fclose(file) == 0);
 	run_cli_poll(config, "2", "1", "poller_interval:5", EXIT_FAILURE);
 	assert(database_count(&destination, "SELECT COUNT(*) FROM host") == 0);
@@ -1827,15 +1879,15 @@ static void test_database_configuration(void) {
 	const char *hostname = getenv("SPINE_TEST_DB_HOST");
 	assert(hostname != NULL && hostname[0] != '\0');
 	config_defaults();
-	strncopy(set.db_host, hostname, sizeof(set.db_host));
-	STRNCOPY(set.db_user, "root");
-	STRNCOPY(set.db_db, "spine_regressions");
-	set.db_pass[0] = '\0';
-	set.db_port = 3306;
-	set.poller_id = 1;
-	set.start_host_id = -1;
-	set.end_host_id = -1;
-	set.parent_fork = SPINE_PARENT;
+	strncopy(set.database.host, hostname, sizeof(set.database.host));
+	STRNCOPY(set.database.user, "root");
+	STRNCOPY(set.database.database, "spine_regressions");
+	set.database.password[0] = '\0';
+	set.database.port = 3306;
+	set.poller.poller_id = 1;
+	set.hosts.start_host_id = -1;
+	set.hosts.end_host_id = -1;
+	set.poller.parent_fork = SPINE_PARENT;
 	MYSQL mysql;
 	db_connect(LOCAL, &mysql);
 	/* Restore the fixture input before testing configuration, including after a failed CLI run. */
@@ -1848,12 +1900,12 @@ static void test_database_configuration(void) {
 	db_disconnect(&mysql);
 	read_config_options();
 	assert(set.cacti_version == 1232);
-	assert(strcmp(set.path_php_server, "/srv/cacti/script_server.php") == 0);
-	assert(strcmp(set.path_logfile, "/srv/cacti/log/cacti.log") == 0);
-	assert(set.ping_timeout == 650 && set.script_timeout == 5);
-	assert(set.php_servers == MAX_PHP_SERVERS && set.snmp_max_get_size == 128);
-	assert(set.log_datetime_separator == GDC_DEFAULT);
-	assert(set.threads == 7 && set.php_required);
+	assert(strcmp(set.php.path_php_server, "/srv/cacti/script_server.php") == 0);
+	assert(strcmp(set.logging.path_logfile, "/srv/cacti/log/cacti.log") == 0);
+	assert(set.availability.ping_timeout == 650 && set.php.script_timeout == 5);
+	assert(set.php.php_servers == MAX_PHP_SERVERS && set.snmp.snmp_max_get_size == 128);
+	assert(set.logging.log_datetime_separator == GDC_DEFAULT);
+	assert(set.poller.threads == 7 && set.php.php_required);
 	db_connect(LOCAL, &mysql);
 	MYSQL_RES *result = db_query(&mysql, LOCAL, "SELECT value FROM settings WHERE name='spine_capabilities'");
 	assert(result != NULL && mysql_num_rows(result) == 1);
@@ -1863,17 +1915,17 @@ static void test_database_configuration(void) {
 	assert(db_insert(&mysql, LOCAL, "DELETE FROM poller_item") == TRUE);
 	assert(db_insert(&mysql, LOCAL, "UPDATE settings SET value='/tmp/configured.log' WHERE name='path_cactilog'") == TRUE);
 	db_disconnect(&mysql);
-	set.threads_set = TRUE;
-	set.threads = 3;
-	STRNCOPY(set.host_id_list, "42");
+	set.poller.threads_set = TRUE;
+	set.poller.threads = 3;
+	STRNCOPY(set.hosts.host_id_list, "42");
 	read_config_options();
-	assert(set.threads == 3 && !set.php_required);
-	assert(strcmp(set.path_logfile, "/tmp/configured.log") == 0);
+	assert(set.poller.threads == 3 && !set.php.php_required);
+	assert(strcmp(set.logging.path_logfile, "/tmp/configured.log") == 0);
 	set_option("ping_timeout", "777");
 	read_config_options();
-	assert(set.ping_timeout == 777);
+	assert(set.availability.ping_timeout == 777);
 	read_config_options();
-	assert(set.ping_timeout == 777);
+	assert(set.availability.ping_timeout == 777);
 	db_connect(LOCAL, &mysql);
 	test_settings_write_contracts(&mysql);
 	test_additional_database_contracts(&mysql);
@@ -1965,14 +2017,14 @@ static void test_snmp_scalar_responses(host_t *host) {
 static void test_system_information(host_t *host) {
 	MYSQL mysql;
 	assert(mysql_init(&mysql) != NULL);
-	int previous_mibs = set.mibs;
-	set.mibs = FALSE;
+	int previous_mibs = set.snmp.mibs;
+	set.snmp.mibs = FALSE;
 	STRNCOPY(host->snmp_sysLocation, "untouched");
 	get_system_information(host, &mysql, FALSE);
 	assert(strcmp(host->snmp_sysLocation, "untouched") == 0);
 	assert(host->snmp_sysUpTimeInstance > 0 && !host->ignore_host);
 	for (int explicit_update = 0; explicit_update <= 1; explicit_update++) {
-		set.mibs = !explicit_update;
+		set.snmp.mibs = !explicit_update;
 		get_system_information(host, &mysql, explicit_update);
 		assert(strcmp(host->snmp_sysLocation, "isolated-regression-agent") == 0);
 		assert(strcmp(host->snmp_sysContact, "regression") == 0);
@@ -1985,13 +2037,13 @@ static void test_system_information(host_t *host) {
 	int previous_status = host->snmp_status;
 	host->snmp_session = NULL;
 	unsigned long long previous_uptime = host->snmp_sysUpTimeInstance;
-	set.mibs = FALSE;
+	set.snmp.mibs = FALSE;
 	for (int count = 0; count < 100; count++) get_system_information(host, &mysql, FALSE);
 	assert(host->snmp_sysUpTimeInstance == previous_uptime);
 	host->snmp_session = session;
 	host->ignore_host = previous_ignore;
 	host->snmp_status = previous_status;
-	set.mibs = previous_mibs;
+	set.snmp.mibs = previous_mibs;
 	mysql_close(&mysql);
 }
 
@@ -1999,7 +2051,7 @@ static void test_snmp_agent(void) {
 	const char *address = getenv("SPINE_TEST_SNMP_HOST");
 	assert(address != NULL && address[0] != '\0');
 	snmp_spine_init();
-	set.snmp_retries = 0;
+	set.snmp.snmp_retries = 0;
 	const int methods[] = {AVAIL_SNMP, AVAIL_SNMP_GET_SYSDESC, AVAIL_SNMP_GET_NEXT};
 	for (int version = 1; version <= 2; version++) {
 		host_t host = {0};
@@ -2059,9 +2111,9 @@ static void test_snmp_agent(void) {
 
 static void test_host_status_transitions(void) {
 	config_t previous = set;
-	set.log_level = POLLER_VERBOSITY_NONE;
-	set.ping_failure_count = 2;
-	set.ping_recovery_count = 2;
+	set.logging.log_level = POLLER_VERBOSITY_NONE;
+	set.availability.ping_failure_count = 2;
+	set.availability.ping_recovery_count = 2;
 	host_t host = {0};
 	ping_t ping = {0};
 	STRNCOPY(host.snmp_community, "regression");
@@ -2233,6 +2285,7 @@ int main(int argc, char **argv) {
 	test_log_sanitization();
 	test_log_append_and_failures();
 	test_config_directives();
+	test_config_structure_bindings();
 	test_date_formats();
 	test_device_logging();
 	test_debug_device_bounds();

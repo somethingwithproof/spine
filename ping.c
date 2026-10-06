@@ -46,7 +46,7 @@
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  */
 static int ping_network(host_t *host, ping_t *ping) {
-	if (host->ping_method == PING_ICMP && !set.icmp_avail) {
+	if (host->ping_method == PING_ICMP && !set.availability.icmp_avail) {
 		SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
 		host->ping_method = PING_UDP;
 	}
@@ -181,7 +181,7 @@ static int ping_icmp_socket(void) {
 		thread_mutex_unlock(LOCK_SETEUID);
 		if (dropped == -1) {
 			if (fd >= 0) close(fd);
-			set.exit_code = EXIT_FAILURE;
+			set.exit.exit_code = EXIT_FAILURE;
 			die("ERROR: Spine unable to drop from root to local user");
 		}
 	}
@@ -588,9 +588,9 @@ static bool host_failure_transition(host_t *host, const char *date) {
 	switch (host->status) {
 		case HOST_UP:
 			host->status_event_count++;
-			if (host->status_event_count >= set.ping_failure_count) {
+			if (host->status_event_count >= set.availability.ping_failure_count) {
 				host->status = HOST_DOWN;
-				if (set.ping_failure_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
+				if (set.availability.ping_failure_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
 				return TRUE;
 			}
 			if (host->status_event_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
@@ -621,9 +621,9 @@ static bool host_recovery_transition(host_t *host, const char *date) {
 	} else {
 		host->status_event_count++;
 	}
-	if (host->status_event_count >= set.ping_recovery_count) {
+	if (host->status_event_count >= set.availability.ping_recovery_count) {
 		host->status = HOST_UP;
-		if (set.ping_recovery_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
+		if (set.availability.ping_recovery_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
 		host->status_event_count = 0;
 		return TRUE;
 	}
@@ -652,7 +652,7 @@ static void host_response_statistics(host_t *host, double ping_time) {
 }
 
 static void log_host_availability(const host_t *host, const ping_t *ping, int method) {
-	if (set.log_level < POLLER_VERBOSITY_HIGH) return;
+	if (set.logging.log_level < POLLER_VERBOSITY_HIGH) return;
 	bool up = host->status == HOST_UP || host->status == HOST_RECOVERING;
 	if (method == AVAIL_SNMP_AND_PING || (method == AVAIL_SNMP_OR_PING && up)) {
 		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
