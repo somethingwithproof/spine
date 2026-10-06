@@ -323,6 +323,60 @@ static void host_metadata_system(host_t *host, MYSQL_ROW row, MYSQL *mysql) {
 	if (row[36] != NULL) db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), row[36]);
 }
 
+static void persist_host_status(MYSQL *mysql, const host_t *host, bool include_system_information) {
+	char update_sql[BIG_BUFSIZE];
+	if (include_system_information) {
+		snprintf(update_sql, BIG_BUFSIZE, "UPDATE host "
+		"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
+			" status_rec_date=FROM_UNIXTIME(%s), status_last_error='%s', min_time='%f',"
+			" max_time='%f', cur_time='%f', avg_time='%f', total_polls='%i',"
+			" failed_polls='%i', availability='%.4f', snmp_sysDescr='%s', "
+			" snmp_sysObjectID='%s', snmp_sysUpTimeInstance='%llu', "
+			" snmp_sysContact='%s', snmp_sysName='%s', snmp_sysLocation='%s' "
+		"WHERE id='%i'",
+		host->status,
+		host->status_event_count,
+		host->status_fail_date,
+		host->status_rec_date,
+		host->status_last_error,
+		host->min_time,
+		host->max_time,
+		host->cur_time,
+		host->avg_time,
+		host->total_polls,
+		host->failed_polls,
+		host->availability,
+		host->snmp_sysDescr,
+		host->snmp_sysObjectID,
+		host->snmp_sysUpTimeInstance,
+		host->snmp_sysContact,
+		host->snmp_sysName,
+		host->snmp_sysLocation,
+		host->id);
+	} else {
+		snprintf(update_sql, BIG_BUFSIZE, "UPDATE host "
+		"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
+			" status_rec_date=FROM_UNIXTIME(%s), status_last_error='%s', min_time='%f',"
+			" max_time='%f', cur_time='%f', avg_time='%f', total_polls='%i',"
+			" failed_polls='%i', availability='%.4f' "
+		"WHERE id='%i'",
+		host->status,
+		host->status_event_count,
+		host->status_fail_date,
+		host->status_rec_date,
+		host->status_last_error,
+		host->min_time,
+		host->max_time,
+		host->cur_time,
+		host->avg_time,
+		host->total_polls,
+		host->failed_polls,
+		host->availability,
+		host->id);
+	}
+	db_insert(mysql, LOCAL, update_sql);
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -362,7 +416,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    php_process;
 
 	char *poll_result = NULL;
-	char update_sql[BIG_BUFSIZE];
 	char temp_poll_result[BUFSIZE];
 	char temp_arg1[BUFSIZE];
 
@@ -566,79 +619,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 				/* update host table */
 				if (host_thread == 1) {
-					if (!ignore_sysinfo) {
-						if (host->ignore_host != TRUE) {
-							snprintf(update_sql, BIG_BUFSIZE, "UPDATE host "
-								"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
-									" status_rec_date=FROM_UNIXTIME(%s), status_last_error='%s', min_time='%f',"
-									" max_time='%f', cur_time='%f', avg_time='%f', total_polls='%i',"
-									" failed_polls='%i', availability='%.4f', snmp_sysDescr='%s', "
-									" snmp_sysObjectID='%s', snmp_sysUpTimeInstance='%llu', "
-									" snmp_sysContact='%s', snmp_sysName='%s', snmp_sysLocation='%s' "
-								"WHERE id='%i'",
-								host->status,
-								host->status_event_count,
-								host->status_fail_date,
-								host->status_rec_date,
-								host->status_last_error,
-								host->min_time,
-								host->max_time,
-								host->cur_time,
-								host->avg_time,
-								host->total_polls,
-								host->failed_polls,
-								host->availability,
-								host->snmp_sysDescr,
-								host->snmp_sysObjectID,
-								host->snmp_sysUpTimeInstance,
-								host->snmp_sysContact,
-								host->snmp_sysName,
-								host->snmp_sysLocation,
-								host->id);
-						} else {
-							snprintf(update_sql, BIG_BUFSIZE, "UPDATE host "
-								"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
-									" status_rec_date=FROM_UNIXTIME(%s), status_last_error='%s', min_time='%f',"
-									" max_time='%f', cur_time='%f', avg_time='%f', total_polls='%i',"
-									" failed_polls='%i', availability='%.4f' "
-								"WHERE id='%i'",
-								host->status,
-								host->status_event_count,
-								host->status_fail_date,
-								host->status_rec_date,
-								host->status_last_error,
-								host->min_time,
-								host->max_time,
-								host->cur_time,
-								host->avg_time,
-								host->total_polls,
-								host->failed_polls,
-								host->availability,
-								host->id);
-						}
-					} else {
-						snprintf(update_sql, BIG_BUFSIZE, "UPDATE host "
-							"SET status='%i', status_event_count='%i', status_fail_date=FROM_UNIXTIME(%s),"
-								" status_rec_date=FROM_UNIXTIME(%s), status_last_error='%s', min_time='%f',"
-								" max_time='%f', cur_time='%f', avg_time='%f', total_polls='%i',"
-								" failed_polls='%i', availability='%.4f' "
-							"WHERE id='%i'",
-							host->status,
-							host->status_event_count,
-							host->status_fail_date,
-							host->status_rec_date,
-							host->status_last_error,
-							host->min_time,
-							host->max_time,
-							host->cur_time,
-							host->avg_time,
-							host->total_polls,
-							host->failed_polls,
-							host->availability,
-							host->id);
-					}
-
-					db_insert(mysql, LOCAL, update_sql);
+					persist_host_status(mysql, host, !ignore_sysinfo && host->ignore_host != TRUE);
 				}
 			} else {
 				SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, host_thread));
