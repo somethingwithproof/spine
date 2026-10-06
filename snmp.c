@@ -409,36 +409,36 @@ typedef struct {
 
 static snmp_reply_t snmp_request_parsed(host_t *host, const oid *name, size_t length, int command) {
 	snmp_reply_t reply = {NULL, STAT_DESCRIP_ERROR, TRUE};
-	if (host->snmp_session == NULL) return reply;
+	if (host->snmp.session == NULL) return reply;
 	struct snmp_pdu *request = snmp_pdu_create(command);
 	if (request == NULL) {
 		SPINE_LOG(("ERROR: Unable to create SNMP PDU"));
-		host->snmp_status = reply.status;
+		host->snmp.status = reply.status;
 		return reply;
 	}
 	if (snmp_add_null_var(request, name, length) == NULL) {
 		snmp_free_pdu(request);
 		reply.status = STAT_ERROR;
-		host->snmp_status = reply.status;
+		host->snmp.status = reply.status;
 		return reply;
 	}
 	/* Net-SNMP owns and frees request after the synchronous call, including
 	 * a failed send; the caller owns only the returned response. */
-	reply.status = snmp_sess_synch_response(host->snmp_session, request, &reply.response);
-	host->snmp_status = reply.status;
+	reply.status = snmp_sess_synch_response(host->snmp.session, request, &reply.response);
+	host->snmp.status = reply.status;
 	return reply;
 }
 
 static snmp_reply_t snmp_single_request(host_t *host, char *text_oid, int command) {
 	snmp_reply_t reply = {NULL, STAT_DESCRIP_ERROR, TRUE};
-	if (host->snmp_session == NULL) return reply;
+	if (host->snmp.session == NULL) return reply;
 	oid parsed[MAX_OID_LEN];
 	size_t length = MAX_OID_LEN;
 	if (!snmp_parse_oid(text_oid, parsed, &length)) {
 		SPINE_LOG(("Device[%i] ERROR: Problems parsing SNMP OID %s", host->id, text_oid));
 		reply.status = STAT_ERROR;
 		reply.valid_oid = FALSE;
-		host->snmp_status = reply.status;
+		host->snmp.status = reply.status;
 		return reply;
 	}
 	return snmp_request_parsed(host, parsed, length, command);
@@ -538,7 +538,7 @@ char *snmp_get_base(host_t *host, char *text_oid, bool should_fail) {
 		return output;
 	}
 	int status = reply.status;
-	if (host->snmp_session != NULL) status = snmp_get_response(host, text_oid, &reply, output);
+	if (host->snmp.session != NULL) status = snmp_get_response(host, text_oid, &reply, output);
 	if (reply.response != NULL) snmp_free_pdu(reply.response);
 	if (status != STAT_SUCCESS && should_fail) {
 		host->ignore_host = TRUE;
@@ -632,7 +632,7 @@ static bool snmp_count_response(snmp_walk_t *walk, const snmp_reply_t *reply) {
  */
 int snmp_count(host_t *host, char *text_oid) {
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: walk starts at OID %s", text_oid));
-	if (host->snmp_session == NULL) {
+	if (host->snmp.session == NULL) {
 		host->ignore_host = TRUE;
 		return 0;
 	}
@@ -652,7 +652,7 @@ int snmp_count(host_t *host, char *text_oid) {
 	}
 	if (walk.failed) {
 		host->ignore_host = TRUE;
-		if (host->snmp_status == STAT_SUCCESS) host->snmp_status = STAT_ERROR;
+		if (host->snmp.status == STAT_SUCCESS) host->snmp.status = STAT_ERROR;
 	}
 	return walk.count;
 }
@@ -745,15 +745,15 @@ static void snmp_multi_values(snmp_oids_t *oids, int count, const struct variabl
 void snmp_get_multi(host_t *host, const target_t *items, snmp_oids_t *oids, int count) {
 	if (count <= 0) return;
 	if (host == NULL || items == NULL || oids == NULL) die("ERROR: Invalid multi-SNMP request storage");
-	if (host->snmp_session == NULL) {
+	if (host->snmp.session == NULL) {
 		snmp_multi_undefined(oids, count);
-		host->snmp_status = STAT_DESCRIP_ERROR;
+		host->snmp.status = STAT_DESCRIP_ERROR;
 		return;
 	}
 	struct snmp_pdu *request = snmp_multi_request(host, items, oids, count);
 	if (request == NULL) {
 		snmp_multi_undefined(oids, count);
-		host->snmp_status = STAT_ERROR;
+		host->snmp.status = STAT_ERROR;
 		return;
 	}
 	int status = STAT_DESCRIP_ERROR;
@@ -763,9 +763,9 @@ void snmp_get_multi(host_t *host, const target_t *items, snmp_oids_t *oids, int 
 	while (request != NULL && attempt < count) {
 		attempt++;
 		struct snmp_pdu *response = NULL;
-		status = snmp_sess_synch_response(host->snmp_session, request, &response);
+		status = snmp_sess_synch_response(host->snmp.session, request, &response);
 		request = NULL;
-		host->snmp_status = status;
+		host->snmp.status = status;
 		if (status == STAT_SUCCESS) {
 			if (response == NULL) {
 				SPINE_LOG(("ERROR: An internal Net-Snmp error condition detected in Cacti snmp_get_multi"));

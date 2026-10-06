@@ -1172,9 +1172,9 @@ static void test_udp_deadline(void) {
 	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
 	host_t host = {0};
 	STRNCOPY(host.hostname, "127.0.0.1");
-	host.ping_port = ntohs(address.sin_port);
-	host.ping_timeout = 650;
-	host.ping_retries = 0;
+	host.availability.port = ntohs(address.sin_port);
+	host.availability.timeout = 650;
+	host.availability.retries = 0;
 	ping_t ping = {0};
 	double begin = spine_monotonic_time();
 	assert(ping_udp(&host, &ping) == HOST_DOWN);
@@ -1187,7 +1187,7 @@ static void test_udp_deadline(void) {
 	assert(received == (ssize_t)(sizeof(expected) - 1));
 	assert(memcmp(request, expected, sizeof(expected) - 1) == 0);
 	assert(close(server) == 0);
-	host.ping_timeout = 0;
+	host.availability.timeout = 0;
 	assert(ping_udp(&host, &ping) == HOST_DOWN);
 }
 
@@ -1225,8 +1225,8 @@ static void test_icmp_reply_bounds(void) {
 static void test_icmp_loopback(void) {
 	host_t host = {0};
 	STRNCOPY(host.hostname, "127.0.0.1");
-	host.ping_timeout = 500;
-	host.ping_retries = 0;
+	host.availability.timeout = 500;
+	host.availability.retries = 0;
 	ping_t ping = {0};
 	assert(ping_icmp(&host, &ping) == HOST_UP);
 	assert(strcmp(ping.ping_response, "ICMP: Device is Alive") == 0);
@@ -1237,7 +1237,7 @@ static void test_icmp_socket_failure(void) {
 	assert(geteuid() != 0);
 	host_t host = {0};
 	STRNCOPY(host.hostname, "127.0.0.1");
-	host.ping_timeout = 100;
+	host.availability.timeout = 100;
 	ping_t ping = {0};
 	/* Failed socket retries must release the privilege mutex each time. */
 	alarm(6);
@@ -1645,7 +1645,7 @@ static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *agg
 static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const char *agent) {
 	char escaped_agent[BUFSIZE];
 	db_escape(mysql, escaped_agent, sizeof(escaped_agent), agent);
-	for (int scenario = 0; scenario < 8; scenario++) {
+	for (int scenario = 0; scenario < 9; scenario++) {
 		bool change_version = (scenario & 2) != 0;
 		bool spike = (scenario & 4) != 0;
 		char query[LRG_BUFSIZE];
@@ -1660,6 +1660,13 @@ static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const 
 		spine_snprintf(query, sizeof(query), "UPDATE poller_item SET snmp_version=%d,arg1='%s' WHERE local_data_id=602", change_version ? 1 : 2, spike ? ".1.3.6.1.2.1.1.3.0" : ".1.3.6.1.2.1.1.999.0");
 		assert(db_insert(mysql, LOCAL, query));
 		if (spike) assert(db_insert(mysql, LOCAL, "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (44,7,1,'<','124','/usr/bin/printf 123')"));
+		if (scenario == 8) {
+			/* These fields are nullable in the shipped schema; missing values
+			 * must survive the real row-loader/session handoff. */
+			assert(db_insert(mysql, LOCAL, "UPDATE host SET snmp_context=NULL,snmp_engine_id=NULL WHERE id=44"));
+			assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_context=NULL,snmp_engine_id=NULL,arg2=NULL,arg3=NULL WHERE host_id=44"));
+			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=44 AND snmp_context IS NULL AND snmp_engine_id IS NULL AND arg2 IS NULL AND arg3 IS NULL") == 2);
+		}
 		work->thread.complete = FALSE;
 		work->thread.threads_complete = 0;
 		work->errors = 0;
@@ -1680,8 +1687,11 @@ static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const 
 		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output") == 2);
 		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost") == 2);
 		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_command") == (spike ? 1 : 0));
+		if (scenario == 8) puts("production nullable SNMP profile handoff passed");
 	}
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+	assert(db_insert(mysql, LOCAL, "UPDATE host SET snmp_context='',snmp_engine_id='' WHERE id=44"));
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_context='',snmp_engine_id='' WHERE host_id=44"));
 }
 
 static void test_poll_pipeline(MYSQL *mysql) {
@@ -1951,7 +1961,7 @@ static void test_snmp_multi_responses(host_t *host) {
 	assert(!host->ignore_host);
 	assert(strstr(oids[0].result, "isolated-regression-agent") != NULL);
 	assert(strcmp(oids[1].result, "U") == 0);
-	if (host->snmp_version == 1) assert(strcmp(oids[2].result, "U") == 0);
+	if (host->snmp.profile.version == 1) assert(strcmp(oids[2].result, "U") == 0);
 	else assert(strstr(oids[2].result, "No Such Instance") != NULL);
 	assert(strstr(oids[3].result, "regression") != NULL);
 	snmp_get_multi(NULL, NULL, NULL, 0);	host_t missing_session = {0};
@@ -1959,7 +1969,7 @@ static void test_snmp_multi_responses(host_t *host) {
 	STRNCOPY(undefined[0].result, "123");
 	STRNCOPY(undefined[1].result, "456");
 	snmp_get_multi(&missing_session, items, undefined, 2);
-	assert(missing_session.snmp_status == STAT_DESCRIP_ERROR);
+	assert(missing_session.snmp.status == STAT_DESCRIP_ERROR);
 	assert(IS_UNDEFINED(undefined[0].result) && IS_UNDEFINED(undefined[1].result));
 	struct variable_list value = {0};
 	u_char text[] = "regression";
@@ -1989,21 +1999,21 @@ static void test_snmp_scalar_responses(host_t *host) {
 	/* A malformed configured OID must not poison later requests or leak a PDU. */
 	for (int count = 0; count < 50; count++) {
 		result = snmp_get(host, "invalid-regression-oid");
-		assert(strcmp(result, "U") == 0 && host->snmp_status == STAT_ERROR && !host->ignore_host);
+		assert(strcmp(result, "U") == 0 && host->snmp.status == STAT_ERROR && !host->ignore_host);
 		free(result);
 		result = snmp_getnext(host, "invalid-regression-oid");
-		assert(strcmp(result, "U") == 0 && host->snmp_status == STAT_ERROR && !host->ignore_host);
+		assert(strcmp(result, "U") == 0 && host->snmp.status == STAT_ERROR && !host->ignore_host);
 		free(result);
 	}
 	result = snmp_get_base(host, ".1.3.6.1.2.1.1.1.999", FALSE);
 	assert(!host->ignore_host);
-	if (host->snmp_version == 2) assert(strcmp(result, "U") == 0);
+	if (host->snmp.profile.version == 2) assert(strcmp(result, "U") == 0);
 	else assert(strcmp(result, "") == 0);
 	free(result);
 	result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
 	assert(strstr(result, "isolated-regression-agent") != NULL && !host->ignore_host);
 	free(result);
-	if (host->snmp_version == 2) {
+	if (host->snmp.profile.version == 2) {
 		result = snmp_get(host, ".1.3.6.1.2.1.1.1.999");
 		assert(strcmp(result, "U") == 0 && host->ignore_host);
 		free(result);
@@ -2019,30 +2029,30 @@ static void test_system_information(host_t *host) {
 	assert(mysql_init(&mysql) != NULL);
 	int previous_mibs = set.snmp.mibs;
 	set.snmp.mibs = FALSE;
-	STRNCOPY(host->snmp_sysLocation, "untouched");
+	STRNCOPY(host->system.snmp_sysLocation, "untouched");
 	get_system_information(host, &mysql, FALSE);
-	assert(strcmp(host->snmp_sysLocation, "untouched") == 0);
-	assert(host->snmp_sysUpTimeInstance > 0 && !host->ignore_host);
+	assert(strcmp(host->system.snmp_sysLocation, "untouched") == 0);
+	assert(host->system.snmp_sysUpTimeInstance > 0 && !host->ignore_host);
 	for (int explicit_update = 0; explicit_update <= 1; explicit_update++) {
 		set.snmp.mibs = !explicit_update;
 		get_system_information(host, &mysql, explicit_update);
-		assert(strcmp(host->snmp_sysLocation, "isolated-regression-agent") == 0);
-		assert(strcmp(host->snmp_sysContact, "regression") == 0);
-		assert(host->snmp_sysDescr[0] != '\0' && host->snmp_sysObjectID[0] != '\0');
-		assert(host->snmp_sysName[0] != '\0' && !host->ignore_host);
+		assert(strcmp(host->system.snmp_sysLocation, "isolated-regression-agent") == 0);
+		assert(strcmp(host->system.snmp_sysContact, "regression") == 0);
+		assert(host->system.snmp_sysDescr[0] != '\0' && host->system.snmp_sysObjectID[0] != '\0');
+		assert(host->system.snmp_sysName[0] != '\0' && !host->ignore_host);
 	}
 	/* Missing sessions return allocated U responses; repeated short polls must free them. */
-	void *session = host->snmp_session;
+	void *session = host->snmp.session;
 	int previous_ignore = host->ignore_host;
-	int previous_status = host->snmp_status;
-	host->snmp_session = NULL;
-	unsigned long long previous_uptime = host->snmp_sysUpTimeInstance;
+	int previous_status = host->snmp.status;
+	host->snmp.session = NULL;
+	unsigned long long previous_uptime = host->system.snmp_sysUpTimeInstance;
 	set.snmp.mibs = FALSE;
 	for (int count = 0; count < 100; count++) get_system_information(host, &mysql, FALSE);
-	assert(host->snmp_sysUpTimeInstance == previous_uptime);
-	host->snmp_session = session;
+	assert(host->system.snmp_sysUpTimeInstance == previous_uptime);
+	host->snmp.session = session;
 	host->ignore_host = previous_ignore;
-	host->snmp_status = previous_status;
+	host->snmp.status = previous_status;
 	set.snmp.mibs = previous_mibs;
 	mysql_close(&mysql);
 }
@@ -2057,13 +2067,13 @@ static void test_snmp_agent(void) {
 		host_t host = {0};
 		ping_t ping = {0};
 		strncopy(host.hostname, address, sizeof(host.hostname));
-		STRNCOPY(host.snmp_community, "regression");
-		host.snmp_version = version;
-		host.snmp_session = snmp_host_init(&(snmp_connection_t){
+		STRNCOPY(host.snmp.profile.community, "regression");
+		host.snmp.profile.version = version;
+		host.snmp.session = snmp_host_init(&(snmp_connection_t){
 			.host_id = 1,
 			.hostname = host.hostname,
 			.snmp_version = version,
-			.snmp_community = host.snmp_community,
+			.snmp_community = host.snmp.profile.community,
 			.snmp_username = "",
 			.snmp_password = "",
 			.snmp_auth_protocol = "SHA",
@@ -2074,7 +2084,7 @@ static void test_snmp_agent(void) {
 			.snmp_port = 1161,
 			.snmp_timeout = 500,
 		});
-		assert(host.snmp_session != NULL);
+		assert(host.snmp.session != NULL);
 		test_snmp_scalar_responses(&host);
 		test_snmp_multi_responses(&host);
 		test_system_information(&host);
@@ -2090,21 +2100,21 @@ static void test_snmp_agent(void) {
 		assert(spine_monotonic_time() - begin < 2.0);
 		host.ignore_host = FALSE;
 		for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
-			host.availability_method = methods[index];
+			host.availability.method = methods[index];
 			assert(ping_host(&host, &ping) == HOST_UP);
 			assert(strcmp(ping.snmp_response, "Device responded to SNMP") == 0);
 			assert(atof(ping.snmp_status) >= 0.0);
 		}
-		host.ping_method = PING_TCP;
-		host.ping_port = -1;
-		host.ping_timeout = 100;
-		host.availability_method = AVAIL_SNMP_OR_PING;
+		host.availability.ping_method = PING_TCP;
+		host.availability.port = -1;
+		host.availability.timeout = 100;
+		host.availability.method = AVAIL_SNMP_OR_PING;
 		assert(ping_host(&host, &ping) == HOST_UP);
 		assert(strcmp(ping.snmp_response, "Device responded to SNMP") == 0);
 		STRNCOPY(host.hostname, "localhost");
-		host.availability_method = AVAIL_SNMP_AND_PING;
+		host.availability.method = AVAIL_SNMP_AND_PING;
 		assert(ping_host(&host, &ping) == HOST_UP);
-		snmp_host_cleanup(host.snmp_session);
+		snmp_host_cleanup(host.snmp.session);
 	}
 	snmp_spine_close();
 }
@@ -2116,44 +2126,44 @@ static void test_host_status_transitions(void) {
 	set.availability.ping_recovery_count = 2;
 	host_t host = {0};
 	ping_t ping = {0};
-	STRNCOPY(host.snmp_community, "regression");
-	host.snmp_version = 2;
-	host.status = HOST_UP;
-	host.min_time = 1000;
+	STRNCOPY(host.snmp.profile.community, "regression");
+	host.snmp.profile.version = 2;
+	host.state.status = HOST_UP;
+	host.statistics.min_time = 1000;
 	STRNCOPY(ping.ping_status, "4");
 	STRNCOPY(ping.snmp_status, "8");
 	STRNCOPY(ping.ping_response, "network unavailable");
 	STRNCOPY(ping.snmp_response, "SNMP unavailable");
 	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP_AND_PING);
-	assert(host.status == HOST_UP && host.status_event_count == 1 && host.status_fail_date[0] != '\0');
-	assert(strcmp(host.status_last_error, "SNMP unavailable, network unavailable") == 0);
+	assert(host.state.status == HOST_UP && host.state.status_event_count == 1 && host.state.status_fail_date[0] != '\0');
+	assert(strcmp(host.state.status_last_error, "SNMP unavailable, network unavailable") == 0);
 	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP_AND_PING);
-	assert(host.status == HOST_DOWN && host.status_event_count == 2);
+	assert(host.state.status == HOST_DOWN && host.state.status_event_count == 2);
 	update_host_status(HOST_UP, &host, &ping, AVAIL_SNMP_AND_PING);
-	assert(host.status == HOST_RECOVERING && host.status_event_count == 1 && host.status_rec_date[0] != '\0');
-	assert(host.cur_time == 6 && host.min_time == 6 && host.max_time == 6 && host.avg_time == 6);
+	assert(host.state.status == HOST_RECOVERING && host.state.status_event_count == 1 && host.state.status_rec_date[0] != '\0');
+	assert(host.statistics.cur_time == 6 && host.statistics.min_time == 6 && host.statistics.max_time == 6 && host.statistics.avg_time == 6);
 	update_host_status(HOST_DOWN, &host, &ping, AVAIL_SNMP);
-	assert(host.status == HOST_DOWN && host.status_event_count == 1);
+	assert(host.state.status == HOST_DOWN && host.state.status_event_count == 1);
 	update_host_status(HOST_UP, &host, &ping, AVAIL_SNMP);
 	update_host_status(HOST_UP, &host, &ping, AVAIL_PING);
-	assert(host.status == HOST_UP && host.status_event_count == 0);
-	assert(host.total_polls == 6 && host.failed_polls == 3 && host.availability == 50);
-	assert(host.cur_time == 4 && host.avg_time == 6 && host.min_time == 4 && host.max_time == 8);
+	assert(host.state.status == HOST_UP && host.state.status_event_count == 0);
+	assert(host.statistics.total_polls == 6 && host.statistics.failed_polls == 3 && host.statistics.availability == 50);
+	assert(host.statistics.cur_time == 4 && host.statistics.avg_time == 6 && host.statistics.min_time == 4 && host.statistics.max_time == 8);
 	const int methods[] = {AVAIL_NONE, AVAIL_SNMP, AVAIL_PING, AVAIL_SNMP_AND_PING, AVAIL_SNMP_OR_PING};
 	const double expected[] = {0, 8, 4, 6, 4};
 	for (size_t index = 0; index < sizeof(methods) / sizeof(methods[0]); index++) {
 		host_t sample = {0};
-		sample.min_time = 1000;
-		sample.snmp_version = 3; /* v3 needs no community. */
+		sample.statistics.min_time = 1000;
+		sample.snmp.profile.version = 3; /* v3 needs no community. */
 		update_host_status(HOST_UP, &sample, &ping, methods[index]);
-		assert(sample.status == HOST_UP && sample.cur_time == expected[index] && sample.avg_time == expected[index]);
+		assert(sample.state.status == HOST_UP && sample.statistics.cur_time == expected[index] && sample.statistics.avg_time == expected[index]);
 	}
 	host_t no_snmp = {0};
-	no_snmp.snmp_version = 2;
+	no_snmp.snmp.profile.version = 2;
 	update_host_status(HOST_UP, &no_snmp, &ping, AVAIL_SNMP);
-	assert(no_snmp.cur_time == 0);
+	assert(no_snmp.statistics.cur_time == 0);
 	update_host_status(HOST_DOWN, &no_snmp, &ping, AVAIL_SNMP);
-	assert(strcmp(no_snmp.status_last_error, "Device does not require SNMP") == 0);
+	assert(strcmp(no_snmp.state.status_last_error, "Device does not require SNMP") == 0);
 	set = previous;
 }
 
@@ -2161,37 +2171,37 @@ static void test_availability_modes(void) {
 	host_t host = {0};
 	ping_t ping = {0};
 	STRNCOPY(host.hostname, "127.0.0.1");
-	STRNCOPY(host.snmp_community, "regression");
-	host.snmp_version = 2;
-	host.ping_method = PING_TCP;
-	host.ping_port = -1;
-	host.ping_timeout = 100;
+	STRNCOPY(host.snmp.profile.community, "regression");
+	host.snmp.profile.version = 2;
+	host.availability.ping_method = PING_TCP;
+	host.availability.port = -1;
+	host.availability.timeout = 100;
 	/* A failed network check must fall back to SNMP in OR mode. */
-	host.availability_method = AVAIL_SNMP_OR_PING;
+	host.availability.method = AVAIL_SNMP_OR_PING;
 	assert(ping_host(&host, &ping) == HOST_DOWN);
 	assert(strcmp(ping.snmp_response, "Invalid SNMP Session") == 0);
 	STRNCOPY(ping.snmp_response, "untouched");
-	host.availability_method = AVAIL_SNMP_AND_PING;
+	host.availability.method = AVAIL_SNMP_AND_PING;
 	assert(ping_host(&host, &ping) == HOST_DOWN);
 	assert(strcmp(ping.snmp_response, "untouched") == 0);
 	/* Preserve the existing localhost exemption, and OR short circuit. */
 	STRNCOPY(host.hostname, "localhost");
-	host.availability_method = AVAIL_SNMP_OR_PING;
+	host.availability.method = AVAIL_SNMP_OR_PING;
 	assert(ping_host(&host, &ping) == HOST_UP);
 	assert(strcmp(ping.snmp_response, "untouched") == 0);
-	host.availability_method = AVAIL_SNMP_AND_PING;
+	host.availability.method = AVAIL_SNMP_AND_PING;
 	assert(ping_host(&host, &ping) == HOST_DOWN);
 	assert(strcmp(ping.snmp_response, "Invalid SNMP Session") == 0);
-	host.availability_method = AVAIL_NONE;
+	host.availability.method = AVAIL_NONE;
 	assert(ping_host(&host, &ping) == HOST_UP);
-	host.availability_method = AVAIL_PING;
+	host.availability.method = AVAIL_PING;
 	assert(ping_host(&host, &ping) == HOST_UP);
-	host.availability_method = AVAIL_STREAM;
+	host.availability.method = AVAIL_STREAM;
 	assert(ping_host(&host, &ping) == HOST_DOWN);
-	host.availability_method = AVAIL_SNMP;
-	host.snmp_community[0] = '\0';
+	host.availability.method = AVAIL_SNMP;
+	host.snmp.profile.community[0] = '\0';
 	assert(ping_host(&host, &ping) == HOST_UP);
-	host.snmp_version = 3;
+	host.snmp.profile.version = 3;
 	assert(ping_host(&host, &ping) == HOST_DOWN);
 }
 
@@ -2205,15 +2215,15 @@ static void test_tcp_loopback(void) {
 	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
 	host_t host = {0};
 	STRNCOPY(host.hostname, "127.0.0.1");
-	host.ping_port = ntohs(address.sin_port);
-	host.ping_timeout = 100;
-	host.ping_retries = 0;
-	host.ping_method = PING_TCP;
+	host.availability.port = ntohs(address.sin_port);
+	host.availability.timeout = 100;
+	host.availability.retries = 0;
+	host.availability.ping_method = PING_TCP;
 	ping_t ping = {0};
 	/* Close the reservation so both Darwin and Linux return a refusal. */
 	assert(close(server) == 0);
 	assert(ping_tcp(&host, &ping) == HOST_DOWN);
-	host.ping_method = PING_TCP_CLOSED;
+	host.availability.ping_method = PING_TCP_CLOSED;
 	assert(ping_tcp(&host, &ping) == HOST_UP);
 	assert(strcmp(ping.ping_response, "TCP: Device is Alive") == 0);
 	server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -2221,16 +2231,16 @@ static void test_tcp_loopback(void) {
 	address.sin_port = 0;
 	assert(bind(server, (struct sockaddr *)&address, sizeof(address)) == 0);
 	assert(getsockname(server, (struct sockaddr *)&address, &length) == 0);
-	host.ping_port = ntohs(address.sin_port);
+	host.availability.port = ntohs(address.sin_port);
 	assert(listen(server, 1) == 0);
-	host.ping_method = PING_TCP;
+	host.availability.ping_method = PING_TCP;
 	assert(ping_tcp(&host, &ping) == HOST_UP);
 	int client = accept(server, NULL, NULL);
 	assert(client >= 0);
 	char byte;
 	assert(read(client, &byte, 1) == 0);
 	assert(close(client) == 0 && close(server) == 0);
-	host.ping_timeout = 0;
+	host.availability.timeout = 0;
 	assert(ping_tcp(&host, &ping) == HOST_DOWN);
 }
 

@@ -108,9 +108,9 @@ static void assert_v3_response(const snmp_connection_t *options, bool admitted, 
 		alarm(4);
 		host_t host = {0};
 		host.id = options->host_id;
-		host.snmp_session = snmp_host_init(options);
-		assert(host.snmp_session != NULL);
-		const struct snmp_session *session = snmp_sess_session(host.snmp_session);
+		host.snmp.session = snmp_host_init(options);
+		assert(host.snmp.session != NULL);
+		const struct snmp_session *session = snmp_sess_session(host.snmp.session);
 		assert(session != NULL && session->securityLevel == level);
 		char *response = snmp_get(&host, ".1.3.6.1.2.1.1.6.0");
 		assert(response != NULL);
@@ -121,13 +121,13 @@ static void assert_v3_response(const snmp_connection_t *options, bool admitted, 
 			/* Authenticated VACM refusal is a transport-success agent error.
 			 * Preserve the existing empty-data availability contract. */
 			assert(response[0] == '\0');
-			assert(host.snmp_status == STAT_SUCCESS && !host.ignore_host);
+			assert(host.snmp.status == STAT_SUCCESS && !host.ignore_host);
 		} else {
 			assert(IS_UNDEFINED(response));
 			assert(host.ignore_host);
 		}
 		free(response);
-		snmp_host_cleanup(host.snmp_session);
+		snmp_host_cleanup(host.snmp.session);
 		snmp_spine_close();
 		_exit(0);
 	}

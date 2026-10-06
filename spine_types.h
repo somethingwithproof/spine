@@ -470,35 +470,45 @@ typedef struct config_struct {
  * of each polling action.
  *
  */
+/* Owned SNMP identity and transport options. The borrowed snmp_connection_t
+ * adapter remains separate; these arrays are never external pointers. */
+typedef struct {
+	char community[100];
+	int version;
+	char username[50];
+	char password[50];
+	char auth_protocol[7];
+	char priv_passphrase[200];
+	char priv_protocol[8];
+	char context[65];
+	char engine_id[30];
+	int port;
+	int timeout;
+} snmp_profile_t;
+
+typedef struct {
+	int method;
+	int ping_method;
+	int port;
+	int timeout;
+	int retries;
+} device_availability_t;
+
 typedef struct target_struct {
-	int    target_id;
-	char   result[RESULTS_BUFFER];
-	int    local_data_id;
-	int    action;
-	char   command[256];
-	char   hostname[250];
-	char   snmp_community[100];
-	int    snmp_version;
-	char   snmp_username[50];
-	char   snmp_password[50];
-	char   snmp_auth_protocol[7];
-	char   snmp_priv_passphrase[200];
-	char   snmp_priv_protocol[8];
-	char   snmp_context[65];
-	char   snmp_engine_id[30];
-	int    snmp_port;
-	int    snmp_timeout;
-	int    availability_method;
-	int    ping_method;
-	int    ping_port;
-	int    ping_timeout;
-	int    ping_retries;
-	char   rrd_name[30];
-	char   rrd_path[255];
-	int    rrd_num;
-	char   arg1[1024];
-	char   arg2[255];
-	char   arg3[255];
+	int target_id;
+	char result[RESULTS_BUFFER];
+	int local_data_id;
+	int action;
+	char command[256];
+	char hostname[250];
+	char rrd_name[30];
+	char rrd_path[255];
+	int rrd_num;
+	char arg1[1024];
+	char arg2[255];
+	char arg3[255];
+	snmp_profile_t snmp;
+	device_availability_t availability;
 } target_t;
 
 /*! SNMP OID's Structure
@@ -557,48 +567,50 @@ typedef struct php_processes {
  * the application.
  *
  */
-typedef struct host_struct {
-	int    id;
-	char   hostname[250];
-	char   snmp_community[100];
-	int    snmp_version;
-	char   snmp_username[50];
-	char   snmp_password[50];
-	char   snmp_auth_protocol[7];
-	char   snmp_priv_passphrase[200];
-	char   snmp_priv_protocol[8];
-	char   snmp_context[65];
-	char   snmp_engine_id[30];
-	int    snmp_port;
-	int    snmp_timeout;
-	int    snmp_retries;
-	char   snmp_sysDescr[600];
-	char   snmp_sysObjectID[160];
+typedef struct {
+	snmp_profile_t profile;
+	int retries;
+	int max_oids;
+	void* session;
+	int status;
+} host_snmp_t;
+
+typedef struct {
+	char snmp_sysDescr[600];
+	char snmp_sysObjectID[160];
 	unsigned long long snmp_sysUpTimeInstance;
-	char   snmp_sysContact[300];
-	char   snmp_sysName[300];
-	char   snmp_sysLocation[600];
-	int    max_oids;
-	int    availability_method;
-	int    ping_method;
-	int    ping_port;
-	int    ping_timeout;
-	int    ping_retries;
-	int    status;
-	int    status_event_count;
-	char   status_fail_date[40];
-	char   status_rec_date[40];
-	char   status_last_error[BUFSIZE * 2 + 2];
+	char snmp_sysContact[300];
+	char snmp_sysName[300];
+	char snmp_sysLocation[600];
+} host_system_t;
+
+typedef struct {
+	int status;
+	int status_event_count;
+	char status_fail_date[40];
+	char status_rec_date[40];
+	char status_last_error[BUFSIZE * 2 + 2];
+} host_state_t;
+
+typedef struct {
 	double min_time;
 	double max_time;
 	double cur_time;
 	double avg_time;
-	int    total_polls;
-	int    failed_polls;
+	int total_polls;
+	int failed_polls;
 	double availability;
-	int    ignore_host;
-	void   *snmp_session;
-	int    snmp_status;
+} host_statistics_t;
+
+typedef struct host_struct {
+	int id;
+	char hostname[250];
+	int ignore_host;
+	host_snmp_t snmp;
+	host_system_t system;
+	device_availability_t availability;
+	host_state_t state;
+	host_statistics_t statistics;
 } host_t;
 
 /*! Host Reindex Structure

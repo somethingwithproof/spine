@@ -46,9 +46,9 @@
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  */
 static int ping_network(host_t *host, ping_t *ping) {
-	if (host->ping_method == PING_ICMP && !set.availability.icmp_avail) {
+	if (host->availability.ping_method == PING_ICMP && !set.availability.icmp_avail) {
 		SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
-		host->ping_method = PING_UDP;
+		host->availability.ping_method = PING_UDP;
 	}
 	if (strstr(host->hostname, "localhost")) {
 		STRNCOPY(ping->ping_status, "0.000");
@@ -56,13 +56,13 @@ static int ping_network(host_t *host, ping_t *ping) {
 		return HOST_UP;
 	}
 	if (get_address_type(host) != 1) {
-		if (host->availability_method == AVAIL_PING) {
+		if (host->availability.method == AVAIL_PING) {
 			STRNCOPY(ping->ping_status, "0.000");
 			STRNCOPY(ping->ping_response, "PING: Device is Unknown or is IPV6.  Please use the SNMP ping options only.");
 		}
 		return HOST_DOWN;
 	}
-	switch (host->ping_method) {
+	switch (host->availability.ping_method) {
 		case PING_ICMP: return ping_icmp(host, ping);
 		case PING_UDP: return ping_udp(host, ping);
 		case PING_TCP:
@@ -72,10 +72,10 @@ static int ping_network(host_t *host, ping_t *ping) {
 }
 
 static int ping_snmp_availability(host_t *host, ping_t *ping, int ping_result) {
-	if (host->availability_method == AVAIL_SNMP_AND_PING && ping_result != HOST_UP) return HOST_DOWN;
-	if (host->availability_method == AVAIL_SNMP_OR_PING && ping_result == HOST_UP) return HOST_UP;
+	if (host->availability.method == AVAIL_SNMP_AND_PING && ping_result != HOST_UP) return HOST_DOWN;
+	if (host->availability.method == AVAIL_SNMP_OR_PING && ping_result == HOST_UP) return HOST_UP;
 	/* Preserve the configured no-SNMP contract for v1/v2 without a community. */
-	if (host->snmp_community[0] == '\0' && host->snmp_version < 3) return HOST_UP;
+	if (host->snmp.profile.community[0] == '\0' && host->snmp.profile.version < 3) return HOST_UP;
 	double begin = get_time_as_double();
 	int result = ping_snmp(host, ping);
 	double elapsed = (get_time_as_double() - begin) * 1000.0;
@@ -86,12 +86,12 @@ static int ping_snmp_availability(host_t *host, ping_t *ping, int ping_result) {
 
 int ping_host(host_t *host, ping_t *ping) {
 	int network_result = HOST_DOWN;
-	if (host->availability_method == AVAIL_SNMP_AND_PING ||
-		host->availability_method == AVAIL_PING ||
-		host->availability_method == AVAIL_SNMP_OR_PING) {
+	if (host->availability.method == AVAIL_SNMP_AND_PING ||
+		host->availability.method == AVAIL_PING ||
+		host->availability.method == AVAIL_SNMP_OR_PING) {
 		network_result = ping_network(host, ping);
 	}
-	switch (host->availability_method) {
+	switch (host->availability.method) {
 		case AVAIL_SNMP_AND_PING:
 		case AVAIL_SNMP_OR_PING:
 		case AVAIL_SNMP:
@@ -117,33 +117,33 @@ int ping_host(host_t *host, ping_t *ping) {
  */
 int ping_snmp(host_t *host, ping_t *ping) {
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering SNMP Ping", host->id));
-	if (!host->snmp_session) {
+	if (!host->snmp.session) {
 		STRNCOPY(ping->snmp_status, "0.00");
 		STRNCOPY(ping->snmp_response, "Invalid SNMP Session");
 		return HOST_DOWN;
 	}
-	if (host->snmp_community[0] == '\0' && host->snmp_version != 3) {
+	if (host->snmp.profile.community[0] == '\0' && host->snmp.profile.version != 3) {
 		STRNCOPY(ping->snmp_status, "0.00");
 		STRNCOPY(ping->snmp_response, "Device does not require SNMP");
 		return HOST_UP;
 	}
 	char oid[32];
-	switch (host->availability_method) {
+	switch (host->availability.method) {
 		case AVAIL_SNMP_GET_NEXT: STRNCOPY(oid, ".1.3"); break;
 		case AVAIL_SNMP_GET_SYSDESC: STRNCOPY(oid, ".1.3.6.1.2.1.1.1.0"); break;
 		default: STRNCOPY(oid, ".1.3.6.1.2.1.1.3.0"); break;
 	}
 	double begin = get_time_as_double();
-	char *result = host->availability_method == AVAIL_SNMP_GET_NEXT ? snmp_getnext(host, oid) : snmp_get(host, oid);
+	char *result = host->availability.method == AVAIL_SNMP_GET_NEXT ? snmp_getnext(host, oid) : snmp_get(host, oid);
 	double elapsed = (get_time_as_double() - begin) * 1000.0;
 	SPINE_FREE(result);
-	if (host->snmp_status == SNMPERR_SUCCESS || host->snmp_status == SNMPERR_UNKNOWN_OBJID) {
+	if (host->snmp.status == SNMPERR_SUCCESS || host->snmp.status == SNMPERR_UNKNOWN_OBJID) {
 		STRNCOPY(ping->snmp_response, "Device responded to SNMP");
 		spine_snprintf(ping->snmp_status, sizeof(ping->snmp_status), "%.5f", elapsed);
 		return HOST_UP;
 	}
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH,
-		("Device[%i] SNMP Ping %s", host->id, host->snmp_status == STAT_TIMEOUT ? "Timeout" : "Unknown Error"));
+		("Device[%i] SNMP Ping %s", host->id, host->snmp.status == STAT_TIMEOUT ? "Timeout" : "Unknown Error"));
 	STRNCOPY(ping->snmp_response, "Device did not respond to SNMP");
 	return HOST_DOWN;
 }
@@ -226,7 +226,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 	if (host->hostname[0] == '\0') return ping_down(ping, "ICMP: Destination address not specified");
 	struct sockaddr_in target = {0};
 	if (!init_sockaddr(&target, host->hostname, 7)) return ping_down(ping, "ICMP: Destination hostname invalid");
-	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "ICMP: Ping timed out");
+	if (host->availability.timeout <= 0 || host->availability.retries < 0) return ping_down(ping, "ICMP: Ping timed out");
 	int fd = ping_icmp_open();
 	if (fd < 0) return ping_down(ping, "ICMP: Ping unable to create ICMP Socket");
 	static const char payload[] = "cacti-monitoring-system";
@@ -245,7 +245,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 	request->icmp_cksum = get_checksum(packet.bytes, sizeof(packet.bytes));
 	double begin = spine_monotonic_time();
 	for (unsigned int attempt = 0; ; attempt++) {
-		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		double deadline = spine_monotonic_time() + (double)host->availability.timeout / 1000;
 		ssize_t sent;
 		do {
 			sent = sendto(fd, packet.bytes, sizeof(packet.bytes), 0, (struct sockaddr *)&target, sizeof(target));
@@ -259,7 +259,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 			close(fd);
 			return HOST_UP;
 		}
-		if (attempt >= (unsigned int)host->ping_retries) {
+		if (attempt >= (unsigned int)host->availability.retries) {
 			close(fd);
 			return ping_down(ping, "ICMP: Ping timed out");
 		}
@@ -302,8 +302,8 @@ int ping_udp(const host_t *host, ping_t *ping) {
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering UDP Ping", host->id));
 	if (host->hostname[0] == '\0') return ping_down(ping, "UDP: Destination address invalid or unable to create socket");
 	struct sockaddr_in servername = {0};
-	if (!init_sockaddr(&servername, host->hostname, host->ping_port)) return ping_down(ping, "UDP: Destination hostname invalid");
-	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "UDP: Ping timed out");
+	if (!init_sockaddr(&servername, host->hostname, host->availability.port)) return ping_down(ping, "UDP: Destination hostname invalid");
+	if (host->availability.timeout <= 0 || host->availability.retries < 0) return ping_down(ping, "UDP: Ping timed out");
 	int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 	if (fd < 0) return ping_down(ping, "UDP: Destination address invalid or unable to create socket");
 	int flags = fcntl(fd, F_GETFL, 0);
@@ -315,7 +315,7 @@ int ping_udp(const host_t *host, ping_t *ping) {
 	static const char request[] = "cacti-monitoring-system";
 	double begin = spine_monotonic_time();
 	for (unsigned int attempt = 0; ; attempt++) {
-		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		double deadline = spine_monotonic_time() + (double)host->availability.timeout / 1000;
 		ssize_t sent;
 		do {
 			sent = send(fd, request, sizeof(request) - 1, 0);
@@ -329,7 +329,7 @@ int ping_udp(const host_t *host, ping_t *ping) {
 			close(fd);
 			return HOST_UP;
 		}
-		if (result < 0 || attempt >= (unsigned int)host->ping_retries) {
+		if (result < 0 || attempt >= (unsigned int)host->availability.retries) {
 			close(fd);
 			return ping_down(ping, result < 0 ? "UDP: Device is Down" : "UDP: Ping timed out");
 		}
@@ -382,13 +382,13 @@ int ping_tcp(const host_t *host, ping_t *ping) {
 	SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("Device[%i] DEBUG: Entering TCP Ping", host->id));
 	if (host->hostname[0] == '\0') return ping_down(ping, "TCP: Destination address invalid or unable to create socket");
 	struct sockaddr_in address = {0};
-	if (!init_sockaddr(&address, host->hostname, host->ping_port)) return ping_down(ping, "TCP: Destination hostname invalid");
-	if (host->ping_timeout <= 0 || host->ping_retries < 0) return ping_down(ping, "TCP: Cannot connect to host");
+	if (!init_sockaddr(&address, host->hostname, host->availability.port)) return ping_down(ping, "TCP: Destination hostname invalid");
+	if (host->availability.timeout <= 0 || host->availability.retries < 0) return ping_down(ping, "TCP: Cannot connect to host");
 	double begin = spine_monotonic_time();
 	for (unsigned int attempt = 0; ; attempt++) {
-		double deadline = spine_monotonic_time() + (double)host->ping_timeout / 1000;
+		double deadline = spine_monotonic_time() + (double)host->availability.timeout / 1000;
 		int error = ping_tcp_connect(&address, deadline);
-		if (error == 0 || (error == ECONNREFUSED && host->ping_method == PING_TCP_CLOSED)) {
+		if (error == 0 || (error == ECONNREFUSED && host->availability.ping_method == PING_TCP_CLOSED)) {
 			double elapsed = (spine_monotonic_time() - begin) * 1000;
 			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] INFO: TCP Device Alive, Try Count:%u, Time:%.4f ms", host->id, attempt + 1, elapsed));
 			strncopy(ping->ping_response, "TCP: Device is Alive", SMALL_BUFSIZE);
@@ -399,7 +399,7 @@ int ping_tcp(const host_t *host, ping_t *ping) {
 		#if defined(__CYGWIN__)
 		return ping_down(ping, "TCP: Cannot connect to host");
 		#else
-		if (attempt >= (unsigned int)host->ping_retries) return ping_down(ping, "TCP: Cannot connect to host");
+		if (attempt >= (unsigned int)host->availability.retries) return ping_down(ping, "TCP: Cannot connect to host");
 		#endif
 	}
 }
@@ -563,7 +563,7 @@ unsigned short int get_checksum(void* buf, int len) {
 }
 
 static bool host_requires_snmp(const host_t *host) {
-	return host->snmp_community[0] != '\0' || host->snmp_version >= 3;
+	return host->snmp.profile.community[0] != '\0' || host->snmp.profile.version >= 3;
 }
 
 static void host_failure_message(host_t *host, const ping_t *ping, int method) {
@@ -571,63 +571,63 @@ static void host_failure_message(host_t *host, const ping_t *ping, int method) {
 		case AVAIL_SNMP_OR_PING:
 		case AVAIL_SNMP_AND_PING:
 			if (host_requires_snmp(host)) {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s, %s", ping->snmp_response, ping->ping_response);
+				snprintf(host->state.status_last_error, BUFSIZE * 2 + 1, "%s, %s", ping->snmp_response, ping->ping_response);
 			} else {
-				snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
+				snprintf(host->state.status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
 			}
 			break;
 		case AVAIL_SNMP:
-			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", host_requires_snmp(host) ? ping->snmp_response : "Device does not require SNMP");
+			snprintf(host->state.status_last_error, BUFSIZE * 2 + 1, "%s", host_requires_snmp(host) ? ping->snmp_response : "Device does not require SNMP");
 			break;
 		default:
-			snprintf(host->status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
+			snprintf(host->state.status_last_error, BUFSIZE * 2 + 1, "%s", ping->ping_response);
 	}
 }
 
 static bool host_failure_transition(host_t *host, const char *date) {
-	switch (host->status) {
+	switch (host->state.status) {
 		case HOST_UP:
-			host->status_event_count++;
-			if (host->status_event_count >= set.availability.ping_failure_count) {
-				host->status = HOST_DOWN;
-				if (set.availability.ping_failure_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
+			host->state.status_event_count++;
+			if (host->state.status_event_count >= set.availability.ping_failure_count) {
+				host->state.status = HOST_DOWN;
+				if (set.availability.ping_failure_count == 1) snprintf(host->state.status_fail_date, sizeof(host->state.status_fail_date), "%s", date);
 				return TRUE;
 			}
-			if (host->status_event_count == 1) snprintf(host->status_fail_date, sizeof(host->status_fail_date), "%s", date);
+			if (host->state.status_event_count == 1) snprintf(host->state.status_fail_date, sizeof(host->state.status_fail_date), "%s", date);
 			return FALSE;
 		case HOST_RECOVERING:
-			host->status_event_count = 1;
-			host->status = HOST_DOWN;
+			host->state.status_event_count = 1;
+			host->state.status = HOST_DOWN;
 			return FALSE;
 		case HOST_UNKNOWN:
-			host->status = HOST_DOWN;
-			host->status_event_count = 0;
+			host->state.status = HOST_DOWN;
+			host->state.status_event_count = 0;
 			return FALSE;
 		default:
-			host->status_event_count++;
+			host->state.status_event_count++;
 			return FALSE;
 	}
 }
 
 static bool host_recovery_transition(host_t *host, const char *date) {
-	if (host->status != HOST_DOWN && host->status != HOST_RECOVERING) {
-		host->status = HOST_UP;
-		host->status_event_count = 0;
+	if (host->state.status != HOST_DOWN && host->state.status != HOST_RECOVERING) {
+		host->state.status = HOST_UP;
+		host->state.status_event_count = 0;
 		return FALSE;
 	}
-	if (host->status == HOST_DOWN) {
-		host->status = HOST_RECOVERING;
-		host->status_event_count = 1;
+	if (host->state.status == HOST_DOWN) {
+		host->state.status = HOST_RECOVERING;
+		host->state.status_event_count = 1;
 	} else {
-		host->status_event_count++;
+		host->state.status_event_count++;
 	}
-	if (host->status_event_count >= set.availability.ping_recovery_count) {
-		host->status = HOST_UP;
-		if (set.availability.ping_recovery_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
-		host->status_event_count = 0;
+	if (host->state.status_event_count >= set.availability.ping_recovery_count) {
+		host->state.status = HOST_UP;
+		if (set.availability.ping_recovery_count == 1) snprintf(host->state.status_rec_date, sizeof(host->state.status_rec_date), "%s", date);
+		host->state.status_event_count = 0;
 		return TRUE;
 	}
-	if (host->status_event_count == 1) snprintf(host->status_rec_date, sizeof(host->status_rec_date), "%s", date);
+	if (host->state.status_event_count == 1) snprintf(host->state.status_rec_date, sizeof(host->state.status_rec_date), "%s", date);
 	return FALSE;
 }
 
@@ -645,15 +645,15 @@ static double host_response_time(const host_t *host, const ping_t *ping, int met
 }
 
 static void host_response_statistics(host_t *host, double ping_time) {
-	host->cur_time = ping_time;
-	if (ping_time > host->max_time) host->max_time = ping_time;
-	if (ping_time < host->min_time) host->min_time = ping_time;
-	host->avg_time = (((host->total_polls - 1 - host->failed_polls) * host->avg_time) + ping_time) / (host->total_polls - host->failed_polls);
+	host->statistics.cur_time = ping_time;
+	if (ping_time > host->statistics.max_time) host->statistics.max_time = ping_time;
+	if (ping_time < host->statistics.min_time) host->statistics.min_time = ping_time;
+	host->statistics.avg_time = (((host->statistics.total_polls - 1 - host->statistics.failed_polls) * host->statistics.avg_time) + ping_time) / (host->statistics.total_polls - host->statistics.failed_polls);
 }
 
 static void log_host_availability(const host_t *host, const ping_t *ping, int method) {
 	if (set.logging.log_level < POLLER_VERBOSITY_HIGH) return;
-	bool up = host->status == HOST_UP || host->status == HOST_RECOVERING;
+	bool up = host->state.status == HOST_UP || host->state.status == HOST_RECOVERING;
 	if (method == AVAIL_SNMP_AND_PING || (method == AVAIL_SNMP_OR_PING && up)) {
 		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] PING Result: %s", host->id, ping->ping_response));
 		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] SNMP Result: %s", host->id, ping->snmp_response));
@@ -674,20 +674,20 @@ void update_host_status(int status, host_t *host, const ping_t *ping, int availa
 	char current_date[40];
 	snprintf(current_date, sizeof(current_date), "%lu", time(NULL));
 	bool issue_log_message;
-	host->total_polls++;
+	host->statistics.total_polls++;
 	if (status == HOST_DOWN) {
-		host->failed_polls++;
+		host->statistics.failed_polls++;
 		host_failure_message(host, ping, availability_method);
 		issue_log_message = host_failure_transition(host, current_date);
 	} else {
 		host_response_statistics(host, host_response_time(host, ping, availability_method));
 		issue_log_message = host_recovery_transition(host, current_date);
 	}
-	host->availability = 100.0 * (host->total_polls - host->failed_polls) / host->total_polls;
+	host->statistics.availability = 100.0 * (host->statistics.total_polls - host->statistics.failed_polls) / host->statistics.total_polls;
 	log_host_availability(host, ping, availability_method);
 	if (!issue_log_message) return;
-	if (host->status == HOST_DOWN) {
-		SPINE_LOG(("Device[%i] Hostname[%s] ERROR: HOST EVENT: Device is DOWN Message: %s", host->id, host->hostname, host->status_last_error));
+	if (host->state.status == HOST_DOWN) {
+		SPINE_LOG(("Device[%i] Hostname[%s] ERROR: HOST EVENT: Device is DOWN Message: %s", host->id, host->hostname, host->state.status_last_error));
 	} else {
 		SPINE_LOG(("Device[%i] Hostname[%s] NOTICE: HOST EVENT: Device Returned from DOWN State", host->id, host->hostname));
 	}
