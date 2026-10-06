@@ -670,6 +670,46 @@ static void load_reindex_item(reindex_t *reindex, MYSQL_ROW row) {
 	if (row[4] != NULL) snprintf(reindex->arg1, sizeof(reindex->arg1), "%s", row[4]);
 }
 
+static void poll_host_reindex(host_t *host, reindex_t *reindex, const char *query,
+	const reindex_evaluation_t *evaluation) {
+	if (host->ignore_host || evaluation->work->host_id == 0) return;
+	int thread = evaluation->work->host_thread;
+	MYSQL_RES *result = db_query(evaluation->local, LOCAL, query);
+	if (result == NULL) {
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: RECACHE Query Returned Null Result!", host->id, thread));
+	} else {
+		int count = spine_count_to_int(mysql_num_rows(result));
+		if (count == 0) {
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] HT[%i] Device has no information for recache.", host->id, thread));
+		} else {
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, thread, count, host->hostname));
+		}
+		char sysUptime[BUFSIZE] = "";
+		int last_data_query_id = 0;
+		bool previous_assert_failure = FALSE;
+		MYSQL_ROW row;
+		while ((row = mysql_fetch_row(result))) {
+			load_reindex_item(reindex, row);
+			if (last_data_query_id != reindex->data_query_id) {
+				last_data_query_id = reindex->data_query_id;
+				previous_assert_failure = FALSE;
+			}
+			if (previous_assert_failure) continue;
+			bool unavailable = FALSE;
+			char *value = poll_reindex_action(host, reindex, thread, sysUptime, &unavailable);
+			if (unavailable) continue;
+			if (evaluate_reindex_assertion(evaluation, reindex, value)) previous_assert_failure = TRUE;
+			SPINE_FREE(value);
+		}
+		db_free_result(result);
+	}
+	/* Item polling opens a new session after reindex work has finished. */
+	if (host->snmp_session != NULL) {
+		snmp_host_cleanup(host->snmp_session);
+		host->snmp_session = NULL;
+	}
+}
+
 static void load_poll_item(target_t *item, MYSQL_ROW row) {
 	/* initialize monitored object */
 	item->target_id                = 0;
@@ -746,7 +786,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int query11_len  = 0;
 	int posuffix_len = 0;
 
-	char sysUptime[BUFSIZE];
 	char result_string[RESULTS_BUFFER+SMALL_BUFSIZE];
 	int  result_length;
 	int  errors = 0;
@@ -755,7 +794,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	char *error_string;
 
 	int    num_rows;
-	bool   reindex_err = FALSE;
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	int    i = 0;
@@ -782,9 +820,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	double thread_end = 0;
 
 	/* reindex shortcuts to speed polling */
-	int previous_assert_failure = FALSE;
-	int last_data_query_id      = 0;
-	int perform_assert          = TRUE;
 	int new_buffer              = TRUE;
 	int buf_length              = 0;
 
@@ -948,61 +983,8 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		return;
 	}
 
-	/* do the reindex check for this host if not script based */
-	if ((!host->ignore_host) && host_id) {
-		if ((result = db_query(mysql, LOCAL, queries.reindex)) != 0) {
-			num_rows = spine_count_to_int(mysql_num_rows(result));
-
-			if (num_rows > 0) {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_DEBUG, ("DEBUG: Device[%i] HT[%i] RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, host_thread, num_rows, host->hostname));
-
-				// Cache uptime in case we need it again
-				sysUptime[0] = '\0';
-				while ((row = mysql_fetch_row(result))) {
-					reindex_err = FALSE;
-
-					load_reindex_item(reindex, row);
-
-					/* shortcut assertion checks if a data query reindex has already been queued */
-					if ((last_data_query_id == reindex->data_query_id) &&
-						(!previous_assert_failure)) {
-						perform_assert = TRUE;
-					} else if (last_data_query_id != reindex->data_query_id) {
-						last_data_query_id = reindex->data_query_id;
-						perform_assert = TRUE;
-						previous_assert_failure = FALSE;
-					} else {
-						perform_assert = FALSE;
-					}
-
-					poll_result = NULL;
-
-					if (perform_assert) {
-						poll_result = poll_reindex_action(host, reindex, host_thread, sysUptime, &reindex_err);
-
-						if (!reindex_err) {
-							const reindex_evaluation_t evaluation = {mysql, mysqlr, host, work, &errors, &spike_kill};
-							if (evaluate_reindex_assertion(&evaluation, reindex, poll_result)) previous_assert_failure = TRUE;
-							SPINE_FREE(poll_result);
-						}
-					}
-				}
-			} else {
-				SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_HIGH, ("Device[%i] HT[%i] Device has no information for recache.", host->id, host_thread));
-			}
-
-			/* free the host result */
-			db_free_result(result);
-		} else {
-			SPINE_LOG(("Device[%i] HT[%i] ERROR: RECACHE Query Returned Null Result!", host->id, host_thread));
-		}
-
-		/* close the host snmp session, we will create again momentarily */
-		if (host->snmp_session != NULL) {
-			snmp_host_cleanup(host->snmp_session);
-			host->snmp_session = NULL;
-		}
-	}
+	const reindex_evaluation_t evaluation = {mysql, mysqlr, host, work, &errors, &spike_kill};
+	poll_host_reindex(host, reindex, queries.reindex, &evaluation);
 
 	/* calculate the number of poller items to poll this cycle */
 	num_rows = 0;

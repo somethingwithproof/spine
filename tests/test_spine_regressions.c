@@ -1522,6 +1522,26 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
 }
 
+static void test_reindex_query_shortcut(MYSQL *mysql, test_poll_work_t *work) {
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (43,7,1,'=','122','/usr/bin/printf 123'),(43,7,1,'=','777','/usr/bin/printf 888'),(43,8,1,'=','455','/usr/bin/printf 456')"));
+	work->thread.complete = FALSE;
+	work->thread.threads_complete = 0;
+	work->errors = 0;
+	pthread_t worker;
+	assert(pthread_create(&worker, NULL, test_poll_worker, work) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	assert(work->thread.complete && work->thread.threads_complete == 1 && work->errors == 1);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_command") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE (data_query_id=7 AND arg1='/usr/bin/printf 123' AND assert_value='123') OR (data_query_id=7 AND arg1='/usr/bin/printf 888' AND assert_value='777') OR (data_query_id=8 AND arg1='/usr/bin/printf 456' AND assert_value='456')") == 3);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+}
+
 static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *aggregate) {
 	config_t previous = set;
 	test_poll_work_t original = *aggregate;
@@ -1680,6 +1700,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 		if (host_id == 44) test_snmp_item_pipeline(mysql, &work, agent);
 		if (host_id == 43) {
 			test_reindex_pipeline(mysql, &work);
+			test_reindex_query_shortcut(mysql, &work);
 			test_profile_schedule_completion(mysql, &work);
 		}
 	}
