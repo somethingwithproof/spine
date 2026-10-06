@@ -13,6 +13,7 @@
  */
 #include "common.h"
 #include "spine.h"
+#include <fcntl.h>
 
 extern poller_thread_t **details;
 extern int *debug_devices;
@@ -174,6 +175,169 @@ static void test_output_recollection(MYSQL *mysql) {
 	puts("production output recollection retains incomplete historical samples passed");
 }
 
+typedef struct {
+	poller_thread_t *work;
+	int finished_fd;
+} controlled_output_worker_t;
+
+static void output_worker_finished(void *arg) {
+	const controlled_output_worker_t *worker = arg;
+	/* This outer handler runs after production child cleanup frees instructions
+	 * and releases its permit, even though child exits through pthread_exit. */
+	send_output_sample(worker->finished_fd, "F", 1);
+}
+
+static void *controlled_output_child(void *arg) {
+	const controlled_output_worker_t *worker = arg;
+	pthread_cleanup_push(output_worker_finished, arg);
+	child(worker->work);
+	pthread_cleanup_pop(1);
+	return NULL;
+}
+
+static void output_descriptor_flags(int fd) {
+	int flags = fcntl(fd, F_GETFD);
+	assert(flags >= 0 && fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == 0);
+	flags = fcntl(fd, F_GETFL);
+	assert(flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);
+}
+
+static void await_output_byte(int fd, char expected, double deadline) {
+	assert(spine_wait_readable(fd, deadline) == 1);
+	char value;
+	ssize_t count;
+	do { count = read(fd, &value, 1); } while (count < 0 && errno == EINTR);
+	assert(count == 1 && value == expected);
+}
+
+static void test_concurrent_output_failure(MYSQL *mysql) {
+	pool_t *previous_pool = db_pool_local;
+	poller_thread_t **previous_details = details;
+	int previous_threads = set.poller.threads;
+	int previous_timeout = set.php.script_timeout;
+	assert(previous_threads == 1 && db_pool_local[0].free);
+	assert(spine_permits_available(&available_threads) == 1);
+	assert(spine_permits_available(&available_scripts) == 2);
+	assert(spine_permits_destroy(&available_threads) == 0);
+	assert(spine_permits_init(&available_threads, 2) == 0);
+	set.poller.threads = 2;
+	set.php.script_timeout = 30;
+	db_pool_local = calloc(2, sizeof(*db_pool_local));
+	assert(db_pool_local != NULL);
+	db_create_connection_pool(LOCAL);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=901"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id BETWEEN 930001 AND 939999"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND 939999"));
+	char directory[] = "/tmp/spine-output-overlap-XXXXXX";
+	assert(mkdtemp(directory) != NULL);
+	struct stat directory_status;
+	assert(lstat(directory, &directory_status) == 0);
+	assert(S_ISDIR(directory_status.st_mode));
+	assert((directory_status.st_mode & 0777) == 0700 && directory_status.st_uid == geteuid());
+	char ready_paths[2][SMALL_BUFSIZE];
+	char release_paths[2][SMALL_BUFSIZE];
+	int ready[2];
+	int release[2];
+	int finished[2][2];
+	char query[LRG_BUFSIZE];
+	for (int index = 0; index < 2; index++) {
+		spine_snprintf(ready_paths[index], sizeof(ready_paths[index]), "%s/ready%i", directory, index);
+		spine_snprintf(release_paths[index], sizeof(release_paths[index]), "%s/release%i", directory, index);
+		assert(mkfifo(ready_paths[index], 0600) == 0 && mkfifo(release_paths[index], 0600) == 0);
+		ready[index] = open(ready_paths[index], O_RDWR | O_NONBLOCK);
+		release[index] = open(release_paths[index], O_RDWR | O_NONBLOCK);
+		assert(ready[index] >= 0 && release[index] >= 0 && pipe(finished[index]) == 0);
+		output_descriptor_flags(ready[index]);
+		output_descriptor_flags(release[index]);
+		output_descriptor_flags(finished[index][0]);
+		output_descriptor_flags(finished[index][1]);
+		/* Quote-free SQL string; the real shell producer signals selection then
+		 * blocks on its own gate before publishing a sample to Spine. */
+		spine_snprintf(query, sizeof(query), "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name,snmp_port,rrd_step,rrd_next_step) VALUES(%i,901,1,%i,'/usr/bin/printf R > %s; read token < %s; /usr/bin/printf 123','owned',%i,300,0)", 930001 + index, POLLER_ACTION_SCRIPT, ready_paths[index], release_paths[index], 161 + index);
+		assert(db_insert(mysql, LOCAL, query));
+	}
+	assert(db_insert(mysql, LOCAL, "CREATE TRIGGER spine_owned_output_reject BEFORE INSERT ON poller_output FOR EACH ROW BEGIN IF NEW.local_data_id=930002 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='owned output rejection'; END IF; END"));
+	poller_thread_t aggregate;
+	reset_output_work(&aggregate, 2, 2);
+	poller_thread_t *device = &aggregate;
+	details = &device;
+	spine_permits_t startup;
+	assert(spine_permits_init(&startup, 2) == 0);
+	controlled_output_worker_t workers[2];
+	pthread_t threads[2];
+	for (int index = 0; index < 2; index++) {
+		workers[index].work = malloc(sizeof(*workers[index].work));
+		assert(workers[index].work != NULL);
+		thread_mutex_lock(LOCK_THDET);
+		*workers[index].work = aggregate;
+		thread_mutex_unlock(LOCK_THDET);
+		workers[index].work->host_thread = index + 1;
+		workers[index].work->thread_init_sem = &startup;
+		workers[index].finished_fd = finished[index][1];
+		assert(spine_permits_try_acquire(&startup) == 0);
+		assert(spine_permits_try_acquire(&available_threads) == 0);
+		assert(pthread_create(&threads[index], NULL, controlled_output_child, &workers[index]) == 0);
+	}
+	double deadline = spine_monotonic_time() + 10;
+	await_output_byte(ready[0], 'R', deadline);
+	await_output_byte(ready[1], 'R', deadline);
+	assert(spine_permits_available(&startup) == 2);
+	assert(spine_permits_available(&available_threads) == 0);
+	assert(spine_permits_available(&available_scripts) == 0);
+	thread_mutex_lock(LOCK_POOL);
+	assert(!db_pool_local[0].free && !db_pool_local[1].free);
+	thread_mutex_unlock(LOCK_POOL);
+	/* Both real workers have selected their own partition and hold resources.
+	 * Allow only the rejected partition to finish first. */
+	send_output_sample(release[1], "resume\n", 7);
+	await_output_byte(finished[1][0], 'F', spine_monotonic_time() + 10);
+	assert(pthread_join(threads[1], NULL) == 0);
+	thread_mutex_lock(LOCK_THDET);
+	assert(set.exit.exit_code == EXIT_FAILURE && aggregate.output_failed);
+	assert(aggregate.threads_complete == 1 && !aggregate.complete);
+	thread_mutex_unlock(LOCK_THDET);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=0") == 2);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id IN(930001,930002)") == 0);
+	assert_sample_at(mysql, "poller_output_boost", 930002, "1791244800", "123");
+	assert(spine_permits_available(&available_threads) == 1);
+	assert(spine_permits_available(&available_scripts) == 1);
+	thread_mutex_lock(LOCK_POOL);
+	assert(db_pool_local[0].free + db_pool_local[1].free == 1);
+	thread_mutex_unlock(LOCK_POOL);
+	send_output_sample(release[0], "resume\n", 7);
+	await_output_byte(finished[0][0], 'F', spine_monotonic_time() + 10);
+	assert(pthread_join(threads[0], NULL) == 0);
+	assert(set.exit.exit_code == EXIT_FAILURE && aggregate.output_failed && !aggregate.complete);
+	assert(aggregate.threads_complete == 2);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=0") == 2);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=930002") == 0);
+	assert_sample_at(mysql, "poller_output", 930001, "1791244800", "123");
+	assert_sample_at(mysql, "poller_output_boost", 930001, "1791244800", "123");
+	assert_sample_at(mysql, "poller_output_boost", 930002, "1791244800", "123");
+	assert_sample(mysql, "poller_output", 930000, "'unchanged'");
+	assert_sample(mysql, "poller_output_boost", 930000, "'unchanged'");
+	assert(output_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=901") == 0);
+	assert(spine_permits_available(&available_threads) == 2);
+	assert(spine_permits_available(&available_scripts) == 2);
+	assert(db_pool_local[0].free && db_pool_local[1].free);
+	assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
+	for (int index = 0; index < 2; index++) {
+		assert(close(ready[index]) == 0 && close(release[index]) == 0);
+		assert(close(finished[index][0]) == 0 && close(finished[index][1]) == 0);
+		assert(unlink(ready_paths[index]) == 0 && unlink(release_paths[index]) == 0);
+	}
+	assert(rmdir(directory) == 0);
+	assert(spine_permits_destroy(&startup) == 0);
+	assert(spine_permits_destroy(&available_threads) == 0);
+	assert(spine_permits_init(&available_threads, 1) == 0);
+	db_close_connection_pool(LOCAL);
+	db_pool_local = previous_pool;
+	details = previous_details;
+	set.poller.threads = previous_threads;
+	set.php.script_timeout = previous_timeout;
+	puts("production simultaneous output failure ordering regressions passed");
+}
+
 static void run_output_failure_scenario(MYSQL *mysql, int scenario, int payload) {
 	poller_thread_t **previous_details = details;
 	bool boundary = scenario >= 2;
@@ -297,6 +461,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 		assert(details == previous_details);
 	}
 	test_output_recollection(mysql);
+	test_concurrent_output_failure(mysql);
 	assert(close(server.php_write_fd) == 0);
 	int status;
 	assert(waitpid(producer, &status, 0) == producer);
