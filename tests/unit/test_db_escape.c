@@ -115,6 +115,33 @@ static void test_degenerate_destination(MYSQL *mysql) {
 	ASSERT_TRUE(strcmp(out, "\\'") == 0 && out[3] == '\0');
 }
 
+static int assert_output_query_row(char *query, size_t capacity, const char *prefix,
+	char *tuple, size_t tuple_capacity, int row, const char *escaped_name,
+	const char *escaped, const char *suffix) {
+	const int prefix_appended = spine_output_buffer_append(query, capacity, prefix, strlen(prefix));
+	ASSERT_TRUE(prefix_appended);
+	if (!prefix_appended) return 0;
+	const int formatted = snprintf(tuple, tuple_capacity,
+		" (%i, '%s', FROM_UNIXTIME(1700000000), '%s')", row, escaped_name, escaped);
+	ASSERT_TRUE(formatted >= 0 && (size_t)formatted < tuple_capacity);
+	if (formatted < 0 || (size_t)formatted >= tuple_capacity) return 0;
+	const size_t length = (size_t)formatted;
+	if (length >= MAX_MYSQL_BUF_SIZE) {
+		ASSERT_TRUE(spine_output_buffer_needs_flush(strlen(prefix), length, MAX_MYSQL_BUF_SIZE));
+	}
+	const int tuple_appended = spine_output_buffer_append(query, capacity, tuple, length);
+	ASSERT_TRUE(tuple_appended);
+	if (!tuple_appended) return 0;
+	const int suffix_appended = spine_output_buffer_append(query, capacity, suffix, strlen(suffix));
+	ASSERT_TRUE(suffix_appended);
+	if (!suffix_appended) return 0;
+	ASSERT_TRUE(strlen(query) == strlen(prefix) + length + strlen(suffix));
+	ASSERT_TRUE(memcmp(query, prefix, strlen(prefix)) == 0);
+	ASSERT_TRUE(memcmp(query + strlen(prefix), tuple, length) == 0);
+	ASSERT_TRUE(strcmp(query + strlen(prefix) + length, suffix) == 0);
+	return 1;
+}
+
 static void test_output_query_assembly(MYSQL *mysql, const char *prefix) {
 	const char suffix[] = " ON DUPLICATE KEY UPDATE output=VALUES(output)";
 	char input[RESULTS_BUFFER];
@@ -145,27 +172,8 @@ static void test_output_query_assembly(MYSQL *mysql, const char *prefix) {
 	for (int row = 1; row <= 2; row++) {
 		memset(guarded, 0xa5, capacity + 2);
 		query[0] = '\0';
-		const int prefix_appended = spine_output_buffer_append(query, capacity, prefix, strlen(prefix));
-		ASSERT_TRUE(prefix_appended);
-		if (!prefix_appended) break;
-		const int formatted = snprintf(tuple, sizeof(tuple),
-			" (%i, '%s', FROM_UNIXTIME(1700000000), '%s')", row, escaped_name, escaped);
-		ASSERT_TRUE(formatted >= 0 && (size_t)formatted < sizeof(tuple));
-		if (formatted < 0 || (size_t)formatted >= sizeof(tuple)) break;
-		const size_t length = (size_t)formatted;
-		if (length >= MAX_MYSQL_BUF_SIZE) {
-			ASSERT_TRUE(spine_output_buffer_needs_flush(strlen(prefix), length, MAX_MYSQL_BUF_SIZE));
-		}
-		const int tuple_appended = spine_output_buffer_append(query, capacity, tuple, length);
-		ASSERT_TRUE(tuple_appended);
-		if (!tuple_appended) break;
-		const int suffix_appended = spine_output_buffer_append(query, capacity, suffix, strlen(suffix));
-		ASSERT_TRUE(suffix_appended);
-		if (!suffix_appended) break;
-		ASSERT_TRUE(strlen(query) == strlen(prefix) + length + strlen(suffix));
-		ASSERT_TRUE(memcmp(query, prefix, strlen(prefix)) == 0);
-		ASSERT_TRUE(memcmp(query + strlen(prefix), tuple, length) == 0);
-		ASSERT_TRUE(strcmp(query + strlen(prefix) + length, suffix) == 0);
+		if (!assert_output_query_row(query, capacity, prefix, tuple, sizeof(tuple),
+			row, escaped_name, escaped, suffix)) break;
 		ASSERT_TRUE(guarded[0] == 0xa5 && guarded[capacity + 1] == 0xa5);
 	}
 	free(guarded);
