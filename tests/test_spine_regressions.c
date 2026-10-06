@@ -2244,6 +2244,36 @@ static void test_tcp_loopback(void) {
 	assert(ping_tcp(&host, &ping) == HOST_DOWN);
 }
 
+static void test_error_id_buffer_boundaries(void) {
+	config_t previous = set;
+	set.logging.log_destination = 0;
+	set.logging.log_level = POLLER_VERBOSITY_NONE;
+	char storage[DBL_BUFSIZE + 1] = {0};
+	storage[DBL_BUFSIZE] = 'G';
+	int size = 0;
+	int count = 0;
+	buffer_output_errors(storage, &size, &count, 1, 1, INT_MIN, FALSE);
+	buffer_output_errors(storage, &size, &count, 1, 1, 0, FALSE);
+	buffer_output_errors(storage, &size, &count, 1, 1, INT_MAX, FALSE);
+	assert(strcmp(storage, "-2147483648, 0, 2147483647") == 0);
+	assert(count == 3 && size == (int)strlen(storage));
+	assert(strpbrk(storage, "\r\n") == NULL && storage[DBL_BUFSIZE] == 'G');
+	/* Fill the caller-owned numeric list to its real boundary, then verify
+	 * overflow starts a fresh record rather than overrunning storage. */
+	memset(storage, '7', DBL_BUFSIZE - 2);
+	storage[DBL_BUFSIZE - 2] = '\0';
+	size = DBL_BUFSIZE - 2;
+	count = 1;
+	buffer_output_errors(storage, &size, &count, 1, 1, INT_MAX, FALSE);
+	assert(strcmp(storage, "2147483647") == 0 && size == 10 && count == 1);
+	assert(storage[DBL_BUFSIZE] == 'G');
+	buffer_output_errors(storage, &size, &count, 1, 1, 0, TRUE);
+	assert(strcmp(storage, "2147483647") == 0 && size == 10 && count == 1);
+	set = previous;
+	puts("production numeric error-list boundary regressions passed");
+}
+
+
 int main(int argc, char **argv) {
 	if (argc == 3 && strcmp(argv[1], "--script-stream") == 0) return run_script_stream_fixture(argv[2]);
 	if (argc > 1 && strcmp(argv[1], "-q") == 0) return run_test_script_server(argc, argv);
@@ -2327,6 +2357,7 @@ int main(int argc, char **argv) {
 	test_script_execution();
 	test_script_stream_contracts();
 	test_cli_alias_contracts();
+	test_error_id_buffer_boundaries();
 	test_additional_contracts();
 	puts("production regression tests passed");
 	return 0;

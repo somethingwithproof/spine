@@ -942,6 +942,112 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	return (poll_output_buffers_t){query3, query12};
 }
 
+typedef struct {
+	int initialized;
+	int version;
+	int port;
+	char community[50];
+	char username[50];
+	char password[50];
+	char auth_protocol[7];
+	char priv_passphrase[200];
+	char priv_protocol[8];
+	char context[65];
+	char engine_id[30];
+} snmp_item_key_t;
+
+typedef struct {
+	target_t *items;
+	snmp_oids_t *oids;
+	int count;
+	snmp_item_key_t key;
+	const poll_error_context_t *errors;
+} snmp_poll_batch_t;
+
+static void remember_snmp_item(snmp_item_key_t *key, const target_t *item) {
+	key->port = item->snmp.port;
+	key->version = item->snmp.version;
+
+	STRNCOPY(key->community,       item->snmp.community);
+	STRNCOPY(key->username,        item->snmp.username);
+	STRNCOPY(key->password,        item->snmp.password);
+	STRNCOPY(key->auth_protocol,   item->snmp.auth_protocol);
+	STRNCOPY(key->priv_passphrase, item->snmp.priv_passphrase);
+	STRNCOPY(key->priv_protocol,   item->snmp.priv_protocol);
+	STRNCOPY(key->context,         item->snmp.context);
+	STRNCOPY(key->engine_id,       item->snmp.engine_id);
+}
+
+static void *open_snmp_item(const host_t *host, target_t *item) {
+	return snmp_host_init(&(snmp_connection_t){
+	.host_id = host->id,
+	.hostname = item->hostname,
+	.snmp_version = item->snmp.version,
+	.snmp_community = item->snmp.community,
+	.snmp_username = item->snmp.username,
+	.snmp_password = item->snmp.password,
+	.snmp_auth_protocol = item->snmp.auth_protocol,
+	.snmp_priv_passphrase = item->snmp.priv_passphrase,
+	.snmp_priv_protocol = item->snmp.priv_protocol,
+	.snmp_context = item->snmp.context,
+	.snmp_engine_id = item->snmp.engine_id,
+	.snmp_port = item->snmp.port,
+	.snmp_timeout = item->snmp.timeout,
+});
+}
+
+static bool snmp_item_changed(const snmp_item_key_t *key, const target_t *item) {
+	return (key->port != item->snmp.port) ||
+					(key->version != item->snmp.version) ||
+					(item->snmp.version < 3 &&
+					(!STRMATCH(key->community, item->snmp.community))) ||
+					(item->snmp.version > 2 &&
+					((!STRMATCH(key->username, item->snmp.username)) ||
+					(!STRMATCH(key->password, item->snmp.password)) ||
+					(!STRMATCH(key->auth_protocol, item->snmp.auth_protocol)) ||
+					(!STRMATCH(key->priv_passphrase, item->snmp.priv_passphrase)) ||
+					(!STRMATCH(key->priv_protocol, item->snmp.priv_protocol)) ||
+					(!STRMATCH(key->context, item->snmp.context)) ||
+					(!STRMATCH(key->engine_id, item->snmp.engine_id))));
+}
+
+static void flush_snmp_batch(host_t *host, snmp_poll_batch_t *batch,
+	double thread_start, bool spike_kill) {
+	if (batch->count <= 0) return;
+	snmp_get_multi(host, batch->items, batch->oids, batch->count);
+	store_snmp_results(host, batch->items, batch->oids, batch->count, batch->errors, thread_start, spike_kill);
+	batch->count = 0;
+	memset(batch->oids, 0, sizeof(snmp_oids_t) * host->snmp.max_oids);
+}
+
+static void poll_snmp_item(host_t *host, snmp_poll_batch_t *batch, int position,
+	double thread_start, bool spike_kill) {
+	target_t *item = &batch->items[position];
+	if (batch->key.initialized == 0) {
+		remember_snmp_item(&batch->key, item);
+		host->snmp.session = open_snmp_item(host, item);
+		batch->key.initialized++;
+	}
+	if (host->snmp.session == NULL) {
+		host->ignore_host = TRUE;
+		return;
+	}
+	if (snmp_item_changed(&batch->key, item)) {
+		/* Credential-switch flushes preserve the legacy no-discard policy. */
+		flush_snmp_batch(host, batch, thread_start, FALSE);
+		if (host->snmp.session != NULL) {
+			snmp_host_cleanup(host->snmp.session);
+			host->snmp.session = NULL;
+		}
+		host->snmp.session = open_snmp_item(host, item);
+		remember_snmp_item(&batch->key, item);
+	}
+	if (batch->count >= host->snmp.max_oids) flush_snmp_batch(host, batch, thread_start, spike_kill);
+	snprintf(batch->oids[batch->count].oid, sizeof(batch->oids[batch->count].oid), "%s", item->arg1);
+	batch->oids[batch->count].array_position = position;
+	batch->count++;
+}
+
 
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
@@ -965,21 +1071,9 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	int    i = 0;
-	int    k = 0;
-	int    num_oids = 0;
 	int    snmp_poller_items = 0;
 
 
-	int  last_snmp_version = 0;
-	int  last_snmp_port    = 0;
-	char last_snmp_community[50];
-	char last_snmp_username[50];
-	char last_snmp_password[50];
-	char last_snmp_auth_protocol[7];
-	char last_snmp_priv_passphrase[200];
-	char last_snmp_priv_protocol[8];
-	char last_snmp_context[65];
-	char last_snmp_engine_id[30];
 	double poll_time = get_time_as_double();
 	double thread_start = 0;
 
@@ -1197,127 +1291,14 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		/* log an informative message */
 		SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] NOTE: There are '%i' Polling Items for this Device", host_id, host_thread, num_rows));
 
-		i = 0; k = 0;
+		snmp_poll_batch_t batch = {.items = poller_items, .oids = snmp_oids, .errors = &error_context};
+		i = 0;
 		while ((i < num_rows) && (!host->ignore_host)) {
 			thread_start = get_time_as_double();
 
 			switch(poller_items[i].action) {
-			case POLLER_ACTION_SNMP: /* raw SNMP poll */
-				/* initialize or reinitialize snmp as required */
-				if (k == 0) {
-					last_snmp_port = poller_items[i].snmp.port;
-					last_snmp_version = poller_items[i].snmp.version;
-
-					STRNCOPY(last_snmp_community,       poller_items[i].snmp.community);
-					STRNCOPY(last_snmp_username,        poller_items[i].snmp.username);
-					STRNCOPY(last_snmp_password,        poller_items[i].snmp.password);
-					STRNCOPY(last_snmp_auth_protocol,   poller_items[i].snmp.auth_protocol);
-					STRNCOPY(last_snmp_priv_passphrase, poller_items[i].snmp.priv_passphrase);
-					STRNCOPY(last_snmp_priv_protocol,   poller_items[i].snmp.priv_protocol);
-					STRNCOPY(last_snmp_context,         poller_items[i].snmp.context);
-					STRNCOPY(last_snmp_engine_id,       poller_items[i].snmp.engine_id);
-
-					host->snmp.session = snmp_host_init(&(snmp_connection_t){
-						.host_id = host->id,
-						.hostname = poller_items[i].hostname,
-						.snmp_version = poller_items[i].snmp.version,
-						.snmp_community = poller_items[i].snmp.community,
-						.snmp_username = poller_items[i].snmp.username,
-						.snmp_password = poller_items[i].snmp.password,
-						.snmp_auth_protocol = poller_items[i].snmp.auth_protocol,
-						.snmp_priv_passphrase = poller_items[i].snmp.priv_passphrase,
-						.snmp_priv_protocol = poller_items[i].snmp.priv_protocol,
-						.snmp_context = poller_items[i].snmp.context,
-						.snmp_engine_id = poller_items[i].snmp.engine_id,
-						.snmp_port = poller_items[i].snmp.port,
-						.snmp_timeout = poller_items[i].snmp.timeout,
-					});
-
-					k++;
-				}
-
-				/* catch snmp initialization issues */
-				if (host->snmp.session == NULL) {
-					host->ignore_host = TRUE;
-					break;
-				}
-
-				/* some snmp data changed from poller item to poller item.  therefore, poll host and store data */
-				if ((last_snmp_port != poller_items[i].snmp.port) ||
-					(last_snmp_version != poller_items[i].snmp.version) ||
-					(poller_items[i].snmp.version < 3 &&
-					(!STRMATCH(last_snmp_community, poller_items[i].snmp.community))) ||
-					(poller_items[i].snmp.version > 2 &&
-					((!STRMATCH(last_snmp_username, poller_items[i].snmp.username)) ||
-					(!STRMATCH(last_snmp_password, poller_items[i].snmp.password)) ||
-					(!STRMATCH(last_snmp_auth_protocol, poller_items[i].snmp.auth_protocol)) ||
-					(!STRMATCH(last_snmp_priv_passphrase, poller_items[i].snmp.priv_passphrase)) ||
-					(!STRMATCH(last_snmp_priv_protocol, poller_items[i].snmp.priv_protocol)) ||
-					(!STRMATCH(last_snmp_context, poller_items[i].snmp.context)) ||
-					(!STRMATCH(last_snmp_engine_id, poller_items[i].snmp.engine_id))))) {
-
-					if (num_oids > 0) {
-						snmp_get_multi(host, poller_items, snmp_oids, num_oids);
-
-						store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, FALSE);
-
-						/* reset num_snmps */
-						num_oids = 0;
-
-						/* initialize all the memory to insure we don't get issues */
-						memset(snmp_oids, 0, sizeof(snmp_oids_t)*host->snmp.max_oids);
-					}
-
-					if (host->snmp.session != NULL) {
-						snmp_host_cleanup(host->snmp.session);
-						host->snmp.session = NULL;
-					}
-
-					host->snmp.session = snmp_host_init(&(snmp_connection_t){
-						.host_id = host->id,
-						.hostname = poller_items[i].hostname,
-						.snmp_version = poller_items[i].snmp.version,
-						.snmp_community = poller_items[i].snmp.community,
-						.snmp_username = poller_items[i].snmp.username,
-						.snmp_password = poller_items[i].snmp.password,
-						.snmp_auth_protocol = poller_items[i].snmp.auth_protocol,
-						.snmp_priv_passphrase = poller_items[i].snmp.priv_passphrase,
-						.snmp_priv_protocol = poller_items[i].snmp.priv_protocol,
-						.snmp_context = poller_items[i].snmp.context,
-						.snmp_engine_id = poller_items[i].snmp.engine_id,
-						.snmp_port = poller_items[i].snmp.port,
-						.snmp_timeout = poller_items[i].snmp.timeout,
-					});
-
-					last_snmp_port    = poller_items[i].snmp.port;
-					last_snmp_version = poller_items[i].snmp.version;
-
-					STRNCOPY(last_snmp_community,       poller_items[i].snmp.community);
-					STRNCOPY(last_snmp_username,        poller_items[i].snmp.username);
-					STRNCOPY(last_snmp_password,        poller_items[i].snmp.password);
-					STRNCOPY(last_snmp_auth_protocol,   poller_items[i].snmp.auth_protocol);
-					STRNCOPY(last_snmp_priv_passphrase, poller_items[i].snmp.priv_passphrase);
-					STRNCOPY(last_snmp_priv_protocol,   poller_items[i].snmp.priv_protocol);
-					STRNCOPY(last_snmp_context,         poller_items[i].snmp.context);
-					STRNCOPY(last_snmp_engine_id,       poller_items[i].snmp.engine_id);
-				}
-
-				if (num_oids >= host->snmp.max_oids) {
-					snmp_get_multi(host, poller_items, snmp_oids, num_oids);
-
-					store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, spike_kill);
-
-					/* reset num_snmps */
-					num_oids = 0;
-
-					/* initialize all the memory to insure we don't get issues */
-					memset(snmp_oids, 0, sizeof(snmp_oids_t)*host->snmp.max_oids);
-				}
-
-				snprintf(snmp_oids[num_oids].oid, sizeof(snmp_oids[num_oids].oid), "%s", poller_items[i].arg1);
-				snmp_oids[num_oids].array_position = i;
-				num_oids++;
-
+			case POLLER_ACTION_SNMP:
+				poll_snmp_item(host, &batch, i, thread_start, spike_kill);
 				break;
 			case POLLER_ACTION_SCRIPT:
 				poll_script_item(host, &poller_items[i], &error_context, thread_start, spike_kill, FALSE);
@@ -1336,10 +1317,10 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		}
 
 		/* process last multi-get request if applicable */
-		if (num_oids > 0) {
-			snmp_get_multi(host, poller_items, snmp_oids, num_oids);
+		if (batch.count > 0) {
+			snmp_get_multi(host, poller_items, snmp_oids, batch.count);
 
-			store_snmp_results(host, poller_items, snmp_oids, num_oids, &error_context, thread_start, spike_kill);
+			store_snmp_results(host, poller_items, snmp_oids, batch.count, &error_context, thread_start, spike_kill);
 		}
 
 		poll_output_buffers_t output = write_poll_results(mysql, mysqlr, &queries, poller_items, rows_processed, host_time);
