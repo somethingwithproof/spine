@@ -18,7 +18,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
-#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <pthread_np.h>
 #endif
 
