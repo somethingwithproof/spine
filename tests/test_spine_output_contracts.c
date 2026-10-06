@@ -112,6 +112,62 @@ static void assert_sample(MYSQL *mysql, const char *table, int id, const char *e
 	assert(output_count(mysql, query) == 1);
 }
 
+static void assert_sample_at(MYSQL *mysql, const char *table, int id,
+	const char *timestamp, const char *expected) {
+	char query[BUFSIZE];
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s WHERE local_data_id=%i AND time=FROM_UNIXTIME(%s) AND output='%s'", table, id, timestamp, expected);
+	assert(output_count(mysql, query) == 1);
+}
+
+static void test_output_recollection(MYSQL *mysql) {
+	poller_thread_t **previous_details = details;
+	char query[BUFSIZE];
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=901"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id BETWEEN 930001 AND 939999"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND 939999"));
+	spine_snprintf(query, sizeof(query), "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name,snmp_port,rrd_step,rrd_next_step) VALUES(930001,901,1,%i,'/usr/bin/printf 123','owned',161,300,0),(930002,901,1,%i,'/usr/bin/printf 123','owned',162,300,0)", POLLER_ACTION_SCRIPT, POLLER_ACTION_SCRIPT);
+	assert(db_insert(mysql, LOCAL, query));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_output(local_data_id,rrd_name,time,output) VALUES(930001,'owned',FROM_UNIXTIME(1791244800),'old'),(930002,'owned',FROM_UNIXTIME(1791244800),'old')"));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_output_boost(local_data_id,rrd_name,time,output) VALUES(930001,'owned',FROM_UNIXTIME(1791244800),'old'),(930002,'owned',FROM_UNIXTIME(1791244800),'old')"));
+	assert(db_insert(mysql, LOCAL, "CREATE TRIGGER spine_owned_output_reject BEFORE INSERT ON poller_output FOR EACH ROW BEGIN IF NEW.local_data_id=930002 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='owned output rejection'; END IF; END"));
+	poller_thread_t work;
+	reset_output_work(&work, 2, 1);
+	poller_thread_t *aggregate = &work;
+	details = &aggregate;
+	run_output_partition(&work, 1);
+	assert(set.exit.exit_code == EXIT_FAILURE && work.output_failed && !work.complete);
+	assert(work.threads_complete == 1);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=0") == 2);
+	assert_sample_at(mysql, "poller_output", 930001, "1791244800", "123");
+	assert_sample_at(mysql, "poller_output", 930002, "1791244800", "old");
+	assert_sample_at(mysql, "poller_output_boost", 930001, "1791244800", "123");
+	assert_sample_at(mysql, "poller_output_boost", 930002, "1791244800", "123");
+	assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET arg1='/usr/bin/printf 456' WHERE host_id=901"));
+	/* A later poll recollects current values, rather than replaying failed
+	 * samples. Supply distinct work timestamps without depending on the clock. */
+	reset_output_work(&work, 2, 1);
+	STRNCOPY(work.host_time, "1791244805");
+	run_output_partition(&work, 1);
+	assert(set.exit.exit_code == EXIT_SUCCESS && !work.output_failed && work.complete);
+	assert(work.threads_complete == 1);
+	for (int id = 930001; id <= 930002; id++) {
+		assert_sample_at(mysql, "poller_output", id, "1791244805", "456");
+		assert_sample_at(mysql, "poller_output_boost", id, "1791244805", "456");
+		assert_sample_at(mysql, "poller_output_boost", id, "1791244800", "123");
+	}
+	assert_sample_at(mysql, "poller_output", 930001, "1791244800", "123");
+	assert_sample_at(mysql, "poller_output", 930002, "1791244800", "old");
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=295") == 2);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=901") == 0);
+	assert_sample(mysql, "poller_output", 930000, "'unchanged'");
+	assert_sample(mysql, "poller_output_boost", 930000, "'unchanged'");
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930000 AND 939999") == 5);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930000 AND 939999") == 5);
+	details = previous_details;
+	puts("production output recollection retains incomplete historical samples passed");
+}
+
 void test_output_write_contracts(MYSQL *mysql) {
 	config_t previous = set;
 	pool_t *previous_pool = db_pool_local;
@@ -213,7 +269,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 		assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
 		/* This controlled retry reuses its timestamp and resets completion/exit
 		 * state. It proves same-key upsert repair, including partial MEMORY rows;
-	 * a later CLI invocation recollects data with the current timestamp. */
+		 * a later CLI invocation recollects data with the current timestamp. */
 		reset_output_work(&work, rows, partitions);
 		if (partitions == 2) run_output_partition(&work, 2);
 		run_output_partition(&work, 1);
@@ -227,6 +283,7 @@ void test_output_write_contracts(MYSQL *mysql) {
 		assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
 		assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
 	}
+	test_output_recollection(mysql);
 	assert(close(server.php_write_fd) == 0);
 	int status;
 	assert(waitpid(producer, &status, 0) == producer);
