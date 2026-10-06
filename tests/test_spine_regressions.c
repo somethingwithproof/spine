@@ -1504,10 +1504,7 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 			assert(pthread_join(worker, NULL) == 0);
 			assert(work->thread.complete && work->thread.threads_complete == 1);
 			int expected_errors = 1;
-			if (level == 1) {
-				expected_errors += cases[index].queued;
-				if (cases[index].queued && STRMATCH(cases[index].output, "U")) expected_errors++;
-			}
+			if (level == 1) expected_errors += cases[index].queued + (cases[index].queued && STRMATCH(cases[index].output, "U"));
 			assert(work->errors == expected_errors);
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_command WHERE poller_id=1 AND action=%d AND command='%d:7'", POLLER_COMMAND_REINDEX, work->thread.host_id);
 			assert(database_count(mysql, query) == cases[index].queued);
@@ -1609,12 +1606,12 @@ static void test_poll_pipeline(MYSQL *mysql) {
 	set = previous;
 }
 
-static void run_cli_poll(const char *config, const char *poller, const char *threads, const char *interval, int expected) {
+static void run_cli_poll_profile(const char *config, const char *poller, const char *threads, const char *interval, const char *profiles, int expected) {
 	pid_t child = fork();
 	assert(child >= 0);
 	if (child == 0) {
 		alarm(15);
-		execl("./spine", "spine", "-C", "/nonexistent/spine-regression.conf", "--conf", config, "-p", poller, "-t", threads, "--mode=online", "-O", interval, "-O", "active_profiles:1", "-S", "-V", "2", NULL);
+		execl("./spine", "spine", "-C", "/nonexistent/spine-regression.conf", "--conf", config, "-p", poller, "-t", threads, "--mode=online", "-O", interval, "-O", profiles, "-S", "-V", "2", NULL);
 		_exit(127);
 	}
 	int status;
@@ -1622,6 +1619,10 @@ static void run_cli_poll(const char *config, const char *poller, const char *thr
 	printf("Spine executable exit: expected=%d raw_status=%d\n", expected, status);
 	fflush(stdout);
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == expected);
+}
+
+static void run_cli_poll(const char *config, const char *poller, const char *threads, const char *interval, int expected) {
+	run_cli_poll_profile(config, poller, threads, interval, "active_profiles:1", expected);
 }
 
 static void test_cli_workers(MYSQL *source, const char *config) {
@@ -1635,6 +1636,13 @@ static void test_cli_workers(MYSQL *source, const char *config) {
 	assert(db_insert(source, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES (701,42,1,1,'/usr/bin/printf 123','first'),(702,42,1,1,'/usr/bin/printf 456','second')"));
 	run_cli_poll(config, "1", "2", "poller_interval:5", EXIT_SUCCESS);
 	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(source, LOCAL, "UPDATE poller_item SET rrd_next_step=0 WHERE local_data_id IN (701,702)"));
+	assert(db_insert(source, LOCAL, "INSERT INTO poller_item (local_data_id,host_id,poller_id,action,arg1,rrd_name,rrd_next_step) VALUES (703,42,1,1,'/usr/bin/printf 789','not-due',100)"));
+	run_cli_poll_profile(config, "1", "2", "poller_interval:5", "active_profiles:2", EXIT_SUCCESS);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=701 AND output='123') OR (local_data_id=702 AND output='456')") == 2);
+	assert(database_count(source, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=703") == 0);
+	assert(db_insert(source, LOCAL, "DELETE FROM poller_item WHERE local_data_id=703"));
 	assert(db_insert(source, LOCAL, "DELETE FROM poller_output"));
 	assert(db_insert(source, LOCAL, "UPDATE poller_item SET arg1='/bin/sleep 3' WHERE local_data_id=702"));
 	double start = spine_monotonic_time();

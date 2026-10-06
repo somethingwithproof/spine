@@ -536,6 +536,58 @@ static void report_startup(int mode) {
 
 }
 
+typedef struct {
+	int threads;
+	int items;
+	char *timestamp;
+	double time;
+} poller_partition_t;
+
+static int count_partition_items(MYSQL *mysql, int host_id, int divisor, bool due_only) {
+	char query[BIG_BUFSIZE];
+	const char *due = due_only ? " AND rrd_next_step <=0" : "";
+	if (divisor > 1) {
+		snprintf(query, sizeof(query), "SELECT SQL_NO_CACHE CEIL(COUNT(local_data_id)/%i) FROM poller_item WHERE host_id=%i%s", divisor, host_id, due);
+	} else {
+		snprintf(query, sizeof(query), "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i%s", host_id, due);
+	}
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	if (result == NULL) die("ERROR: Unable to count polling items");
+	MYSQL_ROW row = mysql_fetch_row(result);
+	if (row == NULL || row[0] == NULL) {
+		db_free_result(result);
+		die("ERROR: Missing polling item count");
+	}
+	int count = atoi(row[0]);
+	db_free_result(result);
+	return count;
+}
+
+static void update_partition_time(poller_partition_t *partition) {
+	spine_snprintf(partition->timestamp, SMALL_BUFSIZE, "%lu", (unsigned long)time(NULL));
+	partition->time = get_time_as_double();
+}
+
+static void prepare_device_partition(MYSQL *mysql, int host_id, int current_thread, poller_partition_t *partition) {
+	if (set.ping_only) {
+		partition->threads = 1;
+	} else {
+		int total_items = count_partition_items(mysql, host_id, 1, set.active_profiles != 1);
+		if (total_items && total_items < partition->threads) partition->threads = total_items;
+	}
+	if (partition->threads > 1) {
+		if (current_thread == 1) {
+			partition->items = count_partition_items(mysql, host_id, partition->threads, set.active_profiles != 1);
+			update_partition_time(partition);
+		} else if (partition->time == 0 || partition->timestamp == NULL) {
+			update_partition_time(partition);
+		}
+	} else {
+		partition->items = count_partition_items(mysql, host_id, 1, TRUE);
+		update_partition_time(partition);
+	}
+}
+
 int main(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
@@ -545,9 +597,7 @@ int main(int argc, char *argv[]) {
 	int device_counter = 0;
 	char querybuf[MEGA_BUFSIZE];
 	char *host_time = NULL;
-	double host_time_double = 0;
-	int items_per_thread = 0;
-	int device_threads;
+	poller_partition_t partition = {0};
 	spine_permits_t thread_init_sem;
 	int a_threads_value;
 
@@ -569,13 +619,11 @@ int main(int argc, char *argv[]) {
 	MYSQL mysql;
 	MYSQL mysqlr;
 	MYSQL_RES *result  = NULL;
-	MYSQL_RES *tresult = NULL;
 	MYSQL_ROW mysql_row;
 	int canexit = FALSE;
 	int host_id = 0;
 	int i;
 	int thread_status = 0;
-	int total_items   = 0;
 	int change_host   = TRUE;
 	int current_thread;
 	int threads_final = 0;
@@ -814,6 +862,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		memset(host_time, 0, SMALL_BUFSIZE);
+		partition.timestamp = host_time;
 	}
 
 	/* initialize winsock library on Windows */
@@ -852,7 +901,7 @@ int main(int argc, char *argv[]) {
 	set.parent_fork = SPINE_FORK;
 
 	/* initialize the threading code */
-	device_threads   = 1;
+	partition.threads   = 1;
 	current_thread   = 0;
 
 	/* poller 1 always polls host 0 but only if it exists */
@@ -876,73 +925,18 @@ int main(int argc, char *argv[]) {
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
 			host_id         = atoi(mysql_row[0]);
-			device_threads  = atoi(mysql_row[1]);
+			partition.threads  = atoi(mysql_row[1]);
 			current_thread  = 1;
 
-			if (device_threads < 1) {
-				device_threads = 1;
+			if (partition.threads < 1) {
+				partition.threads = 1;
 			}
 		} else {
 			current_thread++;
 		}
 
-		/* adjust device threads in cases where the host does not have sufficient data sources */
-		if (!set.ping_only) {
-			if (set.active_profiles != 1) {
-				snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i AND rrd_next_step <=0", host_id);
-			} else {
-				snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i", host_id);
-			}
-
-			tresult   = db_query(&mysql, LOCAL, querybuf);
-			mysql_row = mysql_fetch_row(tresult);
-
-			total_items = atoi(mysql_row[0]);
-			db_free_result(tresult);
-
-			if (total_items && total_items < device_threads) {
-				device_threads = total_items;
-			}
-		} else {
-			device_threads = 1;
-		}
-
-		change_host = (current_thread >= device_threads) ? TRUE : FALSE;
-
-		/* determine how many items will be polled per thread */
-		if (device_threads > 1) {
-			if (current_thread == 1) {
-				if (set.active_profiles != 1) {
-					snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE CEIL(COUNT(local_data_id)/%i) FROM poller_item WHERE host_id=%i AND rrd_next_step <=0", device_threads, host_id);
-				} else {
-					snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE CEIL(COUNT(local_data_id)/%i) FROM poller_item WHERE host_id=%i", device_threads, host_id);
-				}
-
-				tresult   = db_query(&mysql, LOCAL, querybuf);
-				mysql_row = mysql_fetch_row(tresult);
-
-				items_per_thread = atoi(mysql_row[0]);
-
-				db_free_result(tresult);
-
-				spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-				host_time_double = get_time_as_double();
-			} else if (host_time_double == 0 || host_time == 0 || host_time == NULL) {
-				spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-				host_time_double = get_time_as_double();
-			}
-		} else {
-			snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i AND rrd_next_step <=0", host_id);
-			tresult   = db_query(&mysql, LOCAL, querybuf);
-			mysql_row = mysql_fetch_row(tresult);
-
-			items_per_thread = atoi(mysql_row[0]);
-
-			db_free_result(tresult);
-
-			spine_snprintf(host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
-			host_time_double = get_time_as_double();
-		}
+		prepare_device_partition(&mysql, host_id, current_thread, &partition);
+		change_host = (current_thread >= partition.threads) ? TRUE : FALSE;
 
 		if (current_thread == 1) {
 			/* populate the thread structure */
@@ -952,13 +946,13 @@ int main(int argc, char *argv[]) {
 
 			poller_details->device_counter   = device_counter;
 			poller_details->host_id          = host_id;
-			poller_details->host_thread      = device_threads;
-			poller_details->host_threads     = device_threads;
-			poller_details->host_data_ids    = items_per_thread;
+			poller_details->host_thread      = partition.threads;
+			poller_details->host_threads     = partition.threads;
+			poller_details->host_data_ids    = partition.items;
 
 			snprintf(poller_details->host_time, 40, "%s", host_time);
 
-			poller_details->host_time_double = host_time_double;
+			poller_details->host_time_double = partition.time;
 			poller_details->thread_init_sem  = &thread_init_sem;
 			poller_details->complete         = FALSE;
 			poller_details->threads_complete = 0;
