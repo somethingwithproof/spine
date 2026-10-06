@@ -152,38 +152,43 @@ function(spine_add_tests)
     add_test(NAME env_scrub COMMAND test_env_scrub)
   endif()
 
-  add_executable(test_async_coverage tests/unit/test_async_coverage.c tests/unit/test_spine_stubs.c)
-  target_include_directories(test_async_coverage PRIVATE 
-    ${CMAKE_BINARY_DIR} 
-    ${CMAKE_BINARY_DIR}/config 
-    ${CMAKE_SOURCE_DIR} 
-    ${CMAKE_SOURCE_DIR}/src 
-    ${CMAKE_SOURCE_DIR}/tests/unit 
-    ${CMAKE_SOURCE_DIR}/third_party
-    ${LIBUV_INCLUDE_DIRS}
-    ${CARES_INCLUDE_DIRS}
-  )
-  if(TARGET spine_build_options)
-    target_link_libraries(test_async_coverage PRIVATE spine_build_options)
+  # Async core tests require the same MySQL/Net-SNMP surface as spine.
+  if(SPINE_BUILD_MAIN)
+    add_executable(test_async_coverage tests/unit/test_async_coverage.c tests/unit/test_spine_stubs.c)
+    target_compile_definitions(test_async_coverage PRIVATE SPINE_TEST_ASYNC_FATAL=1)
+    target_include_directories(test_async_coverage PRIVATE
+      ${CMAKE_BINARY_DIR}
+      ${CMAKE_BINARY_DIR}/config
+      ${CMAKE_SOURCE_DIR}
+      ${CMAKE_SOURCE_DIR}/src
+      ${CMAKE_SOURCE_DIR}/tests/unit
+      ${CMAKE_SOURCE_DIR}/third_party
+      ${LIBUV_INCLUDE_DIRS}
+      ${CARES_INCLUDE_DIRS}
+    )
+    if(TARGET spine_build_options)
+      target_link_libraries(test_async_coverage PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_async_coverage PRIVATE spine_platform_test_support spine_hardening spine_netsnmp spine_mysql)
+    target_sources(test_async_coverage PRIVATE
+      src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/async_php.c src/telemetry.c
+      src/task_governor.c src/task_scheduler.c src/task_executor.c
+    )
+
+    if(LIBUV_FOUND)
+      target_link_libraries(test_async_coverage PRIVATE ${LIBUV_LIBRARIES})
+    endif()
+    if(CARES_FOUND)
+      target_link_libraries(test_async_coverage PRIVATE ${CARES_LIBRARIES})
+      target_include_directories(test_async_coverage PRIVATE ${CARES_INCLUDE_DIRS})
+    endif()
+    if(OpenSSL_FOUND)
+      target_link_libraries(test_async_coverage PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+    add_test(NAME async_coverage COMMAND test_async_coverage)
   endif()
-  target_link_libraries(test_async_coverage PRIVATE spine_platform_test_support spine_hardening spine_netsnmp spine_mysql)
-  target_sources(test_async_coverage PRIVATE
-    src/async_exec.c src/async_snmp.c src/async_mysql.c src/async_batch.c src/async_dns.c src/async_php.c src/telemetry.c
-    src/task_governor.c src/task_scheduler.c src/task_executor.c
-  )
 
   add_executable(test_spine_audit tests/unit/test_spine_audit.c src/spine_audit.c)
-  if(LIBUV_FOUND)
-    target_link_libraries(test_async_coverage PRIVATE ${LIBUV_LIBRARIES})
-  endif()
-  if(CARES_FOUND)
-    target_link_libraries(test_async_coverage PRIVATE ${CARES_LIBRARIES})
-    target_include_directories(test_async_coverage PRIVATE ${CARES_INCLUDE_DIRS})
-  endif()
-  if(OpenSSL_FOUND)
-    target_link_libraries(test_async_coverage PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-  endif()
-  add_test(NAME async_coverage COMMAND test_async_coverage)
 
   target_include_directories(test_spine_audit PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit)
   if(TARGET spine_build_options)
@@ -330,82 +335,86 @@ function(spine_add_tests)
   endif()
   add_test(NAME scheduler COMMAND test_scheduler)
 
-  # spine_redact_args: flag allowlist, truncation, null-safety coverage.
-  # util.c pulls in mysql.h and net-snmp.h transitively via spine.h, so
-  # the test needs those INTERFACE targets even though the code under
-  # test never touches a real handle.
-  spine_require_mysql()
-  spine_require_netsnmp()
-  add_executable(test_spine_redact_args tests/unit/test_spine_redact_args.c
-                 src/util.c tests/unit/test_spine_stubs.c
-                 ${SPINE_UTIL_SUPPORT_SOURCES})
-  target_include_directories(test_spine_redact_args PRIVATE
-      ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
-  if(TARGET spine_build_options)
-    target_link_libraries(test_spine_redact_args PRIVATE spine_build_options)
-  endif()
-  target_link_libraries(test_spine_redact_args PRIVATE
-      spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
-  add_test(NAME spine_redact_args COMMAND test_spine_redact_args)
+  # ci-smoke intentionally builds platform tests without core dependencies.
+  # Keep every core test enabled whenever SPINE_BUILD_MAIN is enabled.
+  if(SPINE_BUILD_MAIN)
+    # spine_redact_args: flag allowlist, truncation, null-safety coverage.
+    # util.c pulls in mysql.h and net-snmp.h transitively via spine.h, so
+    # the test needs those INTERFACE targets even though the code under
+    # test never touches a real handle.
+    spine_require_mysql()
+    spine_require_netsnmp()
+    add_executable(test_spine_redact_args tests/unit/test_spine_redact_args.c
+                   src/util.c tests/unit/test_spine_stubs.c
+                   ${SPINE_UTIL_SUPPORT_SOURCES})
+    target_include_directories(test_spine_redact_args PRIVATE
+        ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+    if(TARGET spine_build_options)
+      target_link_libraries(test_spine_redact_args PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_spine_redact_args PRIVATE
+        spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+    add_test(NAME spine_redact_args COMMAND test_spine_redact_args)
 
-  # CB age-reap: mock-clock driven. test_spine_stubs provides config_t set
-  # and the spine_audit stubs required by circuit_breaker.c. libaudit is
-  # an optional link when HAVE_LIBAUDIT is set.
-  add_executable(test_spine_cb_reap tests/unit/test_spine_cb_reap.c
-                 src/circuit_breaker.c src/spine_audit.c
-                 tests/unit/test_spine_stubs.c)
-  target_include_directories(test_spine_cb_reap PRIVATE
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_SOURCE_DIR}
-      ${CMAKE_SOURCE_DIR}/src
-      ${CMAKE_SOURCE_DIR}/src/platform
-      ${CMAKE_SOURCE_DIR}/third_party
-      ${CMAKE_SOURCE_DIR}/tests/unit)
-  if(TARGET spine_build_options)
-    target_link_libraries(test_spine_cb_reap PRIVATE spine_build_options)
-  endif()
-  target_link_libraries(test_spine_cb_reap PRIVATE
-      spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
-  if(SPINE_HAVE_LIBAUDIT)
-    target_compile_definitions(test_spine_cb_reap PRIVATE HAVE_LIBAUDIT=1)
-    target_include_directories(test_spine_cb_reap SYSTEM PRIVATE ${AUDIT_INCLUDE_DIR})
-    target_link_libraries(test_spine_cb_reap PRIVATE ${AUDIT_LIB})
-  endif()
-  add_test(NAME spine_cb_reap COMMAND test_spine_cb_reap)
+    # CB age-reap: mock-clock driven. test_spine_stubs provides config_t set
+    # and the spine_audit stubs required by circuit_breaker.c. libaudit is
+    # an optional link when HAVE_LIBAUDIT is set.
+    add_executable(test_spine_cb_reap tests/unit/test_spine_cb_reap.c
+                   src/circuit_breaker.c src/spine_audit.c
+                   tests/unit/test_spine_stubs.c)
+    target_include_directories(test_spine_cb_reap PRIVATE
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/third_party
+        ${CMAKE_SOURCE_DIR}/tests/unit)
+    if(TARGET spine_build_options)
+      target_link_libraries(test_spine_cb_reap PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_spine_cb_reap PRIVATE
+        spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+    if(SPINE_HAVE_LIBAUDIT)
+      target_compile_definitions(test_spine_cb_reap PRIVATE HAVE_LIBAUDIT=1)
+      target_include_directories(test_spine_cb_reap SYSTEM PRIVATE ${AUDIT_INCLUDE_DIR})
+      target_link_libraries(test_spine_cb_reap PRIVATE ${AUDIT_LIB})
+    endif()
+    add_test(NAME spine_cb_reap COMMAND test_spine_cb_reap)
 
-  # async_mysql shutdown fence: API-only, no real uv/mysql handle opened.
-  add_executable(test_async_mysql_shutdown tests/unit/test_async_mysql_shutdown.c
-                 src/async_mysql.c tests/unit/test_spine_stubs.c)
-  target_include_directories(test_async_mysql_shutdown PRIVATE
-      ${CMAKE_BINARY_DIR}
-      ${CMAKE_SOURCE_DIR}
-      ${CMAKE_SOURCE_DIR}/src
-      ${CMAKE_SOURCE_DIR}/src/platform
-      ${CMAKE_SOURCE_DIR}/third_party
-      ${CMAKE_SOURCE_DIR}/tests/unit)
-  if(LIBUV_FOUND)
-    target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
-        ${LIBUV_INCLUDE_DIRS})
+    # async_mysql shutdown fence: API-only, no real uv/mysql handle opened.
+    add_executable(test_async_mysql_shutdown tests/unit/test_async_mysql_shutdown.c
+                   src/async_mysql.c tests/unit/test_spine_stubs.c)
+    target_include_directories(test_async_mysql_shutdown PRIVATE
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/third_party
+        ${CMAKE_SOURCE_DIR}/tests/unit)
+    if(LIBUV_FOUND)
+      target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
+          ${LIBUV_INCLUDE_DIRS})
+    endif()
+    if(MYSQL_INCLUDE_DIR)
+      target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
+          ${MYSQL_INCLUDE_DIR})
+    endif()
+    # Test-only hook: release builds do not declare or link
+    # spine_async_mysql_shutdown_reset_for_test. The test needs it to
+    # drive the fence more than once, so gate it on a compile flag
+    # scoped to this target alone.
+    target_compile_definitions(test_async_mysql_shutdown PRIVATE
+        SPINE_ENABLE_TEST_HOOKS=1 SPINE_TEST_ASYNC_FATAL=1)
+    if(TARGET spine_build_options)
+      target_link_libraries(test_async_mysql_shutdown PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_async_mysql_shutdown PRIVATE
+        spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+    if(LIBUV_FOUND)
+      target_link_libraries(test_async_mysql_shutdown PRIVATE ${LIBUV_LIBRARIES})
+    endif()
+    add_test(NAME async_mysql_shutdown COMMAND test_async_mysql_shutdown)
   endif()
-  if(MYSQL_INCLUDE_DIR)
-    target_include_directories(test_async_mysql_shutdown SYSTEM PRIVATE
-        ${MYSQL_INCLUDE_DIR})
-  endif()
-  # Test-only hook: release builds do not declare or link
-  # spine_async_mysql_shutdown_reset_for_test. The test needs it to
-  # drive the fence more than once, so gate it on a compile flag
-  # scoped to this target alone.
-  target_compile_definitions(test_async_mysql_shutdown PRIVATE
-      SPINE_ENABLE_TEST_HOOKS=1)
-  if(TARGET spine_build_options)
-    target_link_libraries(test_async_mysql_shutdown PRIVATE spine_build_options)
-  endif()
-  target_link_libraries(test_async_mysql_shutdown PRIVATE
-      spine_platform_test_support spine_hardening spine_mysql Threads::Threads)
-  if(LIBUV_FOUND)
-    target_link_libraries(test_async_mysql_shutdown PRIVATE ${LIBUV_LIBRARIES})
-  endif()
-  add_test(NAME async_mysql_shutdown COMMAND test_async_mysql_shutdown)
 
   # async_exec + spine.c invariants: source-scan asserts that the argv
   # tokenizer stays out and the flush-before-fence shutdown order holds.

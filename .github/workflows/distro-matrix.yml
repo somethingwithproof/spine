@@ -21,7 +21,6 @@ on:
       - fix/**
       - ci/**
   pull_request:
-    branches: [develop]
   schedule:
     # Weekly drift check against upstream distro package updates.
     - cron: '17 6 * * 1'
@@ -96,7 +95,13 @@ jobs:
         if: matrix.family == 'rhel'
         run: |
           set -eu
-          dnf install -y epel-release
+          dnf install -y dnf-plugins-core epel-release
+          . /etc/os-release
+          case "$VERSION_ID" in
+            8*) dnf config-manager --set-enabled powertools ;;
+            9*) dnf config-manager --set-enabled crb ;;
+            *) echo "Unsupported RHEL prerequisite repository: $VERSION_ID" >&2; exit 1 ;;
+          esac
           dnf install -y cmake gcc make git \
             net-snmp-devel mariadb-connector-c-devel openssl-devel \
             pkgconfig systemd-devel libseccomp-devel libuv-devel
@@ -137,14 +142,26 @@ jobs:
         if: matrix.family == 'ubi'
         run: |
           set -eu
-          # UBI 9 has a restricted package set. EPEL provides net-snmp-devel
-          # but mariadb-connector-c-devel is not always reachable without a
-          # paid subscription. Keep going and let the configure step surface
-          # what's missing. This lane is advisory (Tier 3, continue-on-error).
-          dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm || true
-          dnf install -y cmake gcc make git openssl-devel pkgconfig systemd-devel libseccomp-devel libuv-devel || true
-          dnf install -y net-snmp-devel || echo "net-snmp-devel not available on UBI+EPEL"
-          dnf install -y mariadb-connector-c-devel || echo "mariadb-connector-c-devel requires subscription repos"
+          # This remains an advisory toolchain lane. A missing core package
+          # must not roll back the separate toolchain transaction or be hidden
+          # until configure reports that cmake itself was never installed.
+          if ! dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm; then
+            echo "EPEL unavailable; checking the enabled UBI repositories" >&2
+          fi
+          dnf install -y cmake gcc make git openssl-devel pkgconfig systemd-devel libseccomp-devel
+          cmake --version
+          gcc --version
+          missing_dependencies=0
+          for package in libuv-devel net-snmp-devel mariadb-connector-c-devel; do
+            if ! dnf install -y "$package"; then
+              echo "UBI advisory limitation: required core dependency $package unavailable in enabled repositories" >&2
+              missing_dependencies=1
+            fi
+          done
+          if [ "$missing_dependencies" -ne 0 ]; then
+            echo "UBI toolchain installed; full core build requires unavailable dependencies" >&2
+            exit 1
+          fi
 
       - name: Install prerequisites (alpine)
         if: matrix.family == 'alpine'
@@ -230,10 +247,12 @@ jobs:
           version: '10.0'
           shell: sh
           run: |
-            sudo pkgin -y install cmake ninja-build pkg-config mariadb-connector-c net-snmp openssl
-            cmake -G Ninja -S . -B build -DSPINE_BUILD_MAIN=ON || cmake -S . -B build -DSPINE_BUILD_MAIN=ON
+            set -eu
+            sudo pkgin -y install cmake ninja-build pkg-config libuv mariadb-client net-snmp openssl
+            cmake -G Ninja -S . -B build -DSPINE_BUILD_MAIN=ON -DCMAKE_PREFIX_PATH=/usr/pkg
             cmake --build build
-            ./build/spine --help | head -3 || true
+            ./build/spine --help | head -3
+            ctest --test-dir build --output-on-failure --no-tests=error
 
   openbsd:
     name: OpenBSD 7.5 (Tier 3)

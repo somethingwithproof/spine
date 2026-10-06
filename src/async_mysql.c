@@ -5,6 +5,8 @@
 
 #ifdef HAVE_MYSQL_ASYNC
 
+#include <stdatomic.h>
+
 typedef struct {
     MYSQL *mysql;
     async_mysql_cb callback;
@@ -79,7 +81,6 @@ static void async_mysql_assert_owner_thread(void) {
  * weakly-ordered architectures (ARM, POWER) see the flag promptly; a
  * plain volatile int is not a sufficient memory barrier across thread
  * boundaries. */
-#include <stdatomic.h>
 static atomic_int g_async_mysql_shutting_down = 0;
 
 /* Count of submissions refused after the shutdown fence flipped. Read

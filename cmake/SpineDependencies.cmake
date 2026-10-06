@@ -237,8 +237,10 @@ function(spine_require_mysql)
   # Check for MariaDB-specific non-blocking (async) API support.
   set(CMAKE_REQUIRED_INCLUDES "${_mysql_include_dirs}")
   set(CMAKE_REQUIRED_LIBRARIES "${_mysql_libraries}")
+  set(CMAKE_REQUIRED_LINK_OPTIONS "${_mysql_link_options}")
   check_c_source_compiles(
     "
+        #include <stddef.h>
         #include <mysql.h>
         int main(void) {
             MYSQL mysql;
@@ -250,6 +252,7 @@ function(spine_require_mysql)
     SPINE_HAVE_MYSQL_ASYNC)
   unset(CMAKE_REQUIRED_INCLUDES)
   unset(CMAKE_REQUIRED_LIBRARIES)
+  unset(CMAKE_REQUIRED_LINK_OPTIONS)
 
   if(SPINE_HAVE_MYSQL_ASYNC)
     message(STATUS "libmariadb: non-blocking (async) API support enabled")
@@ -403,6 +406,11 @@ function(spine_require_netsnmp)
   # parameter 'token', etc.) that upstream has not cleaned up.
   target_include_directories(spine_netsnmp SYSTEM INTERFACE ${_netsnmp_include_dirs})
   target_link_libraries(spine_netsnmp INTERFACE ${_netsnmp_libraries})
+  # Net-SNMP's public scapi.h includes OpenSSL headers. Propagate the
+  # dependency to every consumer, including standalone core unit tests.
+  if(OpenSSL_FOUND)
+    target_link_libraries(spine_netsnmp INTERFACE OpenSSL::SSL OpenSSL::Crypto)
+  endif()
   if(_netsnmp_link_options)
     target_link_options(spine_netsnmp INTERFACE ${_netsnmp_link_options})
   endif()
