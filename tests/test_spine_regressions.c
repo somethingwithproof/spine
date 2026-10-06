@@ -22,6 +22,8 @@
 #endif
 
 extern int spine_program_main(int argc, char **argv);
+extern void test_additional_contracts(void);
+extern void test_additional_database_contracts(MYSQL *mysql);
 
 static void test_copy_bounds(void) {
 	struct { char text[8]; unsigned char guard; } output;
@@ -1865,6 +1867,7 @@ static void test_database_configuration(void) {
 	read_config_options();
 	assert(set.ping_timeout == 777);
 	db_connect(LOCAL, &mysql);
+	test_additional_database_contracts(&mysql);
 	test_poller_queries(&mysql);
 	test_collector_transfer(&mysql);
 	test_poll_pipeline(&mysql);
@@ -2217,6 +2220,7 @@ int main(int argc, char **argv) {
 	test_php_owned_shutdown();
 	test_host_status_transitions();
 	test_script_execution();
+	test_additional_contracts();
 	puts("production regression tests passed");
 	return 0;
 }
