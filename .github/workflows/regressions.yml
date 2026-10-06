@@ -52,6 +52,7 @@ jobs:
       - name: Verify SNMP availability against local agent
         env:
           SPINE_TEST_SNMP_HOST: 127.0.0.1
+          SPINE_TEST_DB_HOST: 127.0.0.1
         run: |
           set -eu
           snmpd -f -Lo -C -c tests/fixtures/snmpd.conf > snmp-agent.log 2>&1 &
@@ -59,6 +60,7 @@ jobs:
           trap 'kill "$agent_pid"; wait "$agent_pid" || true' EXIT
           sleep 1
           ./test_spine_regressions --snmp-agent
+          ./test_spine_regressions --database
       - name: Verify ICMP against local loopback
         run: |
           set -eu

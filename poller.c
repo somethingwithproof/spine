@@ -377,6 +377,64 @@ static void persist_host_status(MYSQL *mysql, const host_t *host, bool include_s
 	db_insert(mysql, LOCAL, update_sql);
 }
 
+static void load_host_metadata(MYSQL *mysql, MYSQL_ROW row, host_t *host, const poller_thread_t *work) {
+	host_metadata_defaults(host);
+	host_metadata_connection(host, row);
+	host_metadata_status(host, row);
+	host_metadata_statistics(host, row);
+	host_metadata_system(host, row, mysql);
+
+	/* correct max_oid bounds issues */
+	if ((host->max_oids == 0) || (host->max_oids > 100)) {
+		SPINE_LOG(("Device[%i] HT[%i] WARNING: Max OIDS is out of range with value of '%i'.  Resetting to default of 5", work->host_id, work->host_thread, host->max_oids));
+		host->max_oids = 5;
+	}
+}
+
+static void initialize_host_snmp(host_t *host) {
+	if (((host->snmp_version >= 1) && (host->snmp_version <= 2) &&
+		(strlen(host->snmp_community) > 0)) ||
+		(host->snmp_version == 3)) {
+		host->snmp_session = snmp_host_init(&(snmp_connection_t){
+			.host_id = host->id,
+			.hostname = host->hostname,
+			.snmp_version = host->snmp_version,
+			.snmp_community = host->snmp_community,
+			.snmp_username = host->snmp_username,
+			.snmp_password = host->snmp_password,
+			.snmp_auth_protocol = host->snmp_auth_protocol,
+			.snmp_priv_passphrase = host->snmp_priv_passphrase,
+			.snmp_priv_protocol = host->snmp_priv_protocol,
+			.snmp_context = host->snmp_context,
+			.snmp_engine_id = host->snmp_engine_id,
+			.snmp_port = host->snmp_port,
+			.snmp_timeout = host->snmp_timeout,
+		});
+	} else {
+		host->snmp_session = NULL;
+	}
+}
+
+static bool refresh_host_availability(MYSQL *mysql, host_t *host, ping_t *ping, int host_thread) {
+	if (host->availability_method == AVAIL_SNMP && strlen(host->snmp_community) == 0 && host->snmp_version < 3) {
+		host->ignore_host = FALSE;
+		update_host_status(HOST_UP, host, ping, host->availability_method);
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] No host availability check possible for '%s'", host->id, host_thread, host->hostname));
+		return FALSE;
+	}
+	if (host->availability_method == AVAIL_STREAM) {
+		update_host_status(HOST_UP, host, ping, host->availability_method);
+		return FALSE;
+	}
+	bool alive = ping_host(host, ping) == HOST_UP;
+	host->ignore_host = !alive;
+	if (host_thread != 1) return FALSE;
+	update_host_status(alive ? HOST_UP : HOST_DOWN, host, ping, host->availability_method);
+	if (!alive || host->availability_method == AVAIL_PING || host->availability_method == AVAIL_NONE || host->snmp_session == NULL || !set.mibs) return FALSE;
+	get_system_information(host, mysql, 1);
+	return TRUE;
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
 	int device_counter = work->device_counter;
@@ -438,7 +496,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int last_data_query_id      = 0;
 	int perform_assert          = TRUE;
 	int new_buffer              = TRUE;
-	int ignore_sysinfo          = TRUE;
 	int buf_length              = 0;
 
 	extern poller_thread_t** details;
@@ -549,77 +606,16 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 			row = mysql_fetch_row(result);
 
 			if (row) {
-				host_metadata_defaults(host);
-				host_metadata_connection(host, row);
-				host_metadata_status(host, row);
-				host_metadata_statistics(host, row);
-				host_metadata_system(host, row, mysql);
-
-				/* correct max_oid bounds issues */
-				if ((host->max_oids == 0) || (host->max_oids > 100)) {
-					SPINE_LOG(("Device[%i] HT[%i] WARNING: Max OIDS is out of range with value of '%i'.  Resetting to default of 5", host_id, host_thread, host->max_oids));
-					host->max_oids = 5;
-				}
+				load_host_metadata(mysql, row, host, work);
 
 				/* free the host result */
 				db_free_result(result);
 
-				if (((host->snmp_version >= 1) && (host->snmp_version <= 2) &&
-					(strlen(host->snmp_community) > 0)) ||
-					(host->snmp_version == 3)) {
-					host->snmp_session = snmp_host_init(&(snmp_connection_t){
-						.host_id = host->id,
-						.hostname = host->hostname,
-						.snmp_version = host->snmp_version,
-						.snmp_community = host->snmp_community,
-						.snmp_username = host->snmp_username,
-						.snmp_password = host->snmp_password,
-						.snmp_auth_protocol = host->snmp_auth_protocol,
-						.snmp_priv_passphrase = host->snmp_priv_passphrase,
-						.snmp_priv_protocol = host->snmp_priv_protocol,
-						.snmp_context = host->snmp_context,
-						.snmp_engine_id = host->snmp_engine_id,
-						.snmp_port = host->snmp_port,
-						.snmp_timeout = host->snmp_timeout,
-					});
-				} else {
-					host->snmp_session = NULL;
-				}
+				initialize_host_snmp(host);
 
-				/* perform a check to see if the host is alive by polling it's SysDesc
-				 * if the host down from an snmp perspective, don't poll it.
-				 * function sets the ignore_host bit */
-				if ((host->availability_method == AVAIL_SNMP) &&
-					(strlen(host->snmp_community) == 0) &&
-					(host->snmp_version < 3)) {
-					host->ignore_host = FALSE;
-					update_host_status(HOST_UP, host, ping, host->availability_method);
-
-					SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] No host availability check possible for '%s'", host->id, host_thread, host->hostname));
-				} else if (host->availability_method == AVAIL_STREAM) {
-					update_host_status(HOST_UP, host, ping, host->availability_method);
-				} else {
-					if (ping_host(host, ping) == HOST_UP) {
-						host->ignore_host = FALSE;
-						if (host_thread == 1) {
-							update_host_status(HOST_UP, host, ping, host->availability_method);
-
-							if (((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE)) && (host->snmp_session != NULL && set.mibs)) {
-								get_system_information(host, mysql, 1);
-								ignore_sysinfo = FALSE;
-							}
-						}
-					} else {
-						host->ignore_host = TRUE;
-						if (host_thread == 1) {
-							update_host_status(HOST_DOWN, host, ping, host->availability_method);
-						}
-					}
-				}
-
-				/* update host table */
+				bool include_system_information = refresh_host_availability(mysql, host, ping, host_thread);
 				if (host_thread == 1) {
-					persist_host_status(mysql, host, !ignore_sysinfo && host->ignore_host != TRUE);
+					persist_host_status(mysql, host, include_system_information && host->ignore_host != TRUE);
 				}
 			} else {
 				SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, host_thread));
