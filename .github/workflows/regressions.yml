@@ -49,7 +49,6 @@ jobs:
           mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/configuration.sql
           mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/poller.sql
           ./test_spine_regressions --database
-          ./test_spine_faults --database
       - name: Verify SNMP availability against local agent
         env:
           SPINE_TEST_SNMP_HOST: 127.0.0.1
@@ -62,6 +61,7 @@ jobs:
           sleep 1
           ./test_spine_regressions --snmp-agent
           ./test_spine_regressions --database
+          ./test_spine_faults --database
       - name: Verify authenticated SNMPv3 against owned agent
         env:
           SPINE_SNMPV3_EVIDENCE_DIR: snmpv3-evidence

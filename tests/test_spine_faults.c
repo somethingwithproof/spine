@@ -370,9 +370,13 @@ static void *run_ping_only_worker(void *argument) {
 }
 
 static void test_ping_only_session_lifetime(void) {
+	extern int *debug_devices;
 	const char *agent = getenv("SPINE_TEST_SNMP_HOST");
 	assert(agent != NULL && agent[0] != '\0');
 	config_t previous = set;
+	int *previous_debug_devices = debug_devices;
+	int debug_fixture[100] = {0};
+	debug_devices = debug_fixture;
 	pool_t *previous_pool = db_pool_local;
 	set.poller.threads = 1;
 	set.poller.poller_id = 1;
@@ -440,6 +444,7 @@ static void test_ping_only_session_lifetime(void) {
 	db_close_connection_pool(LOCAL);
 	db_pool_local = previous_pool;
 	db_disconnect(&administrator);
+	debug_devices = previous_debug_devices;
 	set = previous;
 	puts("production ping-only SNMP session ownership regressions passed");
 }
