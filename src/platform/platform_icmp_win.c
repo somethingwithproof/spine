@@ -50,13 +50,21 @@ int spine_icmp_echo_v6(const char *ip, uint32_t timeout_ms,
 #include <stdlib.h>
 #include <string.h>
 
+/* Match icmpapi.h's callback declaration in each supported SDK mode.
+ * These synchronous callers always pass a NULL APC callback. */
+#ifdef PIO_APC_ROUTINE_DEFINED
+typedef PIO_APC_ROUTINE spine_icmp_apc_routine_t;
+#else
+typedef FARPROC spine_icmp_apc_routine_t;
+#endif
+
 typedef HANDLE (WINAPI *pfn_IcmpCreateFile)(VOID);
 typedef BOOL   (WINAPI *pfn_IcmpCloseHandle)(HANDLE);
-typedef DWORD  (WINAPI *pfn_IcmpSendEcho2Ex)(HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
+typedef DWORD  (WINAPI *pfn_IcmpSendEcho2Ex)(HANDLE, HANDLE, spine_icmp_apc_routine_t, PVOID,
                                              IPAddr, IPAddr, LPVOID, WORD,
                                              PIP_OPTION_INFORMATION, LPVOID, DWORD, DWORD);
 typedef HANDLE (WINAPI *pfn_Icmp6CreateFile)(VOID);
-typedef DWORD  (WINAPI *pfn_Icmp6SendEcho2)(HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
+typedef DWORD  (WINAPI *pfn_Icmp6SendEcho2)(HANDLE, HANDLE, spine_icmp_apc_routine_t, PVOID,
                                             struct sockaddr_in6 *, struct sockaddr_in6 *,
                                             LPVOID, WORD,
                                             PIP_OPTION_INFORMATION, LPVOID, DWORD, DWORD);
