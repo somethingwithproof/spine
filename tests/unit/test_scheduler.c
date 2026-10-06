@@ -222,19 +222,36 @@ void test_multithreaded_race(void) {
     printf("Running Multi-threaded Race Test...\n");
     spine_scheduler_init(5000);
     spine_governor_init(5000);
+    completed_tasks = 0;
+    failed_tasks = 0;
     
     uv_loop_t loops[4];
     pthread_t threads[4];
     
     for (int i = 0; i < 4; i++) {
-        uv_loop_init(&loops[i]);
-        pthread_create(&threads[i], NULL, worker_thread, &loops[i]);
+        int status = uv_loop_init(&loops[i]);
+        assert(status == 0);
+        status = pthread_create(&threads[i], NULL, worker_thread, &loops[i]);
+        assert(status == 0);
     }
     
     for (int i = 0; i < 4; i++) {
-        pthread_join(threads[i], NULL);
-        uv_loop_close(&loops[i]);
+        int status = pthread_join(threads[i], NULL);
+        assert(status == 0);
     }
+
+    /* Timer handles keep their owning loops busy. Cancel while the task slab
+     * and governor still exist, then drain their real close callbacks before
+     * closing any loop or freeing the slab. */
+    /* Match scheduler_destroy's existing teardown sentinel on every platform. */
+    spine_scheduler_purge(-125);
+    for (int i = 0; i < 4; i++) {
+        uv_run(&loops[i], UV_RUN_DEFAULT);
+        int status = uv_loop_close(&loops[i]);
+        assert(status == 0);
+    }
+    assert(completed_tasks == 0);
+    assert(failed_tasks == 4000);
     
     /* Purge cleanly to test inflight tracking and queues under lock */
     spine_scheduler_destroy();

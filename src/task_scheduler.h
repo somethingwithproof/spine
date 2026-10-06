@@ -14,6 +14,12 @@ void spine_scheduler_init(uint32_t max_global_tasks);
 void spine_scheduler_destroy(void);
 
 /**
+ * Cancel queued and inflight tasks. Drain their event loops before destroying
+ * the scheduler: timer close callbacks still borrow tasks from its slab pool.
+ */
+void spine_scheduler_purge(int error_code);
+
+/**
  * Allocate a task from the fixed-size Slab pool.
  */
 spine_task_t* spine_task_alloc(void);
