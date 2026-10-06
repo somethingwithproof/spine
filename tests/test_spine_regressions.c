@@ -1041,6 +1041,24 @@ static int run_test_script_server(int argc, char **argv) {
 	return 17; /* EOF without quit must not count as graceful protocol shutdown. */
 }
 
+static void assert_php_responses(php_t *processes, int count) {
+	for (int index = 0; index < count; index++) {
+		assert(processes[index].php_state == PHP_READY);
+		char *result = php_cmd("regression request", index);
+		assert(strcmp(result, "7\n") == 0);
+		free(result);
+	}
+}
+
+static void assert_php_children_reaped(const php_t *processes, const pid_t *children, size_t count) {
+	for (size_t index = 0; index < count; index++) {
+		int status;
+		assert(waitpid(children[index], &status, WNOHANG) == -1 && errno == ECHILD);
+		assert(processes[index].php_pid == -1);
+		assert(WIFEXITED(processes[index].php_exit_status) && WEXITSTATUS(processes[index].php_exit_status) == 0);
+	}
+}
+
 static void test_php_startup(const char *executable) {
 	char *absolute = realpath(executable, NULL);
 	assert(absolute != NULL);
@@ -1062,20 +1080,10 @@ static void test_php_startup(const char *executable) {
 		set.poller.poller_id = pollers[i];
 		set.poller.mode = modes[i];
 		assert(php_init(PHP_INIT));
-		for (int index = 0; index < set.php.php_servers; index++) {
-			assert(processes[index].php_state == PHP_READY);
-			char *result = php_cmd("regression request", index);
-			assert(strcmp(result, "7\n") == 0);
-			free(result);
-		}
+		assert_php_responses(processes, set.php.php_servers);
 		pid_t children[] = {processes[0].php_pid, processes[1].php_pid};
 		assert(php_close(PHP_INIT));
-		for (size_t index = 0; index < sizeof(children) / sizeof(children[0]); index++) {
-			int status;
-			assert(waitpid(children[index], &status, WNOHANG) == -1 && errno == ECHILD);
-			assert(processes[index].php_pid == -1);
-			assert(WIFEXITED(processes[index].php_exit_status) && WEXITSTATUS(processes[index].php_exit_status) == 0);
-		}
+		assert_php_children_reaped(processes, children, sizeof(children) / sizeof(children[0]));
 	}
 	/* An inherited one-byte pipe admits the first child and rejects the second. */
 	int admissions[2];
@@ -1639,6 +1647,29 @@ static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *agg
 	set = previous;
 }
 
+static void prepare_nullable_snmp_profile(MYSQL *mysql) {
+	/* These fields are nullable in the shipped schema; missing values
+	 * must survive the real row-loader/session handoff. */
+	assert(db_insert(mysql, LOCAL, "UPDATE host SET snmp_context=NULL,snmp_engine_id=NULL WHERE id=44"));
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_context=NULL,snmp_engine_id=NULL,arg2=NULL,arg3=NULL WHERE host_id=44"));
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=44 AND snmp_context IS NULL AND snmp_engine_id IS NULL AND arg2 IS NULL AND arg3 IS NULL") == 2);
+}
+
+static void assert_snmp_pipeline_samples(MYSQL *mysql, bool spike, bool change_version) {
+	char query[LRG_BUFSIZE];
+	bool first_discarded = spike && !change_version;
+	const char *first_check = first_discarded ? "output='U'" : "output REGEXP '^[0-9]+$' AND CAST(output AS UNSIGNED)>0";
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id=601 AND %s", first_check);
+	assert(database_count(mysql, query) == 1);
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=601 AND %s", first_check);
+	assert(database_count(mysql, query) == 1);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=602 AND output='U'") == 1);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=602 AND output='U'") == 1);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost") == 2);
+	assert(database_count(mysql, "SELECT COUNT(*) FROM poller_command") == (spike ? 1 : 0));
+}
+
 static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const char *agent) {
 	char escaped_agent[BUFSIZE];
 	db_escape(mysql, escaped_agent, sizeof(escaped_agent), agent);
@@ -1658,11 +1689,7 @@ static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const 
 		assert(db_insert(mysql, LOCAL, query));
 		if (spike) assert(db_insert(mysql, LOCAL, "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (44,7,1,'<','124','/usr/bin/printf 123')"));
 		if (scenario == 8) {
-			/* These fields are nullable in the shipped schema; missing values
-			 * must survive the real row-loader/session handoff. */
-			assert(db_insert(mysql, LOCAL, "UPDATE host SET snmp_context=NULL,snmp_engine_id=NULL WHERE id=44"));
-			assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_context=NULL,snmp_engine_id=NULL,arg2=NULL,arg3=NULL WHERE host_id=44"));
-			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=44 AND snmp_context IS NULL AND snmp_engine_id IS NULL AND arg2 IS NULL AND arg3 IS NULL") == 2);
+			prepare_nullable_snmp_profile(mysql);
 		}
 		work->thread.complete = FALSE;
 		work->thread.threads_complete = 0;
@@ -1673,22 +1700,22 @@ static void test_snmp_item_pipeline(MYSQL *mysql, test_poll_work_t *work, const 
 		assert(work->thread.complete && work->thread.threads_complete == 1);
 		assert(work->errors == (spike ? 0 : 1));
 		assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
-		bool first_discarded = spike && !change_version;
-		const char *first_check = first_discarded ? "output='U'" : "output REGEXP '^[0-9]+$' AND CAST(output AS UNSIGNED)>0";
-		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id=601 AND %s", first_check);
-		assert(database_count(mysql, query) == 1);
-		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=601 AND %s", first_check);
-		assert(database_count(mysql, query) == 1);
-		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=602 AND output='U'") == 1);
-		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id=602 AND output='U'") == 1);
-		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output") == 2);
-		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output_boost") == 2);
-		assert(database_count(mysql, "SELECT COUNT(*) FROM poller_command") == (spike ? 1 : 0));
+		assert_snmp_pipeline_samples(mysql, spike, change_version);
 		if (scenario == 8) puts("production nullable SNMP profile handoff passed");
 	}
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
 	assert(db_insert(mysql, LOCAL, "UPDATE host SET snmp_context='',snmp_engine_id='' WHERE id=44"));
 	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_context='',snmp_engine_id='' WHERE host_id=44"));
+}
+
+static void assert_polled_host_statistics(MYSQL *mysql, int host_id) {
+	if (host_id == 44) {
+		assert(database_count(mysql, "SELECT COUNT(*) FROM host WHERE id=44 AND total_polls=1 AND failed_polls=0 AND status_last_error='' AND snmp_sysUpTimeInstance>0 AND snmp_sysDescr!='' AND snmp_sysObjectID!='' AND snmp_sysContact='regression' AND snmp_sysName!='' AND snmp_sysLocation='isolated-regression-agent'") == 1);
+	} else if (host_id != 0) {
+		char query[256];
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
+		assert(database_count(mysql, query) == 1);
+	}
 }
 
 static void test_poll_pipeline(MYSQL *mysql) {
@@ -1760,12 +1787,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 		char query[256];
 		spine_snprintf(query, sizeof(query), "SELECT errors FROM host_errors WHERE host_id=%d", host_id);
 		assert(database_count(mysql, query) == 1);
-		if (host_id == 44) {
-			assert(database_count(mysql, "SELECT COUNT(*) FROM host WHERE id=44 AND total_polls=1 AND failed_polls=0 AND status_last_error='' AND snmp_sysUpTimeInstance>0 AND snmp_sysDescr!='' AND snmp_sysObjectID!='' AND snmp_sysContact='regression' AND snmp_sysName!='' AND snmp_sysLocation='isolated-regression-agent'") == 1);
-		} else if (host_id != 0) {
-			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM host WHERE id=%d AND total_polls=1 AND failed_polls=0 AND min_time=0 AND status_last_error=''", host_id);
-			assert(database_count(mysql, query) == 1);
-		}
+		assert_polled_host_statistics(mysql, host_id);
 		if (host_id == 44) test_snmp_item_pipeline(mysql, &work, agent);
 		if (host_id == 43) {
 			test_reindex_pipeline(mysql, &work);

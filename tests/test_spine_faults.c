@@ -282,6 +282,23 @@ static void assert_cancel_state(int expected) {
 	assert(pthread_setcancelstate(previous, NULL) == 0);
 }
 
+static void test_child_setup_failures(unsigned int expected_descriptors) {
+	for (int index = 0; index < 3; index++) {
+		duplicate_calls = 0;
+		duplicate_failure_at = index < 2 ? index + 1 : 0;
+		execute_failures = index == 2 ? 1 : 0;
+		int descriptor = nft_popen("printf forbidden", index == 1 ? "r+" : "r");
+		assert(descriptor >= 0);
+		char bytes[3];
+		assert(read(descriptor, bytes, sizeof(bytes)) == 0);
+		int status = nft_pclose(descriptor);
+		assert(WIFEXITED(status) && WEXITSTATUS(status) == 127);
+		assert(open_descriptor_count() == expected_descriptors);
+		duplicate_failure_at = 0;
+		execute_failures = 0;
+	}
+}
+
 static void test_process_creation_failures(void) {
 	unsigned int descriptors = open_descriptor_count();
 	int unrelated[2];
@@ -323,19 +340,7 @@ static void test_process_creation_failures(void) {
 	int status = nft_pclose(descriptor);
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	assert(open_descriptor_count() == with_unrelated);
-	for (int index = 0; index < 3; index++) {
-		duplicate_calls = 0;
-		duplicate_failure_at = index < 2 ? index + 1 : 0;
-		execute_failures = index == 2 ? 1 : 0;
-		descriptor = nft_popen("printf forbidden", index == 1 ? "r+" : "r");
-		assert(descriptor >= 0);
-		assert(read(descriptor, bytes, sizeof(bytes)) == 0);
-		status = nft_pclose(descriptor);
-		assert(WIFEXITED(status) && WEXITSTATUS(status) == 127);
-		assert(open_descriptor_count() == with_unrelated);
-		duplicate_failure_at = 0;
-		execute_failures = 0;
-	}
+	test_child_setup_failures(with_unrelated);
 	assert(write(unrelated[1], "x", 1) == 1 && read(unrelated[0], bytes, 1) == 1 && bytes[0] == 'x');
 	assert(close(unrelated[0]) == 0 && close(unrelated[1]) == 0);
 	assert(open_descriptor_count() == descriptors);

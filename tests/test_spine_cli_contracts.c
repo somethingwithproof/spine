@@ -91,9 +91,9 @@ void test_cli_alias_contracts(void) {
 	char *missing_hostlist[] = {"spine", "-H", NULL};
 	run_cli_contract(missing_hostlist, EXIT_FAILURE, output, sizeof(output));
 	assert(strstr(output, "ERROR: option -H requires a parameter") != NULL);
-	const char *invalid_lists[] = {"", " ", ",17", "17,", "17,,18", "17 18", "-1", "+1", "1.5", "1e2", "17x", "17;18", "2147483648", "999999999999999999999999999999999999"};
+	char invalid_lists[][48] = {"", " ", ",17", "17,", "17,,18", "17 18", "-1", "+1", "1.5", "1e2", "17x", "17;18", "2147483648", "999999999999999999999999999999999999"};
 	for (size_t index = 0; index < sizeof(invalid_lists) / sizeof(invalid_lists[0]); index++) {
-		char *arguments[] = {"spine", "-H", (char *)invalid_lists[index], "--version", NULL};
+		char *arguments[] = {"spine", "-H", invalid_lists[index], "--version", NULL};
 		run_cli_contract(arguments, EXIT_FAILURE, output, sizeof(output));
 		assert(strstr(output, "ERROR: invalid or oversized host list") != NULL);
 	}
