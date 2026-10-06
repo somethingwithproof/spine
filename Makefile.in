@@ -36,6 +36,7 @@
 # +-------------------------------------------------------------------------+
 
 
+
 VPATH = @srcdir@
 am__is_gnu_make = { \
   if test -z '$(MAKELEVEL)'; then \
@@ -121,7 +122,8 @@ am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
-	$(am__configure_deps) $(dist_noinst_DATA) $(am__DIST_COMMON)
+	$(am__configure_deps) $(dist_config_DATA) $(dist_noinst_DATA) \
+	$(noinst_HEADERS) $(am__DIST_COMMON)
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
 mkinstalldirs = $(install_sh) -d
@@ -243,7 +245,8 @@ am__uninstall_files_from_dir = { \
 man1dir = $(mandir)/man1
 NROFF = nroff
 MANS = $(man_MANS)
-DATA = $(config_DATA) $(dist_noinst_DATA)
+DATA = $(dist_config_DATA) $(dist_noinst_DATA)
+HEADERS = $(noinst_HEADERS)
 am__tagged_files = $(HEADERS) $(SOURCES) $(TAGS_FILES) $(LISP)
 # Read a list of newline-separated strings from the standard input,
 # and print each of them once, without duplicates.  Input order is
@@ -592,9 +595,11 @@ top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
 ACLOCAL_AMFLAGS = -I m4
 spine_SOURCES = sql.c spine.c util.c snmp.c locks.c poller.c nft_popen.c php.c ping.c keywords.c error.c
+noinst_HEADERS = common.h error.h keywords.h locks.h nft_popen.h php.h ping.h poller.h snmp.h spine.h sql.h util.h spine_types.h
 configdir = $(sysconfdir)
-config_DATA = spine.conf.dist
+dist_config_DATA = spine.conf.dist
 man_MANS = spine.1
+DISTCLEANFILES = spine.1
 dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf
 TESTS = $(check_PROGRAMS)
 test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c
@@ -996,9 +1001,9 @@ uninstall-man1:
 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
 	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
-install-configDATA: $(config_DATA)
+install-dist_configDATA: $(dist_config_DATA)
 	@$(NORMAL_INSTALL)
-	@list='$(config_DATA)'; test -n "$(configdir)" || list=; \
+	@list='$(dist_config_DATA)'; test -n "$(configdir)" || list=; \
 	if test -n "$$list"; then \
 	  echo " $(MKDIR_P) '$(DESTDIR)$(configdir)'"; \
 	  $(MKDIR_P) "$(DESTDIR)$(configdir)" || exit 1; \
@@ -1012,9 +1017,9 @@ install-configDATA: $(config_DATA)
 	  $(INSTALL_DATA) $$files "$(DESTDIR)$(configdir)" || exit $$?; \
 	done
 
-uninstall-configDATA:
+uninstall-dist_configDATA:
 	@$(NORMAL_UNINSTALL)
-	@list='$(config_DATA)'; test -n "$(configdir)" || list=; \
+	@list='$(dist_config_DATA)'; test -n "$(configdir)" || list=; \
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
 	dir='$(DESTDIR)$(configdir)'; $(am__uninstall_files_from_dir)
 
@@ -1415,7 +1420,7 @@ check-am: all-am
 	$(MAKE) $(AM_MAKEFLAGS) $(check_PROGRAMS)
 	$(MAKE) $(AM_MAKEFLAGS) check-TESTS
 check: check-am
-all-am: Makefile $(PROGRAMS) $(MANS) $(DATA)
+all-am: Makefile $(PROGRAMS) $(MANS) $(DATA) $(HEADERS)
 installdirs:
 	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)" "$(DESTDIR)$(configdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
@@ -1449,6 +1454,7 @@ clean-generic:
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
+	-test -z "$(DISTCLEANFILES)" || rm -f $(DISTCLEANFILES)
 
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
@@ -1499,7 +1505,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-configDATA install-man
+install-data-am: install-dist_configDATA install-man
 
 install-dvi: install-dvi-am
 
@@ -1569,7 +1575,8 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-binPROGRAMS uninstall-configDATA uninstall-man
+uninstall-am: uninstall-binPROGRAMS uninstall-dist_configDATA \
+	uninstall-man
 
 uninstall-man: uninstall-man1
 
@@ -1584,17 +1591,17 @@ uninstall-man: uninstall-man1
 	distclean-generic distclean-hdr distclean-libtool \
 	distclean-tags distcleancheck distdir distuninstallcheck dvi \
 	dvi-am html html-am info info-am install install-am \
-	install-binPROGRAMS install-configDATA install-data \
-	install-data-am install-dvi install-dvi-am install-exec \
-	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-man1 install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
-	installcheck installcheck-am installdirs maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	recheck tags tags-am uninstall uninstall-am \
-	uninstall-binPROGRAMS uninstall-configDATA uninstall-man \
-	uninstall-man1
+	install-binPROGRAMS install-data install-data-am \
+	install-dist_configDATA install-dvi install-dvi-am \
+	install-exec install-exec-am install-html install-html-am \
+	install-info install-info-am install-man install-man1 \
+	install-pdf install-pdf-am install-ps install-ps-am \
+	install-strip installcheck installcheck-am installdirs \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
+	pdf pdf-am ps ps-am recheck tags tags-am uninstall \
+	uninstall-am uninstall-binPROGRAMS uninstall-dist_configDATA \
+	uninstall-man uninstall-man1
 
 .PRECIOUS: Makefile
 

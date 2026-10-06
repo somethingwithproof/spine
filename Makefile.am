@@ -24,12 +24,15 @@ ACLOCAL_AMFLAGS = -I m4
 
 spine_SOURCES = sql.c spine.c util.c snmp.c locks.c poller.c nft_popen.c php.c ping.c keywords.c error.c
 
+noinst_HEADERS = common.h error.h keywords.h locks.h nft_popen.h php.h ping.h poller.h snmp.h spine.h sql.h util.h spine_types.h
+
 configdir = $(sysconfdir)
-config_DATA = spine.conf.dist
+dist_config_DATA = spine.conf.dist
 
 bin_PROGRAMS = spine
 
 man_MANS = spine.1
+DISTCLEANFILES = spine.1
 
 check_PROGRAMS = test_spine_regressions
 dist_noinst_DATA = tests/fixtures/configuration.sql tests/fixtures/poller.sql tests/fixtures/snmpd.conf
