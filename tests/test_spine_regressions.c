@@ -23,6 +23,9 @@
 
 extern int spine_program_main(int argc, char **argv);
 extern void test_additional_contracts(void);
+extern void test_cli_alias_contracts(void);
+extern int run_script_stream_fixture(const char *scenario);
+extern void test_script_stream_contracts(void);
 extern void test_additional_database_contracts(MYSQL *mysql);
 extern void test_settings_write_contracts(MYSQL *mysql);
 extern void test_additional_reindex_contracts(MYSQL *mysql);
@@ -2180,6 +2183,7 @@ static void test_tcp_loopback(void) {
 }
 
 int main(int argc, char **argv) {
+	if (argc == 3 && strcmp(argv[1], "--script-stream") == 0) return run_script_stream_fixture(argv[2]);
 	if (argc > 1 && strcmp(argv[1], "-q") == 0) return run_test_script_server(argc, argv);
 	extern int *debug_devices;
 	static int devices[100];
@@ -2258,6 +2262,8 @@ int main(int argc, char **argv) {
 	test_php_owned_shutdown();
 	test_host_status_transitions();
 	test_script_execution();
+	test_script_stream_contracts();
+	test_cli_alias_contracts();
 	test_additional_contracts();
 	puts("production regression tests passed");
 	return 0;
