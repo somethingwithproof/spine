@@ -656,39 +656,38 @@ static int wait_for_workers(double begin_time) {
 
 static void report_worker_completion(int num_rows) {
 	int threads_missing = -1;
-	if (!set.availability.ping_only) {
-		thread_mutex_lock(LOCK_THDET);
+	if (set.availability.ping_only) return;
+	thread_mutex_lock(LOCK_THDET);
 
-		for (int threads_count = 0; threads_count < num_rows; threads_count++) {
-			const poller_thread_t *det = details[threads_count];
+	for (int threads_count = 0; threads_count < num_rows; threads_count++) {
+		const poller_thread_t *det = details[threads_count];
 
-			if (threads_missing == -1 && det == NULL) {
-				threads_missing = threads_count;
-			}
-
-			if (det != NULL) {
-				if (det->output_failed) {
-					SPINE_LOG(("ERROR: Device[%i] output persistence failed; due items remain scheduled for retry", det->host_id));
-				}
-				SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
-					det->host_id,
-					det->complete ? "":"in",
-					det->host_data_ids * (det->host_thread - 1),
-					det->host_data_ids * (det->host_thread)));
-
-				SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, host_thread = %d,"
-					" host_threads = %d, host_data_ids = %d, complete = %d",
-					threads_count,
-					det->host_id,
-					det->host_thread,
-					det->host_threads,
-					det->host_data_ids,
-					det->complete));
-			}
+		if (threads_missing == -1 && det == NULL) {
+			threads_missing = threads_count;
 		}
 
-		thread_mutex_unlock(LOCK_THDET);
+		if (det != NULL) {
+			if (det->output_failed) {
+				SPINE_LOG(("ERROR: Device[%i] output persistence failed; due items remain scheduled for retry", det->host_id));
+			}
+			SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
+				det->host_id,
+				det->complete ? "":"in",
+				det->host_data_ids * (det->host_thread - 1),
+				det->host_data_ids * (det->host_thread)));
+
+			SPINE_LOG_DEVDBG(("DEBUG: DTF: device = %d, host_id = %d, host_thread = %d,"
+				" host_threads = %d, host_data_ids = %d, complete = %d",
+				threads_count,
+				det->host_id,
+				det->host_thread,
+				det->host_threads,
+				det->host_data_ids,
+				det->complete));
+		}
 	}
+
+	thread_mutex_unlock(LOCK_THDET);
 
 	if (threads_missing > -1) {
 		SPINE_LOG(("WARNING: There were %d threads which did not run", num_rows - threads_missing));

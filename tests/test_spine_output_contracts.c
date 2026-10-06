@@ -37,7 +37,7 @@ static void assert_output_engine(MYSQL *mysql, const char *table, const char *en
 	db_free_result(result);
 }
 
-static void run_output_partition(poller_thread_t *aggregate, int partition) {
+static void run_output_partition(const poller_thread_t *aggregate, int partition) {
 	poller_thread_t *work = malloc(sizeof(*work));
 	assert(work != NULL);
 	*work = *aggregate;
@@ -60,8 +60,19 @@ static void run_output_partition(poller_thread_t *aggregate, int partition) {
 
 /* A real bounded PHP-server producer: consume command lines and send numeric
  * samples. The production PHP transport and poll_host do all interpretation. */
+static void send_output_sample(int fd, const char *result, size_t length) {
+	size_t sent = 0;
+	while (sent < length) {
+		ssize_t count = write(fd, result + sent, length - sent);
+		if (count < 0 && errno == EINTR) continue;
+		assert(count > 0);
+		sent += (size_t)count;
+	}
+}
+
 static pid_t start_output_server(php_t *server, int payload) {
-	int requests[2], responses[2];
+	int requests[2];
+	int responses[2];
 	assert(pipe(requests) == 0 && pipe(responses) == 0);
 	fflush(NULL);
 	pid_t child = fork();
@@ -71,18 +82,13 @@ static pid_t start_output_server(php_t *server, int payload) {
 		assert(close(requests[1]) == 0 && close(responses[0]) == 0);
 		FILE *input = fdopen(requests[0], "r");
 		assert(input != NULL);
-		char command[BUFSIZE], result[512];
+		char command[BUFSIZE];
+		char result[512];
 		assert(payload >= 3 && payload < (int)sizeof(result));
 		memset(result, '0', payload - 3);
 		memcpy(result + payload - 3, "123\n", 4);
 		while (fgets(command, sizeof(command), input) != NULL) {
-			size_t sent = 0;
-			while (sent < (size_t)payload + 1) {
-				ssize_t count = write(responses[1], result + sent, (size_t)payload + 1 - sent);
-				if (count < 0 && errno == EINTR) continue;
-				assert(count > 0);
-				sent += (size_t)count;
-			}
+			send_output_sample(responses[1], result, (size_t)payload + 1);
 		}
 		assert(!ferror(input) && fclose(input) == 0 && close(responses[1]) == 0);
 		_exit(0);
@@ -168,6 +174,79 @@ static void test_output_recollection(MYSQL *mysql) {
 	puts("production output recollection retains incomplete historical samples passed");
 }
 
+static void run_output_failure_scenario(MYSQL *mysql, int scenario, int payload) {
+	poller_thread_t **previous_details = details;
+	bool boundary = scenario >= 2;
+	bool boost_failure = (scenario & 1) != 0;
+	int rows = boundary ? MAX_MYSQL_BUF_SIZE / payload + 4 : 2;
+	assert(rows < 9999);
+	int partitions = scenario == 0 ? 2 : 1;
+	char query[LRG_BUFSIZE];
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=901"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id BETWEEN 930001 AND 939999"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND 939999"));
+	for (int index = 1; index <= rows; index++) {
+		spine_snprintf(query, sizeof(query), "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name,snmp_port,rrd_step,rrd_next_step) VALUES(%i,901,1,%i,'%s','owned',%i,300,0)", 930000 + index, boundary ? POLLER_ACTION_PHP_SCRIPT_SERVER : POLLER_ACTION_SCRIPT, boundary ? "owned numeric request" : "/usr/bin/printf 123", 160 + index);
+		assert(db_insert(mysql, LOCAL, query));
+		spine_snprintf(query, sizeof(query), "INSERT INTO poller_output(local_data_id,rrd_name,time,output) VALUES(%i,'owned',FROM_UNIXTIME(1791244800),'old')", 930000 + index);
+		assert(db_insert(mysql, LOCAL, query));
+		spine_snprintf(query, sizeof(query), "INSERT INTO poller_output_boost(local_data_id,rrd_name,time,output) VALUES(%i,'owned',FROM_UNIXTIME(1791244800),'old')", 930000 + index);
+		assert(db_insert(mysql, LOCAL, query));
+	}
+	spine_snprintf(query, sizeof(query), "CREATE TRIGGER spine_owned_output_reject BEFORE INSERT ON %s FOR EACH ROW BEGIN IF NEW.local_data_id=930002 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='owned output rejection'; END IF; END", boost_failure ? "poller_output_boost" : "poller_output");
+	assert(db_insert(mysql, LOCAL, query));
+	poller_thread_t work;
+	reset_output_work(&work, rows, partitions);
+	poller_thread_t *aggregate = &work;
+	details = &aggregate;
+	if (partitions == 2) {
+		/* Failure finishes before the other partition even selects its rows. */
+		run_output_partition(&work, 2);
+		fprintf(stderr, "output failure partition: exit=%i threads=%i complete=%i failed=%i\n", set.exit.exit_code, work.threads_complete, work.complete, work.output_failed);
+		assert(work.threads_complete == 1 && !work.complete);
+		assert(set.exit.exit_code == EXIT_FAILURE);
+	}
+	run_output_partition(&work, 1);
+	fprintf(stderr, "output persistence scenario=%i boundary=%i rows=%i exit=%i completed=%i\n", scenario, boundary, rows, set.exit.exit_code, work.complete);
+	assert(set.exit.exit_code == EXIT_FAILURE);
+	assert(work.output_failed && !work.complete && work.threads_complete == partitions);
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=0");
+	assert(output_count(mysql, query) == (unsigned long long)rows);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=901") == 0);
+	assert_sample(mysql, "poller_output", 930000, "'unchanged'");
+	assert_sample(mysql, "poller_output_boost", 930000, "'unchanged'");
+	const char *failed_table = boost_failure ? "poller_output_boost" : "poller_output";
+	const char *other_table = boost_failure ? "poller_output" : "poller_output_boost";
+	assert_sample(mysql, failed_table, 930002, "'old'");
+	char expected[100];
+	spine_snprintf(expected, sizeof(expected), "CONCAT(REPEAT('0',%i),'123')", boundary ? payload - 3 : 0);
+	assert_sample(mysql, other_table, 930002, expected);
+	if (boundary) {
+		/* Sample bytes alone exceed the configured batch limit, so the
+		 * failure is in an early flush and later writes still execute. */
+		assert((size_t)rows * (size_t)payload > MAX_MYSQL_BUF_SIZE);
+		assert_sample(mysql, failed_table, 930000 + rows, expected);
+		assert_sample(mysql, "poller_output", 930001, expected);
+	}
+	assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
+	/* This controlled retry reuses its timestamp and resets completion/exit
+	 * state. It proves same-key upsert repair, including partial MEMORY rows;
+	 * a later CLI invocation recollects data with the current timestamp. */
+	reset_output_work(&work, rows, partitions);
+	if (partitions == 2) run_output_partition(&work, 2);
+	run_output_partition(&work, 1);
+	assert(set.exit.exit_code == EXIT_SUCCESS && !work.output_failed && work.complete);
+	assert(work.threads_complete == partitions);
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930001 AND %i AND output=%s", 930000 + rows, expected);
+	assert(output_count(mysql, query) == (unsigned long long)rows);
+	spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND %i AND output=%s", 930000 + rows, expected);
+	assert(output_count(mysql, query) == (unsigned long long)rows);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=295") == (unsigned long long)rows);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
+	assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
+	details = previous_details;
+}
+
 void test_output_write_contracts(MYSQL *mysql) {
 	config_t previous = set;
 	pool_t *previous_pool = db_pool_local;
@@ -214,74 +293,8 @@ void test_output_write_contracts(MYSQL *mysql) {
 	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_output(local_data_id,rrd_name,time,output) VALUES(930000,'sentinel',FROM_UNIXTIME(1791244800),'unchanged')"));
 	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_output_boost(local_data_id,rrd_name,time,output) VALUES(930000,'sentinel',FROM_UNIXTIME(1791244800),'unchanged')"));
 	for (int scenario = 0; scenario < 4; scenario++) {
-		bool boundary = scenario >= 2;
-		bool boost_failure = (scenario & 1) != 0;
-		int rows = boundary ? MAX_MYSQL_BUF_SIZE / payload + 4 : 2;
-		assert(rows < 9999);
-		int partitions = scenario == 0 ? 2 : 1;
-		char query[LRG_BUFSIZE];
-		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=901"));
-		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id BETWEEN 930001 AND 939999"));
-		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND 939999"));
-		for (int index = 1; index <= rows; index++) {
-			spine_snprintf(query, sizeof(query), "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name,snmp_port,rrd_step,rrd_next_step) VALUES(%i,901,1,%i,'%s','owned',%i,300,0)", 930000 + index, boundary ? POLLER_ACTION_PHP_SCRIPT_SERVER : POLLER_ACTION_SCRIPT, boundary ? "owned numeric request" : "/usr/bin/printf 123", 160 + index);
-			assert(db_insert(mysql, LOCAL, query));
-			spine_snprintf(query, sizeof(query), "INSERT INTO poller_output(local_data_id,rrd_name,time,output) VALUES(%i,'owned',FROM_UNIXTIME(1791244800),'old')", 930000 + index);
-			assert(db_insert(mysql, LOCAL, query));
-			spine_snprintf(query, sizeof(query), "INSERT INTO poller_output_boost(local_data_id,rrd_name,time,output) VALUES(%i,'owned',FROM_UNIXTIME(1791244800),'old')", 930000 + index);
-			assert(db_insert(mysql, LOCAL, query));
-		}
-		spine_snprintf(query, sizeof(query), "CREATE TRIGGER spine_owned_output_reject BEFORE INSERT ON %s FOR EACH ROW BEGIN IF NEW.local_data_id=930002 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='owned output rejection'; END IF; END", boost_failure ? "poller_output_boost" : "poller_output");
-		assert(db_insert(mysql, LOCAL, query));
-		poller_thread_t work;
-		reset_output_work(&work, rows, partitions);
-		poller_thread_t *aggregate = &work;
-		details = &aggregate;
-		if (partitions == 2) {
-			/* Failure finishes before the other partition even selects its rows. */
-			run_output_partition(&work, 2);
-			fprintf(stderr, "output failure partition: exit=%i threads=%i complete=%i failed=%i\n", set.exit.exit_code, work.threads_complete, work.complete, work.output_failed);
-			assert(work.threads_complete == 1 && !work.complete);
-			assert(set.exit.exit_code == EXIT_FAILURE);
-		}
-		run_output_partition(&work, 1);
-		fprintf(stderr, "output persistence scenario=%i boundary=%i rows=%i exit=%i completed=%i\n", scenario, boundary, rows, set.exit.exit_code, work.complete);
-		assert(set.exit.exit_code == EXIT_FAILURE);
-		assert(work.output_failed && !work.complete && work.threads_complete == partitions);
-		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=0");
-		assert(output_count(mysql, query) == (unsigned long long)rows);
-		assert(output_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=901") == 0);
-		assert_sample(mysql, "poller_output", 930000, "'unchanged'");
-		assert_sample(mysql, "poller_output_boost", 930000, "'unchanged'");
-		const char *failed_table = boost_failure ? "poller_output_boost" : "poller_output";
-		const char *other_table = boost_failure ? "poller_output" : "poller_output_boost";
-		assert_sample(mysql, failed_table, 930002, "'old'");
-		char expected[100];
-		spine_snprintf(expected, sizeof(expected), "CONCAT(REPEAT('0',%i),'123')", boundary ? payload - 3 : 0);
-		assert_sample(mysql, other_table, 930002, expected);
-		if (boundary) {
-			/* Sample bytes alone exceed the configured batch limit, so the
-			 * failure is in an early flush and later writes still execute. */
-			assert((size_t)rows * (size_t)payload > MAX_MYSQL_BUF_SIZE);
-			assert_sample(mysql, failed_table, 930000 + rows, expected);
-			assert_sample(mysql, "poller_output", 930001, expected);
-		}
-		assert(db_insert(mysql, LOCAL, "DROP TRIGGER spine_owned_output_reject"));
-		/* This controlled retry reuses its timestamp and resets completion/exit
-		 * state. It proves same-key upsert repair, including partial MEMORY rows;
-		 * a later CLI invocation recollects data with the current timestamp. */
-		reset_output_work(&work, rows, partitions);
-		if (partitions == 2) run_output_partition(&work, 2);
-		run_output_partition(&work, 1);
-		assert(set.exit.exit_code == EXIT_SUCCESS && !work.output_failed && work.complete);
-		assert(work.threads_complete == partitions);
-		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930001 AND %i AND output=%s", 930000 + rows, expected);
-		assert(output_count(mysql, query) == (unsigned long long)rows);
-		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930001 AND %i AND output=%s", 930000 + rows, expected);
-		assert(output_count(mysql, query) == (unsigned long long)rows);
-		assert(output_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=901 AND rrd_next_step=295") == (unsigned long long)rows);
-		assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
-		assert(output_count(mysql, "SELECT COUNT(*) FROM poller_output_boost WHERE local_data_id BETWEEN 930000 AND 939999") == (unsigned long long)rows + 1);
+		run_output_failure_scenario(mysql, scenario, payload);
+		assert(details == previous_details);
 	}
 	test_output_recollection(mysql);
 	assert(close(server.php_write_fd) == 0);

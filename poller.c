@@ -810,6 +810,28 @@ typedef struct {
 	bool failed;
 } poll_output_buffers_t;
 
+static char *allocate_output_query(const char *prefix, const char *failure_message) {
+	char *query = malloc(MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER);
+	if (query == NULL) die("%s", failure_message);
+	memset(query, 0, MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER);
+	strncat(query, prefix, spine_count_to_int(strlen(prefix)));
+	return query;
+}
+
+/* Attempt each destination independently. Reset only early-flush buffers;
+ * a failed write must not suppress the other destination or later batches. */
+static bool flush_output_query(MYSQL *mysql, int mode, char *query,
+	const char *suffix, const char *prefix) {
+	if (query == NULL) return TRUE;
+	strncat(query, suffix, spine_count_to_int(strlen(suffix)));
+	bool success = db_insert(mysql, mode, query);
+	if (prefix != NULL) {
+		memset(query, 0, MAX_MYSQL_BUF_SIZE + RESULTS_BUFFER);
+		strncat(query, prefix, spine_count_to_int(strlen(prefix)));
+	}
+	return success;
+}
+
 static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	const poller_queries_t *queries, const target_t *poller_items,
 	int rows_processed, const char *host_time) {
@@ -818,40 +840,18 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	bool failed = FALSE;
 	char result_string[RESULTS_BUFFER + SMALL_BUFSIZE];
 	int result_length;
-	int query8_len = spine_count_to_int(strlen(queries->output));
-	int query11_len = spine_count_to_int(strlen(queries->boost_output));
-	int posuffix_len = spine_count_to_int(strlen(queries->suffix));
 	int new_buffer = TRUE;
-	int buf_length;
 	size_t out_buffer;
 	MYSQL *mysqlt;
 	int i;
-	buf_length = MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER;
 
 	/* insert the query results into the database */
-	if (!(query3 = (char *)malloc(buf_length))) {
-		die("ERROR: Fatal malloc error: poller.c query3 output buffer!");
-	}
-
-	/* set zeros */
-	memset(query3, 0, buf_length);
-
-	/* append data */
-	strncat(query3, queries->output, query8_len);
+	query3 = allocate_output_query(queries->output, "ERROR: Fatal malloc error: poller.c query3 output buffer!");
 
 	out_buffer = strlen(query3);
 
 	if (set.boost.boost_redirect && set.boost.boost_enabled) {
-		/* insert the query results into the database */
-		if (!(query12 = (char *)malloc(buf_length))) {
-			die("ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
-		}
-
-		/* set zeros */
-		memset(query12, 0, buf_length);
-
-		/* append data */
-		strncat(query12, queries->boost_output, query11_len);
+		query12 = allocate_output_query(queries->boost_output, "ERROR: Fatal malloc error: poller.c query12 boost output buffer!");
 	}
 
 	int mode;
@@ -877,28 +877,8 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 
 		/* if the next element to the buffer will overflow it, write to the database */
 		if ((out_buffer + result_length) >= MAX_MYSQL_BUF_SIZE) {
-			/* append the suffix */
-			strncat(query3, queries->suffix, posuffix_len);
-
-			/* insert the record */
-			if (!db_insert(mysqlt, mode, query3)) failed = TRUE;
-
-			/* re-initialize the query buffer */
-			memset(query3, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
-			strncat(query3, queries->output, query8_len);
-
-			/* insert the record for boost */
-			if (query12 != NULL) {
-				/* append the suffix */
-				strncat(query12, queries->suffix, posuffix_len);
-
-				if (!db_insert(mysqlt, mode, query12)) failed = TRUE;
-
-				memset(query12, 0, MAX_MYSQL_BUF_SIZE+RESULTS_BUFFER);
-
-				strncat(query12, queries->boost_output, query11_len);
-			}
+			if (!flush_output_query(mysqlt, mode, query3, queries->suffix, queries->output)) failed = TRUE;
+			if (!flush_output_query(mysqlt, mode, query12, queries->suffix, queries->boost_output)) failed = TRUE;
 
 			/* reset the output buffer length */
 			out_buffer = strlen(query3);
@@ -908,11 +888,7 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 		}
 
 		/* if this is our first pass, or we just outputted to the database, need to change the delimiter */
-		if (new_buffer) {
-			result_string[0] = ' ';
-		} else {
-			result_string[0] = ',';
-		}
+		result_string[0] = new_buffer ? ' ' : ',';
 
 		strncat(query3, result_string, result_length);
 
@@ -927,19 +903,8 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 
 	/* perform the last insert if there is data to process */
 	if (out_buffer > strlen(queries->output)) {
-		/* append the suffix */
-		strncat(query3, queries->suffix, posuffix_len);
-
-		/* insert records into database */
-		if (!db_insert(mysqlt, mode, query3)) failed = TRUE;
-
-		/* insert the record for boost */
-		if (query12 != NULL) {
-			/* append the suffix */
-			strncat(query12, queries->suffix, posuffix_len);
-
-			if (!db_insert(mysqlt, mode, query12)) failed = TRUE;
-		}
+		if (!flush_output_query(mysqlt, mode, query3, queries->suffix, NULL)) failed = TRUE;
+		if (!flush_output_query(mysqlt, mode, query12, queries->suffix, NULL)) failed = TRUE;
 	}
 	/* MEMORY output tables can retain earlier rows after a rejected write.
 	 * Confirmed partial output remains; keep due items eligible for recollection. */
@@ -1053,14 +1018,193 @@ static void poll_snmp_item(host_t *host, snmp_poll_batch_t *batch, int position,
 }
 
 
+typedef struct {
+	target_t *items;
+	snmp_oids_t *oids;
+} poll_item_storage_t;
+
+static poll_item_storage_t load_poll_items(MYSQL_RES *result, host_t *host, int num_rows) {
+	poll_item_storage_t storage;
+	/* retrieve each hosts polling items from poller cache and load into array */
+	storage.items = (target_t *) calloc(num_rows, sizeof(target_t));
+	if (storage.items == NULL) die("ERROR: Fatal calloc error: poller.c poller_items");
+
+	int i = 0;
+	MYSQL_ROW row;
+	while ((row = mysql_fetch_row(result))) {
+		load_poll_item(&storage.items[i], row);
+
+		i++;
+	}
+
+	/* free the mysql result */
+	db_free_result(result);
+
+	/* create an array for snmp oids */
+	if (host->snmp.max_oids <= 0) {
+		host->snmp.max_oids = 1;
+	}
+	storage.oids = (snmp_oids_t *) calloc(host->snmp.max_oids, sizeof(snmp_oids_t));
+	if (storage.oids == NULL) {
+		die("ERROR: Fatal calloc error: poller.c snmp_oids");
+	}
+
+	return storage;
+}
+
+static int collect_poll_items(host_t *host, snmp_poll_batch_t *batch, int num_rows, bool spike_kill) {
+	int i = 0;
+	int rows_processed = 0;
+	double thread_start = 0;
+	while ((i < num_rows) && (!host->ignore_host)) {
+		thread_start = get_time_as_double();
+
+		switch(batch->items[i].action) {
+		case POLLER_ACTION_SNMP:
+			poll_snmp_item(host, batch, i, thread_start, spike_kill);
+			break;
+		case POLLER_ACTION_SCRIPT:
+			poll_script_item(host, &batch->items[i], batch->errors, thread_start, spike_kill, FALSE);
+			break;
+		case POLLER_ACTION_PHP_SCRIPT_SERVER:
+			poll_script_item(host, &batch->items[i], batch->errors, thread_start, spike_kill, TRUE);
+			break;
+		default: /* unknown action, generate error */
+			SPINE_LOG(("Device[%i] HT[%i] DS[%i] ERROR: Unknown Poller Action: %s", batch->errors->host_id, batch->errors->thread_id, batch->items[i].local_data_id, batch->items[i].arg1));
+
+			break;
+		}
+
+		i++;
+		rows_processed++;
+	}
+
+	/* process last multi-get request if applicable */
+	if (batch->count > 0) {
+		snmp_get_multi(host, batch->items, batch->oids, batch->count);
+
+		store_snmp_results(host, batch->items, batch->oids, batch->count, batch->errors, thread_start, spike_kill);
+	}
+
+	return rows_processed;
+}
+
+static void release_poll_connections(const poller_thread_t *work,
+	const pool_t *local, const pool_t *remote) {
+	if (local != NULL) {
+		db_release_connection(LOCAL, local->id);
+	} else {
+		SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", work->host_id, work->host_thread));
+	}
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
+		if (remote != NULL) {
+			db_release_connection(REMOTE, remote->id);
+		} else {
+			SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized remote connection.", work->host_id, work->host_thread));
+		}
+	}
+}
+
+/* FALSE requests the existing missing-device early return. Other database
+ * failures leave the host ignored and continue through the normal caller. */
+static bool load_poll_host(MYSQL *mysql, const poller_queries_t *queries,
+	host_t *host, ping_t *ping, const poller_thread_t *work) {
+	/* host_id=0 denotes a data source without a device. */
+	if (!work->host_id) {
+		host->id = 0;
+		host->snmp.max_oids = 1;
+		host->snmp.session = NULL;
+		host->ignore_host = FALSE;
+		return TRUE;
+	}
+	MYSQL_RES *result = db_query(mysql, LOCAL, queries->host);
+	if (result == NULL) {
+		host->ignore_host = TRUE;
+		return TRUE;
+	}
+	if (spine_count_to_int(mysql_num_rows(result)) != 1) {
+		db_free_result(result);
+		return FALSE;
+	}
+	MYSQL_ROW row = mysql_fetch_row(result);
+	if (row == NULL) {
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, work->host_thread));
+		host->ignore_host = TRUE;
+		return TRUE;
+	}
+	load_host_metadata(mysql, row, host, work);
+	db_free_result(result);
+	initialize_host_snmp(host);
+	bool include_system_information = refresh_host_availability(mysql, host, ping, work->host_thread);
+	if (work->host_thread == 1) {
+		persist_host_status(mysql, host, include_system_information && host->ignore_host != TRUE);
+	}
+	return TRUE;
+}
+
+static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
+	const poller_thread_t *work, const poll_error_context_t *error_context,
+	bool output_failed, double poll_start) {
+	extern poller_thread_t **details;
+	int host_id = work->host_id;
+	int host_thread = work->host_thread;
+	double host_time_double = work->host_time_double;
+	int errors = *error_context->errors;
+	const char *error_string = error_context->buffer;
+	double poll_time;
+	/* record the polling time for the device */
+	poll_time = get_time_as_double() - poll_start;
+	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, host_thread, poll_time));
+
+	/* record the total time for the host */
+	thread_mutex_lock(LOCK_THDET);
+	poller_thread_t *device = details[work->device_counter];
+	if (output_failed) {
+		device->output_failed = TRUE;
+		set.exit.exit_code = EXIT_FAILURE;
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial writes remain and due items stay eligible for recollection", host_id, host_thread));
+	}
+	device->threads_complete++;
+	if (device->threads_complete == device->host_threads) {
+		/* Keep the due-item set stable until every device partition has finished. */
+		if (set.poller.active_profiles != 1 && !device->output_failed) {
+			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
+			db_query(mysql, LOCAL, queries->schedule);
+		}
+		device->complete = !device->output_failed;
+
+		poll_time = get_time_as_double();
+		queries->items[0] = '\0';
+		snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
+		db_query(mysql, LOCAL, queries->items);
+
+	}
+
+	if (errors > 0) {
+		int error_query_len = spine_count_to_int(strlen(error_string) + BUFSIZE);
+		char *error_query = (char *)malloc(error_query_len);
+
+		snprintf(error_query, error_query_len, "INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids)"
+			" VALUES(%i, %i, %i, \"%s\")"
+			" ON DUPLICATE KEY UPDATE"
+			" errors = errors + VALUES(errors),"
+			" local_data_ids = CONCAT(local_data_ids, \", \", VALUES(local_data_ids))",
+			host_id, set.poller.poller_id, errors, error_string);
+
+		db_query(mysql, LOCAL, error_query);
+
+		free(error_query);
+	}
+
+	thread_mutex_unlock(LOCK_THDET);
+}
+
 void poll_host(const poller_thread_t *work, int *host_errors) {
 	assert(work != NULL && host_errors != NULL);
-	int device_counter = work->device_counter;
 	int host_id = work->host_id;
 	int host_thread = work->host_thread;
 	int host_data_ids = work->host_data_ids;
 	const char *host_time = work->host_time;
-	double host_time_double = work->host_time_double;
 	poller_queries_t queries;
 	char *query3 = NULL;
 	char *query12 = NULL;
@@ -1075,16 +1219,12 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	bool   output_failed = FALSE;
-	int    i = 0;
-	int    snmp_poller_items = 0;
 
 
 	double poll_time = get_time_as_double();
-	double thread_start = 0;
 
 	/* reindex shortcuts to speed polling */
 
-	extern poller_thread_t** details;
 
 	pool_t *local_cnn = NULL;
 	pool_t *remote_cnn = NULL;
@@ -1111,7 +1251,6 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	MYSQL     *mysql;
 	MYSQL     *mysqlr = NULL;
 	MYSQL_RES *result;
-	MYSQL_ROW row;
 
 	local_cnn = db_get_connection(LOCAL);
 	if (local_cnn == NULL) die("ERROR: No local database connection available for polling");
@@ -1151,66 +1290,15 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	snprintf(ping->snmp_status,   50,            "down");
 	snprintf(ping->snmp_response, SMALL_BUFSIZE, "SNMP not performed due to setting or ping result");
 
-	/* if the host is a real host.  Note host_id=0 is not host based data source */
-	if (host_id) {
-		/* get data about this host */
-		if ((result = db_query(mysql, LOCAL, queries.host)) != 0) {
-			num_rows = spine_count_to_int(mysql_num_rows(result));
-
-			if (num_rows != 1) {
-				db_free_result(result);
-
-				if (local_cnn != NULL) {
-					db_release_connection(LOCAL, local_cnn->id);
-				} else {
-					SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
-				}
-
-				if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
-					if (remote_cnn != NULL) {
-						db_release_connection(REMOTE, remote_cnn->id);
-					} else {
-						SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized remote connection.", host_id, host_thread));
-					}
-				}
-
-				SPINE_FREE(host);
-				SPINE_FREE(reindex);
-				SPINE_FREE(ping);
-				SPINE_FREE(error_string);
-				SPINE_FREE(buf_size);
-				SPINE_FREE(buf_errors);
-
-				return;
-			}
-
-			/* fetch the result */
-			row = mysql_fetch_row(result);
-
-			if (row) {
-				load_host_metadata(mysql, row, host, work);
-
-				/* free the host result */
-				db_free_result(result);
-
-				initialize_host_snmp(host);
-
-				bool include_system_information = refresh_host_availability(mysql, host, ping, host_thread);
-				if (host_thread == 1) {
-					persist_host_status(mysql, host, include_system_information && host->ignore_host != TRUE);
-				}
-			} else {
-				SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, host_thread));
-				host->ignore_host = TRUE;
-			}
-		} else {
-			host->ignore_host = TRUE;
-		}
-	} else {
-		host->id           = 0;
-		host->snmp.max_oids     = 1;
-		host->snmp.session = NULL;
-		host->ignore_host  = FALSE;
+	if (!load_poll_host(mysql, &queries, host, ping, work)) {
+		release_poll_connections(work, local_cnn, remote_cnn);
+		SPINE_FREE(host);
+		SPINE_FREE(reindex);
+		SPINE_FREE(ping);
+		SPINE_FREE(error_string);
+		SPINE_FREE(buf_size);
+		SPINE_FREE(buf_errors);
+		return;
 	}
 
 	if (set.availability.ping_only) {
@@ -1225,19 +1313,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 		SPINE_FREE(buf_size);
 		SPINE_FREE(buf_errors);
 
-		if (local_cnn != NULL) {
-			db_release_connection(LOCAL, local_cnn->id);
-		} else {
-			SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
-		}
-
-		if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
-			if (remote_cnn != NULL) {
-				db_release_connection(REMOTE, remote_cnn->id);
-			} else {
-				SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized remote connection.", host_id, host_thread));
-			}
-		}
+		release_poll_connections(work, local_cnn, remote_cnn);
 
 		mysql_thread_end();
 
@@ -1266,67 +1342,15 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	}
 
 	if (num_rows > 0) {
-		/* retrieve each hosts polling items from poller cache and load into array */
-		poller_items = (target_t *) calloc(num_rows, sizeof(target_t));
-		if (poller_items == NULL) die("ERROR: Fatal calloc error: poller.c poller_items");
-
-		i = 0;
-		while ((row = mysql_fetch_row(result))) {
-			load_poll_item(&poller_items[i], row);
-
-			if (poller_items[i].action == POLLER_ACTION_SNMP) {
-				snmp_poller_items++;
-			}
-
-			i++;
-		}
-
-		/* free the mysql result */
-		db_free_result(result);
-
-		/* create an array for snmp oids */
-		if (host->snmp.max_oids <= 0) {
-			host->snmp.max_oids = 1;
-		}
-		snmp_oids = (snmp_oids_t *) calloc(host->snmp.max_oids, sizeof(snmp_oids_t));
-		if (snmp_oids == NULL) {
-			die("ERROR: Fatal calloc error: poller.c snmp_oids");
-		}
+		poll_item_storage_t storage = load_poll_items(result, host, num_rows);
+		poller_items = storage.items;
+		snmp_oids = storage.oids;
 
 		/* log an informative message */
 		SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] NOTE: There are '%i' Polling Items for this Device", host_id, host_thread, num_rows));
 
 		snmp_poll_batch_t batch = {.items = poller_items, .oids = snmp_oids, .errors = &error_context};
-		i = 0;
-		while ((i < num_rows) && (!host->ignore_host)) {
-			thread_start = get_time_as_double();
-
-			switch(poller_items[i].action) {
-			case POLLER_ACTION_SNMP:
-				poll_snmp_item(host, &batch, i, thread_start, spike_kill);
-				break;
-			case POLLER_ACTION_SCRIPT:
-				poll_script_item(host, &poller_items[i], &error_context, thread_start, spike_kill, FALSE);
-				break;
-			case POLLER_ACTION_PHP_SCRIPT_SERVER:
-				poll_script_item(host, &poller_items[i], &error_context, thread_start, spike_kill, TRUE);
-				break;
-			default: /* unknown action, generate error */
-				SPINE_LOG(("Device[%i] HT[%i] DS[%i] ERROR: Unknown Poller Action: %s", host_id, host_thread, poller_items[i].local_data_id, poller_items[i].arg1));
-
-				break;
-			}
-
-			i++;
-			rows_processed++;
-		}
-
-		/* process last multi-get request if applicable */
-		if (batch.count > 0) {
-			snmp_get_multi(host, poller_items, snmp_oids, batch.count);
-
-			store_snmp_results(host, poller_items, snmp_oids, batch.count, &error_context, thread_start, spike_kill);
-		}
+		rows_processed = collect_poll_items(host, &batch, num_rows, spike_kill);
 
 		poll_output_buffers_t output = write_poll_results(mysql, mysqlr, &queries, poller_items, rows_processed, host_time);
 		query3 = output.output;
@@ -1355,64 +1379,9 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	SPINE_FREE(reindex);
 	SPINE_FREE(ping);
 
-	/* record the polling time for the device */
-	poll_time = get_time_as_double() - poll_time;
-	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, host_thread, poll_time));
+	complete_poll_host(mysql, &queries, work, &error_context, output_failed, poll_time);
 
-	/* record the total time for the host */
-	thread_mutex_lock(LOCK_THDET);
-	if (output_failed) {
-		details[device_counter]->output_failed = TRUE;
-		set.exit.exit_code = EXIT_FAILURE;
-		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial writes remain and due items stay eligible for recollection", host_id, host_thread));
-	}
-	details[device_counter]->threads_complete++;
-	if (details[device_counter]->threads_complete == details[device_counter]->host_threads) {
-		/* Keep the due-item set stable until every device partition has finished. */
-		if (set.poller.active_profiles != 1 && !details[device_counter]->output_failed) {
-			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
-			db_query(mysql, LOCAL, queries.schedule);
-		}
-		details[device_counter]->complete = !details[device_counter]->output_failed;
-
-		poll_time = get_time_as_double();
-		queries.items[0] = '\0';
-		snprintf(queries.items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-		db_query(mysql, LOCAL, queries.items);
-
-	}
-
-	if (errors > 0) {
-		int error_query_len = spine_count_to_int(strlen(error_string) + BUFSIZE);
-		char *error_query = (char *)malloc(error_query_len);
-
-		snprintf(error_query, error_query_len, "INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids)"
-			" VALUES(%i, %i, %i, \"%s\")"
-			" ON DUPLICATE KEY UPDATE"
-			" errors = errors + VALUES(errors),"
-			" local_data_ids = CONCAT(local_data_ids, \", \", VALUES(local_data_ids))",
-			host_id, set.poller.poller_id, errors, error_string);
-
-		db_query(mysql, LOCAL, error_query);
-
-		free(error_query);
-	}
-
-	thread_mutex_unlock(LOCK_THDET);
-
-	if (local_cnn != NULL) {
-		db_release_connection(LOCAL, local_cnn->id);
-	} else {
-		SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized local connection.", host_id, host_thread));
-	}
-
-	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
-		if (remote_cnn != NULL) {
-			db_release_connection(REMOTE, remote_cnn->id);
-		} else {
-			SPINE_LOG(("WARNING: Device[%i] HT[%i] Trying to close uninitialized remote connection.", host_id, host_thread));
-		}
-	}
+	release_poll_connections(work, local_cnn, remote_cnn);
 
 	mysql_thread_end();
 
