@@ -258,6 +258,18 @@ static cli_option_t lookup_cli_option(const char *arg) {
 	return CLI_UNKNOWN;
 }
 
+static void parse_polling_mode(const char *requested_mode) {
+	if (STRIMATCH(requested_mode, "online")) {
+		set.mode = REMOTE_ONLINE;
+	} else if (STRIMATCH(requested_mode, "offline")) {
+		set.mode = REMOTE_OFFLINE;
+	} else if (STRIMATCH(requested_mode, "recovery")) {
+		set.mode = REMOTE_RECOVERY;
+	} else {
+		die("ERROR: invalid polling mode '%s' specified", requested_mode);
+	}
+}
+
 static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **conf_file) {
 	switch (lookup_cli_option(arg)) {
 		case CLI_FIRST: {
@@ -300,16 +312,7 @@ static void parse_cli_argument(const char *arg, char *opt, char ***argv, char **
 			break;
 		}
 		case CLI_MODE: {
-			const char *requested_mode = getarg(opt, argv);
-			if (STRIMATCH(requested_mode, "online")) {
-				set.mode = REMOTE_ONLINE;
-			} else if (STRIMATCH(requested_mode, "offline")) {
-				set.mode = REMOTE_OFFLINE;
-			} else if (STRIMATCH(requested_mode, "recovery")) {
-				set.mode = REMOTE_RECOVERY;
-			} else {
-				die("ERROR: invalid polling mode '%s' specified", requested_mode);
-			}
+			parse_polling_mode(getarg(opt, argv));
 			break;
 		}
 		case CLI_HOSTLIST: {
@@ -487,7 +490,7 @@ static MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
 
 }
 
-static void report_startup(int mode) {
+static void report_startup_version(int mode) {
 	if (set.log_level == POLLER_VERBOSITY_DEBUG) {
 		SPINE_LOG_DEBUG(("DEBUG: Version %s starting", VERSION));
 
@@ -512,6 +515,10 @@ static void report_startup(int mode) {
 		}
 	}
 
+}
+
+static void report_startup(int mode) {
+	report_startup_version(mode);
 	if (set.has_device_0) {
 		SPINE_LOG_MEDIUM(("Device 0 Poller Items found.  Ensure that these entries are accurate"));
 	} else {
