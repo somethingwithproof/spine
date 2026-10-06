@@ -11,7 +11,6 @@ on:
       - ci/**
       - refactor/**
   pull_request:
-    branches: [develop]
 
 permissions:
   contents: read

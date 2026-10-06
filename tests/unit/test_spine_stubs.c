@@ -18,6 +18,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Async-only targets do not link util.c. An unexpected production fatal
+ * guard must fail their tests; targets linking util.c retain its real die. */
+#ifdef SPINE_TEST_ASYNC_FATAL
+void die(const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	vfprintf(stderr, format, args);
+	va_end(args);
+	fputc('\n', stderr);
+	exit(EXIT_FAILURE);
+}
+#endif
+
 /* Global storage normally provided by spine.c. */
 double start_time         = 0.0;
 double total_time         = 0.0;
