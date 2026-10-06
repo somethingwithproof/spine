@@ -489,5 +489,23 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([[
   ],[AC_MSG_RESULT(no)
 ])
 
+spine_saved_ldflags=$LDFLAGS
+spine_linker_wrap=no
+case "$host_os" in
+  linux*)
+    LDFLAGS="$LDFLAGS -Wl,--wrap=strftime"
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#include <time.h>
+extern size_t __real_strftime(char *, size_t, const char *, const struct tm *);
+size_t __wrap_strftime(char *out, size_t size, const char *format, const struct tm *time) {
+  return __real_strftime(out, size, format, time);
+}
+]], [[return 0;]])], [spine_linker_wrap=yes], [])
+    ;;
+  *) ;;
+esac
+LDFLAGS=$spine_saved_ldflags
+AM_CONDITIONAL([HAVE_LINKER_WRAP], [test "$spine_linker_wrap" = yes])
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

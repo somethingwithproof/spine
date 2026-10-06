@@ -2,24 +2,24 @@
 # Copyright (C) 2026 The Cacti Group
 # Licensed under the GNU Lesser General Public License, version 2.1 or later.
 set -euo pipefail
-if [ "${1:-}" = '--producers' ]; then
+if [[ "${1:-}" = '--producers' ]]; then
     : "${2:?Usage: verify_coverage.sh --producers BUILD_DIRECTORY MANIFEST gcno|gcda}"
     : "${3:?Usage: verify_coverage.sh --producers BUILD_DIRECTORY MANIFEST gcno|gcda}"
     : "${4:?Usage: verify_coverage.sh --producers BUILD_DIRECTORY MANIFEST gcno|gcda}"
     case "$4" in gcno|gcda) ;; *) exit 1;; esac
-    test -s "$3"
-    test -z "$(sort "$3" | uniq -d)"
+    [[ -s "$3" ]]
+    [[ -z "$(sort "$3" | uniq -d)" ]]
     while IFS= read -r producer; do
-        case "$producer" in ''|*[!a-zA-Z0-9_-]*) exit 1;; esac
-        test -s "$2/$producer.$4"
+        case "$producer" in ''|*[!a-zA-Z0-9_-]*) exit 1;; *) ;; esac
+        [[ -s "$2/$producer.$4" ]]
     done < "$3"
     exit 0
 fi
 : "${1:?Usage: verify_coverage.sh PROFILE SOURCE_DIRECTORY PRODUCTION_MANIFEST}"
 : "${2:?Usage: verify_coverage.sh PROFILE SOURCE_DIRECTORY PRODUCTION_MANIFEST}"
 : "${3:?Usage: verify_coverage.sh PROFILE SOURCE_DIRECTORY PRODUCTION_MANIFEST}"
-test -s "$1"
-test -s "$3"
+[[ -s "$1" ]]
+[[ -s "$3" ]]
 awk -F: -v source_dir="$2" '
   function fail(message) { print message > "/dev/stderr"; failed=1; exit 1 }
   FNR==NR {

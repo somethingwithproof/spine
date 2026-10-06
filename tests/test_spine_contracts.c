@@ -16,14 +16,17 @@
 #include <stdint.h>
 
 static void test_keyword_roundtrips(void) {
-	static const struct { const char *word; int value; } levels[] = {
+	typedef struct { const char *word; int value; } keyword_case_t;
+	static const keyword_case_t levels[] = {
 		{"NONE", POLLER_VERBOSITY_NONE}, {"LOW", POLLER_VERBOSITY_LOW},
 		{"MEDIUM", POLLER_VERBOSITY_MEDIUM}, {"HIGH", POLLER_VERBOSITY_HIGH},
 		{"DEBUG", POLLER_VERBOSITY_DEBUG}
-	}, destinations[] = {
+	};
+	static const keyword_case_t destinations[] = {
 		{"FILE", LOGDEST_FILE}, {"SYSLOG", LOGDEST_SYSLOG},
 		{"BOTH", LOGDEST_BOTH}, {"STDOUT", LOGDEST_STDOUT}
-	}, actions[] = {
+	};
+	static const keyword_case_t actions[] = {
 		{"SNMP", POLLER_ACTION_SNMP}, {"SCRIPT", POLLER_ACTION_SCRIPT},
 		{"PHPSCRIPT", POLLER_ACTION_PHP_SCRIPT_SERVER},
 		{"SNMP_CT", POLLER_ACTION_SNMP_COUNT}, {"SCRIPT_CT", POLLER_ACTION_SCRIPT_COUNT},

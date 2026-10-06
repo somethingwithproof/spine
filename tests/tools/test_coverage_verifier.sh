@@ -11,8 +11,9 @@ for source in one.c two.c; do
 done
 "$verifier" "$owned_dir/complete.info" /source "$owned_dir/sources.txt"
 reject() {
-    if "$verifier" "$1" /source "$owned_dir/sources.txt" > /dev/null 2>&1; then
-        printf 'Verifier incorrectly admitted %s\n' "$1" >&2
+    local profile="$1"
+    if "$verifier" "$profile" /source "$owned_dir/sources.txt" > /dev/null 2>&1; then
+        printf 'Verifier incorrectly admitted %s\n' "$profile" >&2
         exit 1
     fi
 }

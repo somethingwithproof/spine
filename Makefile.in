@@ -112,7 +112,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = spine$(EXEEXT)
-check_PROGRAMS = test_spine_regressions$(EXEEXT)
+check_PROGRAMS = test_spine_regressions$(EXEEXT) $(am__EXEEXT_1)
+@HAVE_LINKER_WRAP_TRUE@am__append_1 = test_spine_faults
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
@@ -132,19 +133,43 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)" \
 	"$(DESTDIR)$(configdir)"
+@HAVE_LINKER_WRAP_TRUE@am__EXEEXT_1 = test_spine_faults$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS)
-am_spine_OBJECTS = sql.$(OBJEXT) spine.$(OBJEXT) util.$(OBJEXT) \
-	snmp.$(OBJEXT) locks.$(OBJEXT) poller.$(OBJEXT) \
-	nft_popen.$(OBJEXT) php.$(OBJEXT) ping.$(OBJEXT) \
-	keywords.$(OBJEXT) error.$(OBJEXT)
+am__objects_1 = sql.$(OBJEXT) util.$(OBJEXT) snmp.$(OBJEXT) \
+	locks.$(OBJEXT) poller.$(OBJEXT) nft_popen.$(OBJEXT) \
+	php.$(OBJEXT) ping.$(OBJEXT) keywords.$(OBJEXT) \
+	error.$(OBJEXT)
+am_spine_OBJECTS = $(am__objects_1) spine.$(OBJEXT)
 spine_OBJECTS = $(am_spine_OBJECTS)
 spine_LDADD = $(LDADD)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 =
-am__objects_1 = test_spine_regressions-sql.$(OBJEXT) \
-	test_spine_regressions-spine.$(OBJEXT) \
+am__test_spine_faults_SOURCES_DIST = sql.c util.c snmp.c locks.c \
+	poller.c nft_popen.c php.c ping.c keywords.c error.c \
+	tests/test_spine_faults.c
+am__objects_2 = test_spine_faults-sql.$(OBJEXT) \
+	test_spine_faults-util.$(OBJEXT) \
+	test_spine_faults-snmp.$(OBJEXT) \
+	test_spine_faults-locks.$(OBJEXT) \
+	test_spine_faults-poller.$(OBJEXT) \
+	test_spine_faults-nft_popen.$(OBJEXT) \
+	test_spine_faults-php.$(OBJEXT) \
+	test_spine_faults-ping.$(OBJEXT) \
+	test_spine_faults-keywords.$(OBJEXT) \
+	test_spine_faults-error.$(OBJEXT)
+@HAVE_LINKER_WRAP_TRUE@am_test_spine_faults_OBJECTS =  \
+@HAVE_LINKER_WRAP_TRUE@	$(am__objects_2) \
+@HAVE_LINKER_WRAP_TRUE@	test_spine_faults-test_spine_faults.$(OBJEXT)
+test_spine_faults_OBJECTS = $(am_test_spine_faults_OBJECTS)
+@HAVE_LINKER_WRAP_TRUE@test_spine_faults_DEPENDENCIES =  \
+@HAVE_LINKER_WRAP_TRUE@	test_spine_regressions-spine.$(OBJEXT)
+test_spine_faults_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(AM_CFLAGS) $(CFLAGS) $(test_spine_faults_LDFLAGS) $(LDFLAGS) \
+	-o $@
+am__objects_3 = test_spine_regressions-sql.$(OBJEXT) \
 	test_spine_regressions-util.$(OBJEXT) \
 	test_spine_regressions-snmp.$(OBJEXT) \
 	test_spine_regressions-locks.$(OBJEXT) \
@@ -154,7 +179,9 @@ am__objects_1 = test_spine_regressions-sql.$(OBJEXT) \
 	test_spine_regressions-ping.$(OBJEXT) \
 	test_spine_regressions-keywords.$(OBJEXT) \
 	test_spine_regressions-error.$(OBJEXT)
-am_test_spine_regressions_OBJECTS = $(am__objects_1) \
+am__objects_4 = $(am__objects_3) \
+	test_spine_regressions-spine.$(OBJEXT)
+am_test_spine_regressions_OBJECTS = $(am__objects_4) \
 	test_spine_regressions-test_spine_regressions.$(OBJEXT) \
 	test_spine_regressions-test_spine_contracts.$(OBJEXT) \
 	test_spine_regressions-test_spine_reindex_contracts.$(OBJEXT)
@@ -179,6 +206,17 @@ am__depfiles_remade = ./$(DEPDIR)/error.Po ./$(DEPDIR)/keywords.Po \
 	./$(DEPDIR)/locks.Po ./$(DEPDIR)/nft_popen.Po \
 	./$(DEPDIR)/php.Po ./$(DEPDIR)/ping.Po ./$(DEPDIR)/poller.Po \
 	./$(DEPDIR)/snmp.Po ./$(DEPDIR)/spine.Po ./$(DEPDIR)/sql.Po \
+	./$(DEPDIR)/test_spine_faults-error.Po \
+	./$(DEPDIR)/test_spine_faults-keywords.Po \
+	./$(DEPDIR)/test_spine_faults-locks.Po \
+	./$(DEPDIR)/test_spine_faults-nft_popen.Po \
+	./$(DEPDIR)/test_spine_faults-php.Po \
+	./$(DEPDIR)/test_spine_faults-ping.Po \
+	./$(DEPDIR)/test_spine_faults-poller.Po \
+	./$(DEPDIR)/test_spine_faults-snmp.Po \
+	./$(DEPDIR)/test_spine_faults-sql.Po \
+	./$(DEPDIR)/test_spine_faults-test_spine_faults.Po \
+	./$(DEPDIR)/test_spine_faults-util.Po \
 	./$(DEPDIR)/test_spine_regressions-error.Po \
 	./$(DEPDIR)/test_spine_regressions-keywords.Po \
 	./$(DEPDIR)/test_spine_regressions-locks.Po \
@@ -212,8 +250,10 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 =
-SOURCES = $(spine_SOURCES) $(test_spine_regressions_SOURCES)
-DIST_SOURCES = $(spine_SOURCES) $(test_spine_regressions_SOURCES)
+SOURCES = $(spine_SOURCES) $(test_spine_faults_SOURCES) \
+	$(test_spine_regressions_SOURCES)
+DIST_SOURCES = $(spine_SOURCES) $(am__test_spine_faults_SOURCES_DIST) \
+	$(test_spine_regressions_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -598,7 +638,8 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
 ACLOCAL_AMFLAGS = -I m4
-spine_SOURCES = sql.c spine.c util.c snmp.c locks.c poller.c nft_popen.c php.c ping.c keywords.c error.c
+spine_shared_sources = sql.c util.c snmp.c locks.c poller.c nft_popen.c php.c ping.c keywords.c error.c
+spine_SOURCES = $(spine_shared_sources) spine.c
 noinst_HEADERS = common.h error.h keywords.h locks.h nft_popen.h php.h ping.h poller.h snmp.h spine.h sql.h util.h spine_types.h
 configdir = $(sysconfdir)
 dist_config_DATA = spine.conf.dist
@@ -610,6 +651,15 @@ test_spine_regressions_SOURCES = $(spine_SOURCES) tests/test_spine_regressions.c
 # Link the real production translation units and globals, with a separate test
 # entry point. The test source undefines main before declaring its own entry.
 test_spine_regressions_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir) -Dmain=spine_program_main
+# Reuse the real renamed spine object for its production globals, avoiding
+# another production main-renaming flag on the fault-test translation units.
+@HAVE_LINKER_WRAP_TRUE@test_spine_faults_SOURCES = $(spine_shared_sources) tests/test_spine_faults.c
+@HAVE_LINKER_WRAP_TRUE@test_spine_faults_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)
+@HAVE_LINKER_WRAP_TRUE@test_spine_faults_LDADD = test_spine_regressions-spine.$(OBJEXT)
+@HAVE_LINKER_WRAP_TRUE@test_spine_faults_LDFLAGS = $(AM_LDFLAGS) -Wl,--wrap=strftime -Wl,--wrap=mysql_query -Wl,--wrap=mysql_ping \
+@HAVE_LINKER_WRAP_TRUE@ -Wl,--wrap=pipe -Wl,--wrap=socketpair -Wl,--wrap=fork -Wl,--wrap=dup2 \
+@HAVE_LINKER_WRAP_TRUE@ -Wl,--wrap=execve -Wl,--wrap=malloc -Wl,--wrap=strdup
+
 EXTRA_DIST = tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
  tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
 
@@ -728,6 +778,10 @@ spine$(EXEEXT): $(spine_OBJECTS) $(spine_DEPENDENCIES) $(EXTRA_spine_DEPENDENCIE
 	@rm -f spine$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(spine_OBJECTS) $(spine_LDADD) $(LIBS)
 
+test_spine_faults$(EXEEXT): $(test_spine_faults_OBJECTS) $(test_spine_faults_DEPENDENCIES) $(EXTRA_test_spine_faults_DEPENDENCIES)
+	@rm -f test_spine_faults$(EXEEXT)
+	$(AM_V_CCLD)$(test_spine_faults_LINK) $(test_spine_faults_OBJECTS) $(test_spine_faults_LDADD) $(LIBS)
+
 test_spine_regressions$(EXEEXT): $(test_spine_regressions_OBJECTS) $(test_spine_regressions_DEPENDENCIES) $(EXTRA_test_spine_regressions_DEPENDENCIES)
 	@rm -f test_spine_regressions$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(test_spine_regressions_OBJECTS) $(test_spine_regressions_LDADD) $(LIBS)
@@ -748,6 +802,17 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snmp.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/spine.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sql.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-error.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-keywords.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-locks.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-nft_popen.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-php.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-ping.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-poller.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-snmp.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-sql.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-test_spine_faults.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_faults-util.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-error.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-keywords.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/test_spine_regressions-locks.Po@am__quote@ # am--include-marker
@@ -791,6 +856,160 @@ am--depfiles: $(am__depfiles_remade)
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
+test_spine_faults-sql.o: sql.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-sql.o -MD -MP -MF $(DEPDIR)/test_spine_faults-sql.Tpo -c -o test_spine_faults-sql.o `test -f 'sql.c' || echo '$(srcdir)/'`sql.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-sql.Tpo $(DEPDIR)/test_spine_faults-sql.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='sql.c' object='test_spine_faults-sql.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-sql.o `test -f 'sql.c' || echo '$(srcdir)/'`sql.c
+
+test_spine_faults-sql.obj: sql.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-sql.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-sql.Tpo -c -o test_spine_faults-sql.obj `if test -f 'sql.c'; then $(CYGPATH_W) 'sql.c'; else $(CYGPATH_W) '$(srcdir)/sql.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-sql.Tpo $(DEPDIR)/test_spine_faults-sql.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='sql.c' object='test_spine_faults-sql.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-sql.obj `if test -f 'sql.c'; then $(CYGPATH_W) 'sql.c'; else $(CYGPATH_W) '$(srcdir)/sql.c'; fi`
+
+test_spine_faults-util.o: util.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-util.o -MD -MP -MF $(DEPDIR)/test_spine_faults-util.Tpo -c -o test_spine_faults-util.o `test -f 'util.c' || echo '$(srcdir)/'`util.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-util.Tpo $(DEPDIR)/test_spine_faults-util.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='util.c' object='test_spine_faults-util.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-util.o `test -f 'util.c' || echo '$(srcdir)/'`util.c
+
+test_spine_faults-util.obj: util.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-util.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-util.Tpo -c -o test_spine_faults-util.obj `if test -f 'util.c'; then $(CYGPATH_W) 'util.c'; else $(CYGPATH_W) '$(srcdir)/util.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-util.Tpo $(DEPDIR)/test_spine_faults-util.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='util.c' object='test_spine_faults-util.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-util.obj `if test -f 'util.c'; then $(CYGPATH_W) 'util.c'; else $(CYGPATH_W) '$(srcdir)/util.c'; fi`
+
+test_spine_faults-snmp.o: snmp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-snmp.o -MD -MP -MF $(DEPDIR)/test_spine_faults-snmp.Tpo -c -o test_spine_faults-snmp.o `test -f 'snmp.c' || echo '$(srcdir)/'`snmp.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-snmp.Tpo $(DEPDIR)/test_spine_faults-snmp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='snmp.c' object='test_spine_faults-snmp.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-snmp.o `test -f 'snmp.c' || echo '$(srcdir)/'`snmp.c
+
+test_spine_faults-snmp.obj: snmp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-snmp.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-snmp.Tpo -c -o test_spine_faults-snmp.obj `if test -f 'snmp.c'; then $(CYGPATH_W) 'snmp.c'; else $(CYGPATH_W) '$(srcdir)/snmp.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-snmp.Tpo $(DEPDIR)/test_spine_faults-snmp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='snmp.c' object='test_spine_faults-snmp.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-snmp.obj `if test -f 'snmp.c'; then $(CYGPATH_W) 'snmp.c'; else $(CYGPATH_W) '$(srcdir)/snmp.c'; fi`
+
+test_spine_faults-locks.o: locks.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-locks.o -MD -MP -MF $(DEPDIR)/test_spine_faults-locks.Tpo -c -o test_spine_faults-locks.o `test -f 'locks.c' || echo '$(srcdir)/'`locks.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-locks.Tpo $(DEPDIR)/test_spine_faults-locks.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='locks.c' object='test_spine_faults-locks.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-locks.o `test -f 'locks.c' || echo '$(srcdir)/'`locks.c
+
+test_spine_faults-locks.obj: locks.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-locks.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-locks.Tpo -c -o test_spine_faults-locks.obj `if test -f 'locks.c'; then $(CYGPATH_W) 'locks.c'; else $(CYGPATH_W) '$(srcdir)/locks.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-locks.Tpo $(DEPDIR)/test_spine_faults-locks.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='locks.c' object='test_spine_faults-locks.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-locks.obj `if test -f 'locks.c'; then $(CYGPATH_W) 'locks.c'; else $(CYGPATH_W) '$(srcdir)/locks.c'; fi`
+
+test_spine_faults-poller.o: poller.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-poller.o -MD -MP -MF $(DEPDIR)/test_spine_faults-poller.Tpo -c -o test_spine_faults-poller.o `test -f 'poller.c' || echo '$(srcdir)/'`poller.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-poller.Tpo $(DEPDIR)/test_spine_faults-poller.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='poller.c' object='test_spine_faults-poller.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-poller.o `test -f 'poller.c' || echo '$(srcdir)/'`poller.c
+
+test_spine_faults-poller.obj: poller.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-poller.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-poller.Tpo -c -o test_spine_faults-poller.obj `if test -f 'poller.c'; then $(CYGPATH_W) 'poller.c'; else $(CYGPATH_W) '$(srcdir)/poller.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-poller.Tpo $(DEPDIR)/test_spine_faults-poller.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='poller.c' object='test_spine_faults-poller.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-poller.obj `if test -f 'poller.c'; then $(CYGPATH_W) 'poller.c'; else $(CYGPATH_W) '$(srcdir)/poller.c'; fi`
+
+test_spine_faults-nft_popen.o: nft_popen.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-nft_popen.o -MD -MP -MF $(DEPDIR)/test_spine_faults-nft_popen.Tpo -c -o test_spine_faults-nft_popen.o `test -f 'nft_popen.c' || echo '$(srcdir)/'`nft_popen.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-nft_popen.Tpo $(DEPDIR)/test_spine_faults-nft_popen.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='nft_popen.c' object='test_spine_faults-nft_popen.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-nft_popen.o `test -f 'nft_popen.c' || echo '$(srcdir)/'`nft_popen.c
+
+test_spine_faults-nft_popen.obj: nft_popen.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-nft_popen.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-nft_popen.Tpo -c -o test_spine_faults-nft_popen.obj `if test -f 'nft_popen.c'; then $(CYGPATH_W) 'nft_popen.c'; else $(CYGPATH_W) '$(srcdir)/nft_popen.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-nft_popen.Tpo $(DEPDIR)/test_spine_faults-nft_popen.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='nft_popen.c' object='test_spine_faults-nft_popen.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-nft_popen.obj `if test -f 'nft_popen.c'; then $(CYGPATH_W) 'nft_popen.c'; else $(CYGPATH_W) '$(srcdir)/nft_popen.c'; fi`
+
+test_spine_faults-php.o: php.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-php.o -MD -MP -MF $(DEPDIR)/test_spine_faults-php.Tpo -c -o test_spine_faults-php.o `test -f 'php.c' || echo '$(srcdir)/'`php.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-php.Tpo $(DEPDIR)/test_spine_faults-php.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='php.c' object='test_spine_faults-php.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-php.o `test -f 'php.c' || echo '$(srcdir)/'`php.c
+
+test_spine_faults-php.obj: php.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-php.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-php.Tpo -c -o test_spine_faults-php.obj `if test -f 'php.c'; then $(CYGPATH_W) 'php.c'; else $(CYGPATH_W) '$(srcdir)/php.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-php.Tpo $(DEPDIR)/test_spine_faults-php.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='php.c' object='test_spine_faults-php.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-php.obj `if test -f 'php.c'; then $(CYGPATH_W) 'php.c'; else $(CYGPATH_W) '$(srcdir)/php.c'; fi`
+
+test_spine_faults-ping.o: ping.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-ping.o -MD -MP -MF $(DEPDIR)/test_spine_faults-ping.Tpo -c -o test_spine_faults-ping.o `test -f 'ping.c' || echo '$(srcdir)/'`ping.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-ping.Tpo $(DEPDIR)/test_spine_faults-ping.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ping.c' object='test_spine_faults-ping.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-ping.o `test -f 'ping.c' || echo '$(srcdir)/'`ping.c
+
+test_spine_faults-ping.obj: ping.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-ping.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-ping.Tpo -c -o test_spine_faults-ping.obj `if test -f 'ping.c'; then $(CYGPATH_W) 'ping.c'; else $(CYGPATH_W) '$(srcdir)/ping.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-ping.Tpo $(DEPDIR)/test_spine_faults-ping.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='ping.c' object='test_spine_faults-ping.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-ping.obj `if test -f 'ping.c'; then $(CYGPATH_W) 'ping.c'; else $(CYGPATH_W) '$(srcdir)/ping.c'; fi`
+
+test_spine_faults-keywords.o: keywords.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-keywords.o -MD -MP -MF $(DEPDIR)/test_spine_faults-keywords.Tpo -c -o test_spine_faults-keywords.o `test -f 'keywords.c' || echo '$(srcdir)/'`keywords.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-keywords.Tpo $(DEPDIR)/test_spine_faults-keywords.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='keywords.c' object='test_spine_faults-keywords.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-keywords.o `test -f 'keywords.c' || echo '$(srcdir)/'`keywords.c
+
+test_spine_faults-keywords.obj: keywords.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-keywords.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-keywords.Tpo -c -o test_spine_faults-keywords.obj `if test -f 'keywords.c'; then $(CYGPATH_W) 'keywords.c'; else $(CYGPATH_W) '$(srcdir)/keywords.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-keywords.Tpo $(DEPDIR)/test_spine_faults-keywords.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='keywords.c' object='test_spine_faults-keywords.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-keywords.obj `if test -f 'keywords.c'; then $(CYGPATH_W) 'keywords.c'; else $(CYGPATH_W) '$(srcdir)/keywords.c'; fi`
+
+test_spine_faults-error.o: error.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-error.o -MD -MP -MF $(DEPDIR)/test_spine_faults-error.Tpo -c -o test_spine_faults-error.o `test -f 'error.c' || echo '$(srcdir)/'`error.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-error.Tpo $(DEPDIR)/test_spine_faults-error.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='error.c' object='test_spine_faults-error.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-error.o `test -f 'error.c' || echo '$(srcdir)/'`error.c
+
+test_spine_faults-error.obj: error.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-error.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-error.Tpo -c -o test_spine_faults-error.obj `if test -f 'error.c'; then $(CYGPATH_W) 'error.c'; else $(CYGPATH_W) '$(srcdir)/error.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-error.Tpo $(DEPDIR)/test_spine_faults-error.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='error.c' object='test_spine_faults-error.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-error.obj `if test -f 'error.c'; then $(CYGPATH_W) 'error.c'; else $(CYGPATH_W) '$(srcdir)/error.c'; fi`
+
+test_spine_faults-test_spine_faults.o: tests/test_spine_faults.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-test_spine_faults.o -MD -MP -MF $(DEPDIR)/test_spine_faults-test_spine_faults.Tpo -c -o test_spine_faults-test_spine_faults.o `test -f 'tests/test_spine_faults.c' || echo '$(srcdir)/'`tests/test_spine_faults.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-test_spine_faults.Tpo $(DEPDIR)/test_spine_faults-test_spine_faults.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_faults.c' object='test_spine_faults-test_spine_faults.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-test_spine_faults.o `test -f 'tests/test_spine_faults.c' || echo '$(srcdir)/'`tests/test_spine_faults.c
+
+test_spine_faults-test_spine_faults.obj: tests/test_spine_faults.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_faults-test_spine_faults.obj -MD -MP -MF $(DEPDIR)/test_spine_faults-test_spine_faults.Tpo -c -o test_spine_faults-test_spine_faults.obj `if test -f 'tests/test_spine_faults.c'; then $(CYGPATH_W) 'tests/test_spine_faults.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_faults.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_faults-test_spine_faults.Tpo $(DEPDIR)/test_spine_faults-test_spine_faults.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='tests/test_spine_faults.c' object='test_spine_faults-test_spine_faults.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_faults_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_faults-test_spine_faults.obj `if test -f 'tests/test_spine_faults.c'; then $(CYGPATH_W) 'tests/test_spine_faults.c'; else $(CYGPATH_W) '$(srcdir)/tests/test_spine_faults.c'; fi`
+
 test_spine_regressions-sql.o: sql.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-sql.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-sql.Tpo -c -o test_spine_regressions-sql.o `test -f 'sql.c' || echo '$(srcdir)/'`sql.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-sql.Tpo $(DEPDIR)/test_spine_regressions-sql.Po
@@ -804,20 +1023,6 @@ test_spine_regressions-sql.obj: sql.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='sql.c' object='test_spine_regressions-sql.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-sql.obj `if test -f 'sql.c'; then $(CYGPATH_W) 'sql.c'; else $(CYGPATH_W) '$(srcdir)/sql.c'; fi`
-
-test_spine_regressions-spine.o: spine.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-spine.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-spine.Tpo -c -o test_spine_regressions-spine.o `test -f 'spine.c' || echo '$(srcdir)/'`spine.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-spine.Tpo $(DEPDIR)/test_spine_regressions-spine.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='spine.c' object='test_spine_regressions-spine.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-spine.o `test -f 'spine.c' || echo '$(srcdir)/'`spine.c
-
-test_spine_regressions-spine.obj: spine.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-spine.obj -MD -MP -MF $(DEPDIR)/test_spine_regressions-spine.Tpo -c -o test_spine_regressions-spine.obj `if test -f 'spine.c'; then $(CYGPATH_W) 'spine.c'; else $(CYGPATH_W) '$(srcdir)/spine.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-spine.Tpo $(DEPDIR)/test_spine_regressions-spine.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='spine.c' object='test_spine_regressions-spine.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-spine.obj `if test -f 'spine.c'; then $(CYGPATH_W) 'spine.c'; else $(CYGPATH_W) '$(srcdir)/spine.c'; fi`
 
 test_spine_regressions-util.o: util.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-util.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-util.Tpo -c -o test_spine_regressions-util.o `test -f 'util.c' || echo '$(srcdir)/'`util.c
@@ -944,6 +1149,20 @@ test_spine_regressions-error.obj: error.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='error.c' object='test_spine_regressions-error.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-error.obj `if test -f 'error.c'; then $(CYGPATH_W) 'error.c'; else $(CYGPATH_W) '$(srcdir)/error.c'; fi`
+
+test_spine_regressions-spine.o: spine.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-spine.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-spine.Tpo -c -o test_spine_regressions-spine.o `test -f 'spine.c' || echo '$(srcdir)/'`spine.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-spine.Tpo $(DEPDIR)/test_spine_regressions-spine.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='spine.c' object='test_spine_regressions-spine.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-spine.o `test -f 'spine.c' || echo '$(srcdir)/'`spine.c
+
+test_spine_regressions-spine.obj: spine.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-spine.obj -MD -MP -MF $(DEPDIR)/test_spine_regressions-spine.Tpo -c -o test_spine_regressions-spine.obj `if test -f 'spine.c'; then $(CYGPATH_W) 'spine.c'; else $(CYGPATH_W) '$(srcdir)/spine.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/test_spine_regressions-spine.Tpo $(DEPDIR)/test_spine_regressions-spine.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='spine.c' object='test_spine_regressions-spine.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test_spine_regressions-spine.obj `if test -f 'spine.c'; then $(CYGPATH_W) 'spine.c'; else $(CYGPATH_W) '$(srcdir)/spine.c'; fi`
 
 test_spine_regressions-test_spine_regressions.o: tests/test_spine_regressions.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_spine_regressions_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test_spine_regressions-test_spine_regressions.o -MD -MP -MF $(DEPDIR)/test_spine_regressions-test_spine_regressions.Tpo -c -o test_spine_regressions-test_spine_regressions.o `test -f 'tests/test_spine_regressions.c' || echo '$(srcdir)/'`tests/test_spine_regressions.c
@@ -1267,6 +1486,13 @@ test_spine_regressions.log: test_spine_regressions$(EXEEXT)
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
 	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test_spine_faults.log: test_spine_faults$(EXEEXT)
+	@p='test_spine_faults$(EXEEXT)'; \
+	b='test_spine_faults'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
 .test.log:
 	@p='$<'; \
 	$(am__set_b); \
@@ -1513,6 +1739,17 @@ distclean: distclean-am
 	-rm -f ./$(DEPDIR)/snmp.Po
 	-rm -f ./$(DEPDIR)/spine.Po
 	-rm -f ./$(DEPDIR)/sql.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-error.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-keywords.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-locks.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-nft_popen.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-php.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-ping.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-poller.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-snmp.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-sql.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-test_spine_faults.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-util.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-error.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-keywords.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-locks.Po
@@ -1585,6 +1822,17 @@ maintainer-clean: maintainer-clean-am
 	-rm -f ./$(DEPDIR)/snmp.Po
 	-rm -f ./$(DEPDIR)/spine.Po
 	-rm -f ./$(DEPDIR)/sql.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-error.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-keywords.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-locks.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-nft_popen.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-php.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-ping.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-poller.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-snmp.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-sql.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-test_spine_faults.Po
+	-rm -f ./$(DEPDIR)/test_spine_faults-util.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-error.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-keywords.Po
 	-rm -f ./$(DEPDIR)/test_spine_regressions-locks.Po
@@ -1655,6 +1903,10 @@ coverage-source-list:
 
 coverage-test-source-list:
 	@printf '%s\n' $(test_spine_regressions_SOURCES)
+
+.PHONY: coverage-fault-source-list
+coverage-fault-source-list:
+	@printf '%s\n' $(test_spine_faults_SOURCES)
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
