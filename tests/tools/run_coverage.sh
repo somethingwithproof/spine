@@ -34,7 +34,7 @@ case "$coverage_base" in
     "$source_dir"/*) coverage_find_path="./${coverage_base#"$source_dir"/}";;
     *) ;;
 esac
-find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'configure.ac' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/regressions.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
+find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'Makefile.in' -o -name 'configure.ac' -o -name 'copyright_year.sh' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/*.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
 xargs -0 sha256sum < "$coverage_dir/source-inputs.nul" > "$coverage_dir/source.sha256"
 tar -czf "$coverage_dir/source-inputs.tar.gz" --null -T "$coverage_dir/source-inputs.nul"
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
