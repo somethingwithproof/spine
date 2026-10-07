@@ -74,6 +74,19 @@ merged.
   guarded by global locks, and `_Static_assert` for buffer and struct sizes.
   Keep pthreads; `<threads.h>` is missing on macOS. Upstream C99 code still
   compiles as C17, so the switch does not block upstream merges.
+- Annotate locks and the data they protect for Clang's thread-safety
+  analysis (`-Wthread-safety`), so the compiler rejects unlocked access to
+  shared state.
+- Test SNMPv3 with SHA-2 authentication and AES-192 and AES-256 privacy
+  against a live agent, and log a deprecation warning for MD5 and DES.
+- Size worker threads from the CPU quota the process actually has (cgroup v2
+  `cpu.max` and CPU affinity), not the host's core count.
+- Accept credentials from systemd `LoadCredential`, and document a path for
+  HashiCorp Vault and cloud secret managers.
+- Build with a 64-bit `time_t` everywhere (`_TIME_BITS=64` on 32-bit
+  targets), or declare 32-bit platforms unsupported.
+- Add a `clang-format` configuration and pre-commit hooks so tools, not
+  reviewers, enforce style.
 - Add CI lanes for the newest GCC and Clang. Newer compilers turn unsafe
   legacy behaviour into errors, and GCC 15 defaults to C23, so every build
   passes an explicit `-std`. Revisit C23 once the oldest supported
@@ -82,7 +95,8 @@ merged.
 
 Done when: the fault suite covers a database outage, an SNMP timeout storm,
 a hung script and a crashed PHP script server, and asserts the outcome of
-each; a 24-hour soak shows no memory growth.
+each; a 24-hour soak shows no memory growth; and overall line coverage is
+at least 80%.
 
 ## Phase 2: observability and build system (Q1 to Q2 2027)
 
@@ -115,6 +129,11 @@ autotools is removed.
   no database access, and a coordinator that validates their results and
   alone writes to the database. A parser bug would then reach bad values,
   not the database.
+- Publish a memory-safety roadmap, as CISA and NSA guidance asks of C
+  projects: the GCC `-fhardened` flag set, `_FORTIFY_SOURCE=3`,
+  `-fstrict-flex-arrays=3`, `-ftrivial-auto-var-init=zero`, bounds-checked
+  string helpers throughout, and an evaluation of rewriting the parsers of
+  untrusted input in Rust.
 - Fuzz every parser: SNMP values, script output, configuration and host
   names.
 - Ship SELinux and AppArmor profiles that allow script polling.
@@ -155,6 +174,13 @@ none blocks a loop.
    threaded poller. Run the contract, fault and live suites against both in
    CI. Make it the default once it meets the exit test, and remove the
    threaded poller one release later.
+5. Optional persistent mode. Cacti's `poller.php` starts Spine once per
+   cycle, so Spine is not a long-running daemon today. Once the event poller
+   is stable, offer a mode where Spine stays running: it keeps SNMP sessions
+   and database connections open, schedules its own cycles, reports health
+   through `sd_notify` with a watchdog, serves a live Prometheus endpoint,
+   and accepts local control over Varlink. This needs a matching change in
+   Cacti, and the per-cycle mode stays as the fallback.
 
 Done when: the event poller passes every contract, fault and live test; a
 test fails if any blocking call runs on a loop thread; TSan reports
@@ -180,17 +206,38 @@ poller joins a release only after it meets its Phase 4 exit test.
   life.
 - Define a compatibility and deprecation policy for configuration keys and
   command-line options.
+- Write down and version the contract with Cacti: exit codes, the
+  `poller_output` format, the tables and columns Spine reads, and the
+  command-line options. Test it in CI against each supported Cacti version.
+- Build and release native arm64 binaries alongside x86-64.
+- Publish an official multi-architecture container image that runs as a
+  non-root user with only `CAP_NET_RAW`, signed like the tarballs.
+- Handle vulnerabilities in the open: a disclosure policy, GitHub Security
+  Advisories with CVE IDs, security fixes backported to the long-term
+  support branch, and the OpenSSF Best Practices badge. This covers what the
+  EU Cyber Resilience Act asks of software shipped commercially, with full
+  obligations from December 2027.
 
 Done when: a third party can verify the first signed release, and every
 supported combination passes CI.
 
 ## Phase 6: operator documentation (throughout)
 
-- An install and hardening guide.
+- An install and hardening guide, with a sandboxed systemd unit example for
+  Cacti's poller (`ProtectSystem=strict`, `PrivateTmp`, a minimal
+  capability set).
 - A configuration reference.
 - Runbooks for a database outage, SNMP timeouts, ICMP privileges and
   performance tuning.
 - An architecture overview and an upgrade guide for each release.
+
+## Non-goals
+
+- In-process plugins loaded with `dlopen` or `libffi`. Cacti already extends
+  polling through scripts and the PHP script server, which run in their own
+  processes. Loading third-party code into Spine would put it next to the
+  database credentials, the opposite of the Phase 3 collector split.
+- Linux-only I/O such as io_uring. libuv already uses it where that helps.
 
 ## Risks and dependencies
 
