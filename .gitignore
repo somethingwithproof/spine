@@ -45,3 +45,6 @@ __pycache__/
 
 # Machine-local permission/settings overrides are not repository inputs.
 settings.local.json
+
+# Locally built locked security scanner
+.github/scorecard/bin/

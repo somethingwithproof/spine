@@ -52,7 +52,7 @@ jobs:
       - name: Install Semgrep
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check semgrep==1.114.0
+          python3 -m pip install --only-binary=:all: --disable-pip-version-check semgrep==1.114.0
 
       - name: Run Semgrep
         run: |
@@ -86,14 +86,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Scorecard CLI
+      - name: Select Scorecard build runtime
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492
+        with:
+          tool_versions: go 1.26.8
+
+      - name: Build locked Scorecard CLI
+        working-directory: .github/scorecard
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y golang-go
-          mkdir -p "${HOME}/.local/bin"
-          GOBIN="${HOME}/.local/bin" go install github.com/ossf/scorecard/v5/cmd/scorecard@v5.5.0
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          mkdir -p bin
+          mise exec go@1.26.8 -- go build -mod=readonly -trimpath -o bin/scorecard github.com/ossf/scorecard/v5
+          echo "${PWD}/bin" >> "${GITHUB_PATH}"
 
       - name: Run Scorecard
         env:
@@ -122,7 +126,7 @@ jobs:
       - name: Install policy checker dependencies
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check pyyaml==6.0.2
+          python3 -m pip install --only-binary=:all: --disable-pip-version-check pyyaml==6.0.2
 
       - name: Enforce workflow policy
         run: |

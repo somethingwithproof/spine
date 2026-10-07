@@ -20,7 +20,8 @@ runs:
   steps:
     - name: Install locked coverage tooling
       shell: bash
-      run: python3 -m pip install --require-hashes -r .github/requirements-coverage.txt
+      run: >-
+        python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-coverage.txt
     - name: Configure coverage and compilation database
       shell: bash
       run: |

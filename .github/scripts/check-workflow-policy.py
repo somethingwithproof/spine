@@ -55,6 +55,51 @@ def check_run(path: str, step_name: str, run_value: str, violations: list[str]) 
 			violations.append(f"{path}:{step_name}: curl|sh is not allowlisted")
 
 
+def check_step(rel: str, job_name: str, idx: int, step: dict, violations: list[str]) -> None:
+	step_name = str(step.get("name", f"{job_name}.step{idx}"))
+
+	uses_value = step.get("uses")
+	if isinstance(uses_value, str):
+		check_uses(rel, step_name, uses_value.strip(), violations)
+
+	run_value = step.get("run")
+	if isinstance(run_value, str):
+		check_run(rel, step_name, run_value, violations)
+
+
+def check_job(rel: str, job_name: str, job: dict, violations: list[str]) -> None:
+	if not isinstance(job, dict):
+		violations.append(f"{rel}:{job_name}: job must be a mapping")
+		return
+	if "uses" in job:
+		check_uses(rel, job_name, job["uses"], violations)
+	else:
+		limit = job.get("timeout-minutes")
+		if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 360:
+			violations.append(f"{rel}:{job_name}: explicit bounded timeout is required")
+
+	for idx, step in enumerate(normalize_steps(job), start=1):
+		if isinstance(step, dict):
+			check_step(rel, job_name, idx, step, violations)
+
+
+def check_document(rel: str, doc: dict, violations: list[str]) -> None:
+	jobs = doc.get("jobs", {}) if isinstance(doc, dict) else {}
+	if not isinstance(jobs, dict) or not jobs:
+		violations.append(f"{rel}: non-empty jobs mapping is required")
+		return
+	permissions = doc.get("permissions")
+	if not isinstance(permissions, dict) or permissions.get("contents") != "read" or "write" in permissions.values():
+		violations.append(f"{rel}: default permissions must be contents: read, with writes scoped to jobs")
+	if not doc.get("concurrency"):
+		violations.append(f"{rel}: concurrency control is required")
+	events = doc.get("on", doc.get(True, {}))
+	if isinstance(events, dict) and "pull_request_target" in events:
+		violations.append(f"{rel}: pull_request_target requires a separately reviewed policy exception")
+	for job_name, job in jobs.items():
+		check_job(rel, job_name, job, violations)
+
+
 def audit(root: Path) -> list[str]:
 	workflow_files = sorted(
 		p for p in root.glob(WORKFLOW_GLOB) if p.suffix in (".yml", ".yaml")
@@ -71,42 +116,7 @@ def audit(root: Path) -> list[str]:
 			violations.append(f"{rel}: failed to parse YAML: {exc}")
 			continue
 
-		jobs = doc.get("jobs", {}) if isinstance(doc, dict) else {}
-		if not isinstance(jobs, dict) or not jobs:
-			violations.append(f"{rel}: non-empty jobs mapping is required")
-			continue
-		permissions = doc.get("permissions")
-		if not isinstance(permissions, dict) or permissions.get("contents") != "read" or "write" in permissions.values():
-			violations.append(f"{rel}: default permissions must be contents: read, with writes scoped to jobs")
-		if not doc.get("concurrency"):
-			violations.append(f"{rel}: concurrency control is required")
-		events = doc.get("on", doc.get(True, {}))
-		if isinstance(events, dict) and "pull_request_target" in events:
-			violations.append(f"{rel}: pull_request_target requires a separately reviewed policy exception")
-
-		for job_name, job in jobs.items():
-			if not isinstance(job, dict):
-				violations.append(f"{rel}:{job_name}: job must be a mapping")
-				continue
-			if "uses" in job:
-				check_uses(rel, job_name, job["uses"], violations)
-			else:
-				limit = job.get("timeout-minutes")
-				if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 360:
-					violations.append(f"{rel}:{job_name}: explicit bounded timeout is required")
-
-			for idx, step in enumerate(normalize_steps(job), start=1):
-				if not isinstance(step, dict):
-					continue
-				step_name = str(step.get("name", f"{job_name}.step{idx}"))
-
-				uses_value = step.get("uses")
-				if isinstance(uses_value, str):
-					check_uses(rel, step_name, uses_value.strip(), violations)
-
-				run_value = step.get("run")
-				if isinstance(run_value, str):
-					check_run(rel, step_name, run_value, violations)
+		check_document(rel, doc, violations)
 
 	return violations
 
