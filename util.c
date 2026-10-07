@@ -1178,20 +1178,19 @@ static bool transfer_table(MYSQL *source, MYSQL *destination, const poller_trans
 	size_t suffix_length = strlen(suffix);
 	MYSQL_ROW row;
 	bool success = TRUE;
-	while (success) {
-		row = mysql_fetch_row(result);
-		if (row == NULL) break;
+	while ((row = mysql_fetch_row(result)) != NULL) {
 		size_t length = transfer_row(destination, row, plan->field_count, row_sql, row_capacity);
 		if (rows > 0 && (rows == plan->row_limit || length + suffix_length + 3 > HUGE_BUFSIZE - used)) {
-			success = transfer_batch(destination, buffer, used, suffix);
+			if (!transfer_batch(destination, buffer, used, suffix)) {
+				success = FALSE;
+				break;
+			}
 			rows = 0;
 		}
-		if (success) {
-			if (rows == 0) used = (size_t)spine_snprintf(buffer, HUGE_BUFSIZE, "%s", prefix);
-			else used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, ", ");
-			used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", row_sql);
-			rows++;
-		}
+		if (rows == 0) used = (size_t)spine_snprintf(buffer, HUGE_BUFSIZE, "%s", prefix);
+		else used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, ", ");
+		used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", row_sql);
+		rows++;
 	}
 	if (mysql_errno(source) != 0) success = FALSE;
 	if (success && rows > 0) success = transfer_batch(destination, buffer, used, suffix);
