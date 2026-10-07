@@ -253,8 +253,7 @@ jobs:
             : > cppcheck-report.txt
           fi
 
-          python3 .github/scripts/compare-cppcheck.py \
-            cppcheck-report.txt .github/cppcheck-baseline.txt cppcheck-regressions.txt
+          python3 .github/scripts/compare-cppcheck.py
 
       - name: Upload cppcheck report
         if: always()

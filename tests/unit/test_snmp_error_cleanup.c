@@ -172,8 +172,21 @@ int main(void) {
 	char empty[] = "";
 	char auth_protocol[] = "SHA";
 	char priv_protocol[] = "[None]";
-	owned_session = snmp_host_init(1, hostname, 2, community, empty, empty,
-		auth_protocol, empty, priv_protocol, empty, empty, 1161, 100);
+	owned_session = snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = 1,
+			.hostname = hostname,
+			.snmp_version = 2,
+			.snmp_community = community,
+			.snmp_username = empty,
+			.snmp_password = empty,
+			.snmp_auth_protocol = auth_protocol,
+			.snmp_priv_passphrase = empty,
+			.snmp_priv_protocol = priv_protocol,
+			.snmp_context = empty,
+			.snmp_engine_id = empty,
+			.snmp_port = 1161,
+			.snmp_timeout = 100,
+		});
 	ASSERT_TRUE(owned_session != NULL);
 	if (owned_session != NULL) {
 		spine_spine_host_t host = {0};

@@ -146,10 +146,15 @@ class CppcheckEvidence(unittest.TestCase):
     def test_cli_fails_closed_on_missing_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            report, baseline, output = (root / name for name in ("report", "baseline", "output"))
+            script = root / ".github/scripts/compare-cppcheck.py"
+            script.parent.mkdir(parents=True)
+            script.write_text(Path(cppcheck.__file__).read_text())
+            report = root / "cppcheck-report.txt"
+            baseline = root / ".github/cppcheck-baseline.txt"
+            output = root / "cppcheck-regressions.txt"
             report.write_text("src/poller.c:10:2: error: failure [failure]\n")
             baseline.write_text("src/poller.c:20:2: warning: original [original]\n")
-            command = [sys.executable, cppcheck.__file__, str(report), str(baseline), str(output)]
+            command = [sys.executable, str(script)]
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
             self.assertIn("error: failure", output.read_text())
