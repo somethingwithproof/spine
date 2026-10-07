@@ -61,7 +61,10 @@ docker run --rm --entrypoint sh -v "$ARTIFACTS:/artifacts" "$IMAGE" -ec '
   cp /src/build/spine /artifacts/spine
 '
 "${COMPOSE[@]}" up -d --wait db
-sql() { "${COMPOSE[@]}" exec -T db mariadb -uspine -pspine cacti -N -e "$1"; }
+sql() {
+  local query="$1"
+  "${COMPOSE[@]}" exec -T db mariadb -uspine -pspine cacti -N -e "$query"
+}
 expected_hash="$(cat "$ARTIFACTS/expected.sha256")"
 for profiles in 1 2; do
   for boost in 0 1; do
