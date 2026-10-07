@@ -20,7 +20,7 @@ defaults:
 env:
   DEBIAN_FRONTEND: noninteractive
   COMMON_DEPS: >-
-    cmake make pkg-config
+    cmake make ninja-build pkg-config
     gcc lcov
     libsnmp-dev default-libmysqlclient-dev help2man libssl-dev
     libseccomp-dev libuv1-dev
