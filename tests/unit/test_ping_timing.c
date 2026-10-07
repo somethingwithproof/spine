@@ -235,6 +235,26 @@ static long timeval_usec(const struct timeval *tv) {
 	return (long) tv->tv_sec * 1000000L + (long) tv->tv_usec;
 }
 
+static void test_wait_left_converts_without_rounding_up(void **state) {
+	static const double offsets[] = {0.25, 0.5, 0.75, 1.4, 1.5, 1.6, 9.999};
+	struct timeval tv;
+	size_t i;
+
+	(void) state;
+	for (i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+		long expected = (long) (offsets[i] * 1000000.0);
+
+		ping_wait_left(spine_monotonic_time() + offsets[i], &tv);
+		assert_true(tv.tv_usec >= 0 && tv.tv_usec < 1000000);
+		assert_true(timeval_usec(&tv) <= expected);
+		assert_true(timeval_usec(&tv) > expected - 50000L);
+	}
+
+	/* a deadline already behind us polls instead of waiting */
+	ping_wait_left(spine_monotonic_time() - 1.0, &tv);
+	assert_int_equal(timeval_usec(&tv), 0);
+}
+
 static void test_icmp_wait_matches_the_device_timeout(void **state) {
 	host_t host;
 	ping_t ping;
@@ -455,6 +475,7 @@ static void test_icmpv6_pings_a_transport_qualified_name(void **state) {
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_icmp_retry_after_one_lost_probe_is_alive, timing_setup, timing_teardown),
+		cmocka_unit_test_setup_teardown(test_wait_left_converts_without_rounding_up, timing_setup, timing_teardown),
 		cmocka_unit_test_setup_teardown(test_icmp_wait_matches_the_device_timeout, timing_setup, timing_teardown),
 		#ifdef SPINE_HAVE_ICMPV6
 		cmocka_unit_test_setup_teardown(test_icmpv6_retry_after_one_lost_probe_is_alive, timing_setup, timing_teardown),
