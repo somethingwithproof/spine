@@ -52,6 +52,7 @@ static int spawn_failure_errno;
 static int spawn_fault_calls;
 static int allocation_failures;
 static int copy_failures;
+static const char *copy_failure_text;
 static bool account_snmp_sessions;
 static void *owned_snmp_session;
 static int session_opens;
@@ -208,6 +209,7 @@ void *__wrap_malloc(size_t size) {
 
 char *__wrap_strdup(const char *text) {
 	if (copy_failures > 0) { copy_failures--; errno = ENOMEM; return NULL; }
+	if (copy_failure_text != NULL && strcmp(text, copy_failure_text) == 0) { errno = ENOMEM; return NULL; }
 	return __real_strdup(text);
 }
 
@@ -386,6 +388,48 @@ static void test_interrupted_insert_retry(void) {
 	query_fault_connection = NULL;
 	mysql_close(&offline);
 	puts("production interrupted insert retry regressions passed");
+}
+
+/* die() ends the process, so the copy failure runs in a child. The
+ * authentication copy has already succeeded and must be released first. */
+static void test_snmpv3_privacy_copy_failure(void) {
+	int output[2];
+	assert(pipe(output) == 0);
+	fflush(stdout);
+	fflush(stderr);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		if (dup2(output[1], STDERR_FILENO) != STDERR_FILENO) _exit(3);
+		close(output[0]);
+		close(output[1]);
+		snmp_spine_init();
+		copy_failure_text = "fault-privacy-passphrase";
+		snmp_connection_t options = {
+			.host_id = 47, .hostname = "127.0.0.1", .snmp_version = 3,
+			.snmp_community = "", .snmp_username = "fault-v3-user",
+			.snmp_password = "fault-auth-passphrase", .snmp_auth_protocol = "SHA",
+			.snmp_priv_passphrase = "fault-privacy-passphrase", .snmp_priv_protocol = "AES",
+			.snmp_context = "", .snmp_engine_id = "", .snmp_port = 1162,
+			.snmp_timeout = 500
+		};
+		snmp_host_init(&options);
+		_exit(4);
+	}
+	assert(close(output[1]) == 0);
+	char message[BUFSIZE] = {0};
+	size_t used = 0;
+	ssize_t count;
+	while (used < sizeof(message) - 1 && (count = read(output[0], message + used, sizeof(message) - 1 - used)) > 0) {
+		used += (size_t)count;
+	}
+	assert(close(output[0]) == 0);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+	assert(strstr(message, "ERROR: Fatal malloc error: SNMP privacy passphrase") != NULL);
+	assert(strstr(message, "fault-auth-passphrase") == NULL);
+	puts("production SNMPv3 privacy copy failure regressions passed");
 }
 
 static void test_real_database_retry(void) {
@@ -655,6 +699,7 @@ int main(int argc, char **argv) {
 	test_logger_format_failure();
 	test_process_creation_failures();
 	test_interrupted_insert_retry();
+	test_snmpv3_privacy_copy_failure();
 	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
 		test_real_database_retry();
 		test_ping_only_session_lifetime();
