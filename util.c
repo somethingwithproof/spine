@@ -1739,13 +1739,12 @@ typedef enum {
 	OCTETS_OVERFLOW
 } octets_t;
 
-/* An OctetString such as a Hex-STRING Counter64: two-digit octets with one
- * separator between them, as Cacti's is_hexadecimal() requires. A lone
- * octet is not accepted; "42" is decimal and "FF" has never been a sample. */
+/* An OctetString such as a Hex-STRING Counter64: two-digit octets separated
+ * by one space, '-' or ':', as Cacti's is_hexadecimal() requires. Like Cacti,
+ * a lone octet such as "FF" counts; "42" never gets here as it is decimal. */
 static octets_t parse_octets(const char *text, uint64_t *value) {
 	const char *cursor = text;
 	uint64_t number = 0;
-	size_t octets = 0;
 	bool overflow = FALSE;
 
 	for (;;) {
@@ -1755,16 +1754,14 @@ static octets_t parse_octets(const char *text, uint64_t *value) {
 		if (low < 0) return OCTETS_NONE;
 		if (number > (UINT64_MAX >> 8)) overflow = TRUE;
 		number = (number << 8) | (uint64_t)(high * 16 + low);
-		octets++;
 		cursor += 2;
 		if (*cursor == '\0') break;
-		if (*cursor != ' ' && *cursor != '\t' && *cursor != ':' && *cursor != '-') {
+		if (*cursor != ' ' && *cursor != ':' && *cursor != '-') {
 			return OCTETS_NONE;
 		}
 		cursor++;
 	}
 
-	if (octets < 2) return OCTETS_NONE;
 	if (overflow) return OCTETS_OVERFLOW;
 	*value = number;
 	return OCTETS_VALUE;

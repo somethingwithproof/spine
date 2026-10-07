@@ -63,6 +63,18 @@ static const classify_case_t cases[] = {
 	{"\"FF ff\t\"",                RESULT_HEX_COUNTER, "65535"},
 	{"01 FF FF FF FF FF FF FF FF", RESULT_UNKNOWN,     "U"},
 	{"FFFFFFFFFFFFFFFF",           RESULT_UNKNOWN,     "U"},
+	{"AA BB CC",                   RESULT_HEX_COUNTER, "11189196"},
+	/* Cacti splits octets on space, '-' and ':' only */
+	{"AA\tBB",                     RESULT_UNKNOWN,     "U"},
+	{"zz",                         RESULT_UNKNOWN,     "U"},
+	/* a lone octet is hex once it is not decimal, as in Cacti */
+	{"FF",                         RESULT_HEX_COUNTER, "255"},
+	{"ff",                         RESULT_HEX_COUNTER, "255"},
+	{" FF",                        RESULT_HEX_COUNTER, "255"},
+	{"0A",                         RESULT_HEX_COUNTER, "10"},
+	{"1F",                         RESULT_HEX_COUNTER, "31"},
+	{"9E",                         RESULT_HEX_COUNTER, "158"},
+	{"00",                         RESULT_COUNTER,     "00"},
 
 	/* nothing that could be a value */
 	{"",                           RESULT_UNKNOWN,     "U"},
@@ -76,11 +88,15 @@ static const classify_case_t cases[] = {
 	{"a:1 b!2",                    RESULT_MULTIPART,   "a:1 b!2"},
 	{" a:1 b:2\n",                 RESULT_MULTIPART,   "a:1 b:2"},
 	{"00:1b:44:11:3a:b7",          RESULT_MULTIPART,   "00:1b:44:11:3a:b7"},
+	{"ff:ff:ff:ff:ff:ff:ff:ff",    RESULT_MULTIPART,   "ff:ff:ff:ff:ff:ff:ff:ff"},
+	{"AA\tBB:CC",                  RESULT_MULTIPART,   "AA\tBB:CC"},
 	{"a:1  b:2",                   RESULT_UNKNOWN,     "U"},
 
 	/* a number wrapped in text, which Cacti's strip_alpha() also accepts */
 	{"4096 Bytes",                 RESULT_COUNTER,     "4096"},
 	{"text -12.5 Bytes",           RESULT_FLOAT,       "-12.5"},
+	/* once read as the octets 0x042C */
+	{"-42C",                       RESULT_SIGNED,      "-42"},
 };
 
 static void test_classify_table(void **state) {
@@ -143,6 +159,13 @@ static void test_classify_longer_than_results_buffer(void **state) {
 	raw[RESULTS_BUFFER + 1] = '2';
 	assert_int_equal(classify_result(raw, &out), RESULT_COUNTER);
 	assert_string_equal(out.text, "42");
+
+	/* A short value behind a long run of padding is still that value. */
+	memset(raw, ' ', RESULTS_BUFFER + 10);
+	raw[RESULTS_BUFFER + 8] = 'f';
+	raw[RESULTS_BUFFER + 9] = 'f';
+	assert_int_equal(classify_result(raw, &out), RESULT_HEX_COUNTER);
+	assert_string_equal(out.text, "255");
 
 	/* The longest storable value still fits. */
 	memset(raw, 'a', RESULTS_BUFFER - 1);
