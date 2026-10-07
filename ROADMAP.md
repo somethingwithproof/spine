@@ -58,8 +58,14 @@ merged.
   configuration with secrets redacted.
 - Read credentials from a file or environment variable, never from the
   command line.
-- Prove database TLS end to end, including server identity checks, against a
-  TLS-enabled MariaDB in CI.
+- Make MariaDB Connector/C the only database client library. It has the
+  non-blocking API Phase 4 needs, it is the client most distributions ship,
+  and one library means one TLS code path. Deprecate `libmysqlclient` builds
+  for one release, then remove them. Keep testing against both server
+  families in CI: MariaDB 10.11 and 11.x, and MySQL 8.4 and 9.x, including
+  `caching_sha2_password` authentication.
+- Prove database TLS end to end, including server identity checks, against
+  TLS-enabled MariaDB and MySQL servers in CI.
 - Give each device a time budget so one slow device cannot overrun the
   polling interval.
 - Run a nightly soak test and track memory over time.
@@ -135,9 +141,7 @@ none blocks a loop.
    - ICMP: the shared raw socket and the datagram sockets on `uv_poll`.
    - Scripts: `uv_spawn` in a process group, with pipes and timers.
    - PHP script server: `uv_pipe` with per-request deadlines.
-   - Database: MariaDB Connector/C's non-blocking API on `uv_poll`. The
-     MySQL client library has no such API, so with it the batched writes
-     run on a worker pool sized from configuration, never libuv's default.
+   - Database: MariaDB Connector/C's non-blocking API on `uv_poll`.
 4. Migration. Ship the event poller behind `--poller=event`, next to the
    threaded poller. Run the contract, fault and live suites against both in
    CI. Make it the default once it meets the exit test, and remove the
