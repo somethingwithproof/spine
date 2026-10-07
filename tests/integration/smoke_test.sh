@@ -37,7 +37,9 @@ wait_for_db() {
   echo "  Waiting for database with seed data (up to ${max_wait}s)..."
   while [[ $elapsed -lt $max_wait ]]; do
     local count
-    count=$("${COMPOSE[@]}" exec -T db mariadb -uspine -pspine cacti \
+    # Initialization accepts local sockets before the final TCP listener.
+    # Probe the same service used by the production Spine connection.
+    count=$("${COMPOSE[@]}" exec -T db mariadb --protocol=TCP -h db -P 3306 -uspine -pspine cacti \
       -N -e "SELECT COUNT(*) FROM host;" 2>/dev/null || echo "0")
     if [[ "$count" -gt 0 ]]; then
       echo "  Database ready with seed data after ${elapsed}s"
