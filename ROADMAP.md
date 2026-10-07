@@ -87,6 +87,11 @@ merged.
   targets), or declare 32-bit platforms unsupported.
 - Add a `clang-format` configuration and pre-commit hooks so tools, not
   reviewers, enforce style.
+- Define platform tiers. Tier 1: Linux (the RHEL family, Debian, Ubuntu and
+  SUSE), fully tested, and releases block on it. Tier 2: FreeBSD and macOS,
+  built and tested on every pull request. Tier 3: NetBSD, OpenBSD and
+  Windows, built and tested on a best-effort basis. A platform moves up a
+  tier when its lane has been green for a full release.
 - Add CI lanes for the newest GCC and Clang. Newer compilers turn unsafe
   legacy behaviour into errors, and GCC 15 defaults to C23, so every build
   passes an explicit `-std`. Revisit C23 once the oldest supported
@@ -174,7 +179,13 @@ none blocks a loop.
    threaded poller. Run the contract, fault and live suites against both in
    CI. Make it the default once it meets the exit test, and remove the
    threaded poller one release later.
-5. Optional persistent mode. Cacti's `poller.php` starts Spine once per
+5. Native Windows. With CMake and libuv in place, add a small platform
+   layer for what libuv does not cover: ICMP through `IcmpSendEcho2`
+   instead of raw sockets, and privilege handling, which has no setuid on
+   Windows. The retired best-of-best line has Windows ICMP and process code
+   to start from (tag `archive/best-of-best`). Build with MSVC and MinGW in
+   CI, including Net-SNMP and MariaDB Connector/C.
+6. Optional persistent mode. Cacti's `poller.php` starts Spine once per
    cycle, so Spine is not a long-running daemon today. Once the event poller
    is stable, offer a mode where Spine stays running: it keeps SNMP sessions
    and database connections open, schedules its own cycles, reports health
@@ -185,7 +196,8 @@ none blocks a loop.
 Done when: the event poller passes every contract, fault and live test; a
 test fails if any blocking call runs on a loop thread; TSan reports
 nothing; memory stays bounded in the soak test; and throughput at 10,000
-and 50,000 devices meets the target set in step 1.
+and 50,000 devices meets the target set in step 1; and the Tier 1, 2 and 3
+platforms, Windows included, pass the contract tests.
 
 ## Phase 5: releases and supply chain (Q3 to Q4 2027)
 
@@ -209,7 +221,8 @@ poller joins a release only after it meets its Phase 4 exit test.
 - Write down and version the contract with Cacti: exit codes, the
   `poller_output` format, the tables and columns Spine reads, and the
   command-line options. Test it in CI against each supported Cacti version.
-- Build and release native arm64 binaries alongside x86-64.
+- Build and release native arm64 binaries alongside x86-64, and Windows
+  builds once Windows reaches Tier 2.
 - Publish an official multi-architecture container image that runs as a
   non-root user with only `CAP_NET_RAW`, signed like the tarballs.
 - Handle vulnerabilities in the open: a disclosure policy, GitHub Security
@@ -247,6 +260,9 @@ supported combination passes CI.
   Phase 0 ADR must say so.
 - The event-driven poller is the riskiest change. The threaded poller stays
   the default until the event poller meets its exit test.
+- Native Windows depends on a Net-SNMP build for Windows. MSYS2 does not
+  package it, so CI must build it from source or take it from vcpkg once
+  that package is verified.
 - libuv becomes a build dependency. Every distribution in the support
   matrix must ship it; RHEL-family builds need CodeReady Builder or EPEL.
 - With one maintainer, required checks and the test suite stand in for a
