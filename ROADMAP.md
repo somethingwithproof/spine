@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # Spine roadmap
 
-This roadmap covers October 2026 to December 2027. It aims to make Spine a
+This roadmap covers October 2026 to early 2028. It aims to make Spine a
 poller that an operator can run, audit and upgrade with confidence at large
 scale. Each phase states what "done" means as a test, not a feeling. Dates
 are targets, not commitments.
@@ -63,6 +63,11 @@ merged.
 - Give each device a time budget so one slow device cannot overrun the
   polling interval.
 - Run a nightly soak test and track memory over time.
+- Move the build from C99 to C17, recorded in an ADR. Adopt features one
+  area at a time, each with tests: `<stdatomic.h>` for shared counters now
+  guarded by global locks, and `_Static_assert` for buffer and struct sizes.
+  Keep pthreads; `<threads.h>` is missing on macOS. Upstream C99 code still
+  compiles as C17, so the switch does not block upstream merges.
 
 Done when: the fault suite covers a database outage, an SNMP timeout storm,
 a hung script and a crashed PHP script server, and asserts the outcome of
@@ -79,19 +84,7 @@ each; a 24-hour soak shows no memory growth.
 Done when: an operator can see which devices failed in a cycle, and why,
 without reading log files.
 
-## Phase 3: performance and scale (Q2 to Q3 2027)
-
-- Build a benchmark harness with simulated SNMP agents, record a baseline,
-  and fail CI on regressions.
-- Use the Net-SNMP asynchronous API so each worker keeps many requests in
-  flight.
-- Batch database writes and remove allocation from the per-device loop.
-
-Done when: measured throughput at 10,000 and 50,000 devices beats the
-baseline. If asynchronous SNMP does not gain more than it risks, it is
-withdrawn.
-
-## Phase 4: security depth (Q3 2027)
+## Phase 3: security depth (Q2 to Q3 2027)
 
 - Write a threat model covering the trust boundaries: the Cacti database,
   scripts, the network and the setuid start.
@@ -103,7 +96,47 @@ withdrawn.
 Done when: each boundary in the threat model has a mitigation, fuzzers run
 weekly, and the profiles pass on Rocky Linux and Ubuntu.
 
+## Phase 4: event-driven poller on libuv (Q3 2027 to Q1 2028)
+
+Phases 0 to 3 make the current threaded poller stable and correct first.
+Spine polls one device per thread and blocks on every request. Phase 4
+replaces that with an event-driven poller on libuv, so a few threads keep
+thousands of requests in flight. The retired best-of-best line tried libuv
+and failed: its poller ran the old blocking code on libuv's default pool of
+four threads. This plan makes every I/O source non-blocking and tests that
+none blocks a loop.
+
+1. Baseline. Build a benchmark harness with simulated SNMP agents. Record
+   throughput, poll latency, CPU and memory at 1,000, 10,000 and 50,000
+   devices, and fail CI on regressions. Set the Phase 4 throughput target in
+   an ADR from these numbers.
+2. Loop design. Run one libuv loop per worker thread and shard devices
+   across loops. Each device is a state machine: reachability, reindex
+   checks, SNMP batches, scripts, then the result write. Root is already
+   dropped before any loop starts.
+3. I/O sources:
+   - SNMP: Net-SNMP's single-session API. Watch its sockets with `uv_poll`
+     and drive its timeouts with `uv_timer`.
+   - ICMP: the shared raw socket and the datagram sockets on `uv_poll`.
+   - Scripts: `uv_spawn` in a process group, with pipes and timers.
+   - PHP script server: `uv_pipe` with per-request deadlines.
+   - Database: MariaDB Connector/C's non-blocking API on `uv_poll`. The
+     MySQL client library has no such API, so with it the batched writes
+     run on a worker pool sized from configuration, never libuv's default.
+4. Migration. Ship the event poller behind `--poller=event`, next to the
+   threaded poller. Run the contract, fault and live suites against both in
+   CI. Make it the default once it meets the exit test, and remove the
+   threaded poller one release later.
+
+Done when: the event poller passes every contract, fault and live test; a
+test fails if any blocking call runs on a loop thread; TSan reports
+nothing; memory stays bounded in the soak test; and throughput at 10,000
+and 50,000 devices meets the target set in step 1.
+
 ## Phase 5: releases and supply chain (Q3 to Q4 2027)
+
+The first releases ship the threaded poller from Phases 0 to 3. The event
+poller joins a release only after it meets its Phase 4 exit test.
 
 - Adopt semantic versioning, keep a changelog and maintain a long-term
   support branch.
@@ -127,9 +160,13 @@ supported combination passes CI.
 
 ## Risks and dependencies
 
-- The Phase 0 decision on tracking upstream shapes Phases 3 and 5. Diverging
-  makes deep changes cheaper but ends free upstream fixes.
-- Asynchronous SNMP is the riskiest change. It proceeds only on measured
-  gains.
+- The event-driven poller rewrites `poller.c`, so upstream poller changes
+  will no longer merge. From Phase 4 the fork keeps the Cacti database and
+  output contract identical but ports upstream poller fixes by hand. The
+  Phase 0 ADR must say so.
+- The event-driven poller is the riskiest change. The threaded poller stays
+  the default until the event poller meets its exit test.
+- libuv becomes a build dependency. Every distribution in the support
+  matrix must ship it; RHEL-family builds need CodeReady Builder or EPEL.
 - With one maintainer, required checks and the test suite stand in for a
   second reviewer.
