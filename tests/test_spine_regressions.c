@@ -965,6 +965,80 @@ static void test_php_partial_response_timeout(void) {
 	close(pipes[1]);
 }
 
+/* Script server arguments can carry SNMP communities and v3 passphrases, so
+ * the failure lines logged at the default level must not repeat the command.
+ * Drives the timeout, partial-line and lost-server paths of the real code. */
+static void test_php_failure_logs_omit_command(void) {
+	static const char secret[] = "regression-community-7d1f";
+	config_t previous_config = set;
+	php_t *previous_processes = php_processes;
+	char path[] = "spine-php-redaction-XXXXXX";
+	int log_fd = mkstemp(path);
+	assert(log_fd >= 0 && close(log_fd) == 0);
+	set.logging.log_destination = LOGDEST_FILE;
+	set.logging.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.logfile_processed = TRUE;
+	set.console.stdout_notty = TRUE;
+	set.console.stderr_notty = TRUE;
+	strncopy(set.logging.path_logfile, path, sizeof(set.logging.path_logfile));
+	set.php.php_servers = 1;
+	set.php.script_timeout = 1;
+	STRNCOPY(set.php.path_php, "/nonexistent-spine-regression-executable");
+	char command[BUFSIZE];
+	spine_snprintf(command, sizeof(command), "ss_regression.php ss_regression 127.0.0.1 %s\r\n", secret);
+	php_t process;
+	php_processes = &process;
+	for (int partial = 0; partial <= 1; partial++) {
+		int pipes[2];
+		assert(pipe(pipes) == 0);
+		if (partial) assert(write(pipes[1], "7", 1) == 1);
+		php_processes_initialize(&process, 1);
+		process.php_read_fd = pipes[0];
+		char *result = php_readpipe(0, command);
+		assert(strcmp(result, "U") == 0);
+		free(result);
+		if (process.php_read_fd >= 0) close(process.php_read_fd);
+		assert(close(pipes[1]) == 0);
+	}
+	int requests[2];
+	assert(pipe(requests) == 0 && close(requests[0]) == 0);
+	int responses[2];
+	assert(pipe(responses) == 0);
+	fflush(NULL);
+	pid_t server = fork();
+	assert(server >= 0);
+	if (server == 0) {
+		pause();
+		_exit(0);
+	}
+	php_processes_initialize(&process, 1);
+	process.php_state = PHP_READY;
+	process.php_pid = server;
+	process.php_write_fd = requests[1];
+	process.php_read_fd = responses[0];
+	/* The write fails with EPIPE; restarts fail on the missing executable. */
+	char *result = php_cmd(command, 0);
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	assert(close(responses[1]) == 0);
+	int status;
+	assert(waitpid(server, &status, 0) == server);
+	FILE *file = fopen(path, "r");
+	assert(file != NULL);
+	char logged[16384];
+	size_t bytes = fread(logged, 1, sizeof(logged) - 1, file);
+	assert(!ferror(file) && fclose(file) == 0);
+	logged[bytes] = '\0';
+	assert(strstr(logged, "did not respond in time") != NULL);
+	assert(strstr(logged, "partial response") != NULL);
+	assert(strstr(logged, "communications lost") != NULL);
+	fprintf(stderr, "php failure logs contain command: %s\n", strstr(logged, secret) != NULL ? "yes" : "no");
+	assert(strstr(logged, secret) == NULL);
+	assert(unlink(path) == 0);
+	php_processes = previous_processes;
+	set = previous_config;
+}
+
 static void test_script_execution(void) {
 	assert(spine_permits_init(&available_scripts, 1) == 0);
 	host_t host = {0};
@@ -2655,6 +2729,7 @@ int main(int argc, char **argv) {
 	test_php_command(4);
 	test_php_command(BUFSIZE - 3);
 	test_invalid_php_commands();
+	test_php_failure_logs_omit_command();
 	test_php_startup(argv[0]);
 	test_php_owned_shutdown();
 	test_host_status_transitions();

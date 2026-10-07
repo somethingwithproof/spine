@@ -201,7 +201,10 @@ char *php_cmd(const char *php_command, int php_process) {
 
 	/* if write status is <= 0 then the script server may be hung */
 	if (bytes <= 0) {
-		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending Command[%s].  Restarting PHP Script Server", php_process, command));
+		/* Script arguments can carry SNMP communities and v3 passphrases, so
+		 * the command is only logged at debug verbosity. */
+		SPINE_LOG(("ERROR: SS[%i] PHP Script Server communications lost sending a command.  Restarting PHP Script Server", php_process));
+		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Unsent Command[%s]", php_process, command));
 
 		php_close(php_process);
 		retries++;
@@ -450,7 +453,8 @@ static char *php_read_result(int php_process, char *command, int allow_restart) 
 	case 0:
 		/* record end time */
 		end_time = get_time_as_double();
-		SPINE_LOG(("WARNING: SS[%i] The PHP Script Server did not respond in time for Timeout[%0.2f], Command[%s] and will therefore be restarted", php_process, end_time - begin_time, command));
+		SPINE_LOG(("WARNING: SS[%i] The PHP Script Server did not respond in time for Timeout[%0.2f] and will therefore be restarted", php_process, end_time - begin_time));
+		SPINE_LOG_DEBUG(("DEBUG: SS[%i] Unanswered Command[%s]", php_process, command));
 		SET_UNDEFINED(result_string);
 		php_fail_read(php_process, allow_restart);
 		break;
@@ -478,7 +482,8 @@ static char *php_read_result(int php_process, char *command, int allow_restart) 
 						int ready = spine_wait_readable(php_processes[php_process].php_read_fd, read_deadline);
 
 						if (ready <= 0) {
-							SPINE_LOG(("WARNING: SS[%i] The PHP Script Server sent a partial response and %s, Command[%s]", php_process, ready == 0 ? "timed out" : "failed", command));
+							SPINE_LOG(("WARNING: SS[%i] The PHP Script Server sent a partial response and %s", php_process, ready == 0 ? "timed out" : "failed"));
+							SPINE_LOG_DEBUG(("DEBUG: SS[%i] Unanswered Command[%s]", php_process, command));
 							SET_UNDEFINED(result_string);
 							read_ok = FALSE;
 							break;
