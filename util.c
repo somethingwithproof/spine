@@ -1317,6 +1317,19 @@ static int apply_config_directive(const char *name, const char *value) {
 	return TRUE;
 }
 
+/* fgets() returns a line longer than its buffer in pieces, and each piece
+ * would be parsed as a directive of its own.  Report whether the line just
+ * read was whole, consuming the remainder when it was not.  The caller sets
+ * the last byte nonzero before reading: fgets() only clears it when it filled
+ * the buffer, which a string search cannot tell once the line holds a NUL. */
+static bool config_line_complete(FILE *fp, const char *line, size_t capacity) {
+	if (line[capacity - 1] != '\0' || line[capacity - 2] == '\n') return TRUE;
+	int next = getc(fp);
+	if (next == EOF || next == '\n') return TRUE;
+	while (next != EOF && next != '\n') next = getc(fp);
+	return FALSE;
+}
+
 int read_spine_config(const char *file) {
 	FILE *fp = fopen(file, "rb");
 	char buff[BUFSIZE];
@@ -1324,7 +1337,6 @@ int read_spine_config(const char *file) {
 	char value[BUFSIZE];
 	char display_file[BUFSIZE];
 	int line = 0;
-	bool line_start = TRUE;
 	strncopy(display_file, file, sizeof(display_file));
 	spine_sanitize_log_message(display_file);
 
@@ -1337,14 +1349,31 @@ int read_spine_config(const char *file) {
 	if (!set.console.stdout_notty) {
 		fprintf(stdout, "SPINE: Using spine config file [%s]\n", display_file);
 	}
-	while (fgets(buff, sizeof(buff), fp) != NULL) {
-		/* A line longer than buff arrives in several pieces; count it once. */
-		if (line_start) line++;
-		line_start = strchr(buff, '\n') != NULL;
+	for (;;) {
+		buff[sizeof(buff) - 1] = 1;
+		if (fgets(buff, sizeof(buff), fp) == NULL) break;
+		/* config_line_complete() consumes an overlong line whole, so each
+		 * pass is exactly one line */
+		line++;
+		if (!config_line_complete(fp, buff, sizeof(buff))) {
+			if (!set.console.stderr_notty) {
+				fprintf(stderr, "WARNING: Ignoring line %d of %s, longer than %d characters\n", line, display_file, BUFSIZE - 2);
+			}
+			continue;
+		}
 		if (buff[0] == '#' || buff[0] == ' ' || buff[0] == '\n') continue;
-		if (sscanf(buff, "%15s %255s", name, value) != 2) continue;
-		/* -C accepts any path, so report where the line is, never what it holds. */
-		if (!apply_config_directive(name, value) && !set.console.stderr_notty) {
+		/* Field widths match the line buffer, so no token is ever cut; the old
+		 * %15s handed the tail of a long key over as its value. */
+		int fields = sscanf(buff, "%1023s %1023s", name, value);
+		if (fields < 1) continue;
+		/* -C accepts any path, so report where the line is, never what it holds.
+		 * A lone token is a key without a value, or a line that is no
+		 * directive at all; the old %15s split such a line in two. */
+		if (fields == 1) {
+			if (!set.console.stderr_notty) {
+				fprintf(stderr, "WARNING: Directive without a value on line %d of %s\n", line, display_file);
+			}
+		} else if (!apply_config_directive(name, value) && !set.console.stderr_notty) {
 			fprintf(stderr, "WARNING: Unrecognized directive on line %d of %s\n", line, display_file);
 		}
 	}
