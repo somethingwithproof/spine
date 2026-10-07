@@ -1794,11 +1794,13 @@ result_kind_t classify_result(const char *raw, classified_result_t *out) {
 	if (raw == NULL) return RESULT_UNKNOWN;
 
 	start = raw + strspn(raw, result_padding);
+	if (*start == '\0') return RESULT_UNKNOWN;
+	/* start[0] is not padding, so this stops with at least one byte left */
 	end = start + strlen(start);
-	while (end > start && strchr(result_padding, end[-1]) != NULL) end--;
+	while (strchr(result_padding, end[-1]) != NULL) end--;
 
 	length = (size_t)(end - start);
-	if (length == 0 || length >= sizeof(out->text)) return RESULT_UNKNOWN;
+	if (length >= sizeof(out->text)) return RESULT_UNKNOWN;
 	memcpy(out->text, start, length);
 	out->text[length] = '\0';
 
