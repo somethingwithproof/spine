@@ -83,7 +83,18 @@ EXTRA_DIST = spine.1 spine.conf.dist \
 	tests/integration/test_concurrency.sh \
 	tests/integration/test_network_faults.sh
 
-EXTRA_DIST += tests/tools/run_snmpv3.sh
+EXTRA_DIST += tests/tools/run_snmpv3.sh tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
+ tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
+.PHONY: coverage-source-list coverage-test-source-list
+coverage-source-list:
+	@printf '%s\n' $(spine_SOURCES)
+
+coverage-test-source-list:
+	@printf '%s\n' $(test_spine_regressions_SOURCES)
+
+.PHONY: coverage-fault-source-list
+coverage-fault-source-list:
+	@printf '%s\n' $(test_spine_faults_SOURCES)
 # Docker targets — require Dockerfile and Dockerfile.dev (from PR #401)
 .PHONY: docker docker-dev verify cppcheck
 
