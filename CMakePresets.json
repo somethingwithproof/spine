@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
     "minor": 23,
@@ -38,6 +38,28 @@
     {
       "name": "ci-main",
       "configurePreset": "ci-main"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "ci-smoke",
+      "configurePreset": "ci-smoke",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ci-main",
+      "configurePreset": "ci-main",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ]
 }
