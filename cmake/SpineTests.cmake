@@ -361,6 +361,35 @@ function(spine_add_tests)
         spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
     add_test(NAME spine_redact_args COMMAND test_spine_redact_args)
 
+    # Real session construction must preserve profiles reused by the poller.
+    add_executable(test_snmp_credentials tests/unit/test_snmp_credentials.c
+                   src/snmp.c src/util.c tests/unit/test_spine_stubs.c
+                   ${SPINE_UTIL_SUPPORT_SOURCES})
+    target_include_directories(test_snmp_credentials PRIVATE
+        ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+    if(TARGET spine_build_options)
+      target_link_libraries(test_snmp_credentials PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_snmp_credentials PRIVATE
+        spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+    add_test(NAME snmp_credentials COMMAND test_snmp_credentials)
+
+    # GNU linker wrappers observe private scrubbing and reject each owned copy.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang)$")
+      add_executable(test_snmp_secret_allocations tests/unit/test_snmp_secret_allocations.c
+                     src/snmp.c src/util.c tests/unit/test_spine_stubs.c
+                     ${SPINE_UTIL_SUPPORT_SOURCES})
+      target_include_directories(test_snmp_secret_allocations PRIVATE
+          ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+      if(TARGET spine_build_options)
+        target_link_libraries(test_snmp_secret_allocations PRIVATE spine_build_options)
+      endif()
+      target_link_libraries(test_snmp_secret_allocations PRIVATE
+          spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+      target_link_options(test_snmp_secret_allocations PRIVATE "LINKER:--wrap=strdup" "LINKER:--wrap=free")
+      add_test(NAME snmp_secret_allocations COMMAND test_snmp_secret_allocations)
+    endif()
+
     # CB age-reap: mock-clock driven. test_spine_stubs provides config_t set
     # and the spine_audit stubs required by circuit_breaker.c. libaudit is
     # an optional link when HAVE_LIBAUDIT is set.

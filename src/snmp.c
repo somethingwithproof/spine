@@ -141,6 +141,26 @@ static void free_passphrase(char **psz) {
 	}
 }
 
+/* The derived USM keys live in the stack session until net-snmp copies them
+ * into its own session. Clear them on every exit so they do not outlive
+ * session construction. */
+static void snmp_clear_session_keys(struct snmp_session *session) {
+	volatile unsigned char *wipe;
+	size_t len;
+
+	wipe = session->securityAuthKey;
+	len  = sizeof(session->securityAuthKey);
+	while (len-- > 0) {
+		*wipe++ = 0;
+	}
+
+	wipe = session->securityPrivKey;
+	len  = sizeof(session->securityPrivKey);
+	while (len-- > 0) {
+		*wipe++ = 0;
+	}
+}
+
 /*! \fn void snmp_spine_init()
  *  \brief wrapper function for init_snmp
  *
@@ -451,6 +471,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					free_passphrase(&Apsz);
 					free_passphrase(&Xpsz);
 					free(session.localname);
+					snmp_clear_session_keys(&session);
 					return 0;
 				}
 
@@ -528,6 +549,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 						free(session.localname);
 						session.localname = NULL;
 					}
+					snmp_clear_session_keys(&session);
 					return 0;
 				}
 
@@ -551,6 +573,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 						free(session.localname);
 						session.localname = NULL;
 					}
+					snmp_clear_session_keys(&session);
 					return 0;
 				}
 
@@ -566,6 +589,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	thread_mutex_lock(LOCK_SNMP);
 	sessp = snmp_sess_open(&session);
 	thread_mutex_unlock(LOCK_SNMP);
+	snmp_clear_session_keys(&session);
 
 	free(session.peername);
 	free(session.securityAuthProto);
