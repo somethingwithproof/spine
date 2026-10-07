@@ -105,6 +105,29 @@ void snmp_spine_close(void) {
 	snmp_shutdown("spine");
 }
 
+/* These buffers belong to session construction. Caller profiles stay intact
+ * until their owner scrubs them after polling/session switching is finished. */
+static void snmp_secret_zero(void *buffer, size_t length) {
+	volatile unsigned char *bytes = buffer;
+	while (length > 0) {
+		*bytes++ = 0;
+		length--;
+	}
+}
+
+static void snmp_secret_free(char **secret) {
+	if (*secret != NULL) {
+		snmp_secret_zero(*secret, strlen(*secret));
+		free(*secret);
+		*secret = NULL;
+	}
+}
+
+static void snmp_clear_session_keys(struct snmp_session *session) {
+	snmp_secret_zero(session->securityAuthKey, sizeof(session->securityAuthKey));
+	snmp_secret_zero(session->securityPrivKey, sizeof(session->securityPrivKey));
+}
+
 /*! \fn void *snmp_host_init(int host_id, char *hostname, int snmp_version,
  * char *snmp_community, char *snmp_username, char *snmp_password,
  * char *snmp_auth_protocol, char *snmp_priv_passphrase, char *snmp_priv_protocol,
@@ -129,10 +152,6 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	char   *Xpsz = NULL;
 	char   *Cpsz = NULL;
 	int    priv_type;
-	/* Zero credential buffers after we are done with them so short-lived
-	 * string copies of passphrases do not linger on the heap or in the
-	 * caller's stack. */
-	int    zero_sensitive = 1;
 
 	/* initialize SNMP */
 	snmp_sess_init(&session);
@@ -279,28 +298,19 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			session.securityPrivProto = snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
 			session.securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
 
-			// Auth Protocol Setup
-			if (Apsz && zero_sensitive) {
-				memset(Apsz, 0x0, strlen(Apsz));
-			}
-
-			free(Apsz);
+			/* Derive keys from private copies without consuming the caller's
+			 * profile: the poller compares/reuses it between item sessions. */
 			Apsz = strdup(snmp_password);
-
-			if (zero_sensitive) {
-	            memset(snmp_password, 0x0, strlen(snmp_password));
-			}
-
-			// Privacy Protocol Setup
-			if (Xpsz && zero_sensitive) {
-				memset(Xpsz, 0x0, strlen(Xpsz));
-			}
-
-			free(Xpsz);
 			Xpsz = strdup(snmp_priv_passphrase);
-
-			if (zero_sensitive) {
-				memset(snmp_priv_passphrase, 0x0, strlen(snmp_priv_passphrase));
+			if (Apsz == NULL || Xpsz == NULL) {
+				SPINE_LOG(("SNMP: Device[%i] Error allocating private passphrase copies.", host_id));
+				free(session.peername);
+				free(session.securityAuthProto);
+				free(session.securityPrivProto);
+				free(session.localname);
+				snmp_secret_free(&Apsz);
+				snmp_secret_free(&Xpsz);
+				return 0;
 			}
 
 			if (Apsz) {
@@ -327,17 +337,17 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					free(session.peername);
 					free(session.securityAuthProto);
 					free(session.securityPrivProto);
-					free(Apsz);
-					free(Xpsz);
+					snmp_secret_free(&Apsz);
+					snmp_secret_free(&Xpsz);
 					if (session.localname) {
 						free(session.localname);
 						session.localname = NULL;
 					}
+					snmp_clear_session_keys(&session);
 					return 0;
 				}
 
-				free(Apsz);
-				Apsz = NULL;
+				snmp_secret_free(&Apsz);
 			}
 
 			if (Xpsz) {
@@ -365,16 +375,16 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					free(session.peername);
 					free(session.securityAuthProto);
 					free(session.securityPrivProto);
-					free(Xpsz);
+					snmp_secret_free(&Xpsz);
 					if (session.localname) {
 						free(session.localname);
 						session.localname = NULL;
 					}
+					snmp_clear_session_keys(&session);
 					return 0;
 				}
 
-				free(Xpsz);
-				Xpsz = NULL;
+				snmp_secret_free(&Xpsz);
 			}
 		}
 
@@ -386,6 +396,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	thread_mutex_lock(LOCK_SNMP);
 	sessp = snmp_sess_open(&session);
 	thread_mutex_unlock(LOCK_SNMP);
+	snmp_clear_session_keys(&session);
 
 	free(session.peername);
 	free(session.securityAuthProto);
