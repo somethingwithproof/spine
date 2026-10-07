@@ -1803,6 +1803,28 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
 }
 
+/* A reindex that could not be queued must leave the stored assertion alone;
+ * advancing it would hide the change from every later poll. Hiding the
+ * poller_command table makes the server itself reject the queue write. */
+static void test_reindex_queue_failure(MYSQL *mysql, test_poll_work_t *work) {
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (43,7,1,'=','122','/usr/bin/printf 123'),(43,8,1,'>','122','/usr/bin/printf 123')"));
+	assert(db_insert(mysql, LOCAL, "RENAME TABLE poller_command TO poller_command_regression_hidden"));
+	work->thread.complete = FALSE;
+	work->thread.threads_complete = 0;
+	work->errors = 0;
+	pthread_t worker;
+	assert(pthread_create(&worker, NULL, test_poll_worker, work) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	assert(db_insert(mysql, LOCAL, "RENAME TABLE poller_command_regression_hidden TO poller_command"));
+	long long kept = (long long)database_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE (data_query_id=7 AND assert_value='122') OR (data_query_id=8 AND assert_value='122')");
+	fprintf(stderr, "reindex queue failure: assertions kept=%lld\n", kept);
+	assert(kept == 2);
+	assert(work->thread.threads_complete == 1);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+}
+
 static void test_reindex_query_shortcut(MYSQL *mysql, test_poll_work_t *work) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command"));
@@ -2051,6 +2073,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 		if (host_id == 43) {
 			test_reindex_pipeline(mysql, &work);
 			test_reindex_query_shortcut(mysql, &work);
+			test_reindex_queue_failure(mysql, &work);
 			test_profile_schedule_completion(mysql, &work);
 			test_poll_database_failure(mysql, &work);
 		}

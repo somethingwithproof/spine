@@ -568,12 +568,13 @@ static void log_reindex_assertion(const reindex_evaluation_t *evaluation, const 
 	SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s%s%s'", evaluation->host->id, evaluation->work->host_thread, reindex->data_query_id, reindex->assert_value, failed ? reindex->op : "=", value != NULL ? value : "(null)"));
 }
 
-static void queue_reindex(const reindex_evaluation_t *evaluation, const reindex_t *reindex) {
-	if (evaluation->work->host_thread != 1) return;
+/* FALSE only when the queue write failed; other partitions never queue. */
+static bool queue_reindex(const reindex_evaluation_t *evaluation, const reindex_t *reindex) {
+	if (evaluation->work->host_thread != 1) return TRUE;
 	char query[LRG_BUFSIZE];
 	snprintf(query, sizeof(query), "REPLACE INTO poller_command (poller_id, time, action, command) VALUES (%i, NOW(), %i, '%i:%i')", set.poller.poller_id, POLLER_COMMAND_REINDEX, evaluation->host->id, reindex->data_query_id);
-	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) db_insert(evaluation->remote, REMOTE, query);
-	else db_insert(evaluation->local, LOCAL, query);
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) return db_insert(evaluation->remote, REMOTE, query);
+	return db_insert(evaluation->local, LOCAL, query);
 }
 
 static void update_reindex_value(const reindex_evaluation_t *evaluation, const reindex_t *reindex, const char *value) {
@@ -602,8 +603,10 @@ static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, c
 	bool failed = reindex_assertion_failed(reindex, value);
 	bool unavailable = value == NULL || IS_UNDEFINED(value) || STRIMATCH(value, "No Such Instance");
 	if (failed || unavailable) log_reindex_assertion(evaluation, reindex, value, failed);
-	if (failed) queue_reindex(evaluation, reindex);
-	if (failed || STRMATCH(reindex->op, ">") || STRMATCH(reindex->op, "<")) update_reindex_value(evaluation, reindex, value);
+	/* Advancing the stored value without a queued reindex would lose the
+	 * reindex for good: the next poll compares against the new value. */
+	bool queued = !failed || queue_reindex(evaluation, reindex);
+	if (queued && (failed || STRMATCH(reindex->op, ">") || STRMATCH(reindex->op, "<"))) update_reindex_value(evaluation, reindex, value);
 	/* A failed uptime assertion means the counters reset, so the sample is a spike. */
 	if (failed && (STRMATCH(reindex->op, "<") ||
 		STRMATCH(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||
