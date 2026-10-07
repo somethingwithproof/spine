@@ -122,6 +122,7 @@ check_PROGRAMS += \
 	tests/unit/test_build_fixes \
 	tests/unit/test_safety_fixes \
 	tests/unit/test_linked \
+	tests/unit/test_classify_result \
 	tests/unit/test_util_paths \
 	tests/unit/test_snmpv3_session \
 	tests/unit/test_ping_icmp
@@ -170,6 +171,11 @@ if HAVE_LD_WRAP
 tests_unit_test_linked_LDFLAGS = -Wl,--wrap=waitpid
 tests_unit_test_linked_CPPFLAGS += -DSPINE_TEST_WRAP_WAITPID
 endif
+
+tests_unit_test_classify_result_SOURCES = tests/unit/test_classify_result.c tests/fuzz/stubs.c \
+	sql.c util.c snmp.c src/core/locks.c poller.c nft_popen.c php.c ping.c \
+	src/core/keywords.c error.c
+tests_unit_test_classify_result_LDADD   = $(CMOCKA_LIBS) $(LIBS)
 
 # includes util.c, so it needs the same libraries spine links against
 tests_unit_test_util_paths_SOURCES = tests/unit/test_util_paths.c

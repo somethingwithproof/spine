@@ -135,62 +135,19 @@ void *child(void *arg) {
  *  This function is core to Spine. It takes a host_id and polls it, first
  *  checking reachability and any required data-query reindexing.
  */
-/*! \fn int poller_store_hex_result(char *result, size_t result_size, const char *hex, int *errors)
- *  \brief convert a hexadecimal poll result and account for rejected values
- *
- *  result must name at least two writable bytes so failures can be represented
- *  by the normal undefined marker. Invalid output arguments are rejected
- *  without modifying memory whose writable extent cannot be established.
- */
-int poller_store_hex_result(char *result, size_t result_size, const char *hex, int *errors) {
-	unsigned long long value;
-	int written;
-
-	if (result == NULL || result_size < 2 || hex == NULL) {
-		if (errors != NULL) {
-			(*errors)++;
-		}
-		return FALSE;
-	}
-
-	if (!hex2dec(hex, &value)) {
-		/* An over-wide or malformed OctetString is unusable poll data. */
-		SET_UNDEFINED(result);
-		if (errors != NULL) {
-			(*errors)++;
-		}
-		return FALSE;
-	}
-
-	written = snprintf(result, result_size, "%llu", value);
-	if (written < 0 || (size_t) written >= result_size) {
-		SET_UNDEFINED(result);
-		if (errors != NULL) {
-			(*errors)++;
-		}
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
 enum poll_result_status normalize_poll_result(char *result, bool snmp) {
+	classified_result_t classified;
+	bool unknown_marker;
+
 	if (IS_UNDEFINED(result)) return POLL_RESULT_UNDEFINED;
-	if (is_numeric(result) || is_multipart_output(snmp ? result : trim(result))) {
+	unknown_marker = snmp && (STRIMATCH(result, "U") || STRIMATCH(result, "Nan"));
+	if (classify_result(result, &classified) != RESULT_UNKNOWN) {
+		strncopy(result, classified.text, RESULTS_BUFFER);
 		return POLL_RESULT_VALID;
 	}
-	if (is_hexadecimal(result, TRUE)) {
-		/* Values wider than 64 bits become U and count as collection errors. */
-		return poller_store_hex_result(result, RESULTS_BUFFER, result, NULL) ? POLL_RESULT_VALID : POLL_RESULT_INVALID;
-	}
-	if (snmp && (STRIMATCH(result, "U") || STRIMATCH(result, "Nan"))) {
-		return POLL_RESULT_UNDEFINED;
-	}
-	/* trim a non-numeric prefix or suffix, then validate below */
-	char normalized[RESULTS_BUFFER];
-	snprintf(normalized, sizeof(normalized), "%s", strip_alpha(result));
-	strncopy(result, normalized, RESULTS_BUFFER);
-	return validate_result(result) ? POLL_RESULT_VALID : POLL_RESULT_INVALID;
+	if (unknown_marker) return POLL_RESULT_UNDEFINED;
+	SET_UNDEFINED(result);
+	return POLL_RESULT_INVALID;
 }
 
 typedef struct poll_error_context {
@@ -619,6 +576,20 @@ static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, c
 	return failed;
 }
 
+/* The decimal forms is_numeric() accepted: counters, signed values, floats. */
+static bool result_is_numeric(const char *text) {
+	classified_result_t classified;
+
+	switch (classify_result(text, &classified)) {
+	case RESULT_COUNTER:
+	case RESULT_SIGNED:
+	case RESULT_FLOAT:
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
 static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
 	if (host->snmp.session == NULL) {
 		*unavailable = TRUE;
@@ -649,7 +620,7 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 		   engine OID is not present with numeric data. */
 		poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
 
-		bool uptime_use_engine_oid = (poll_result != NULL && is_numeric(poll_result));
+		bool uptime_use_engine_oid = (poll_result != NULL && result_is_numeric(poll_result));
 
 		if (uptime_use_engine_oid) {
 			snprintf(sysUptime, BUFSIZE, "%lld", atoll(poll_result) * 100);
@@ -663,11 +634,11 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 			// Engine OID unavailable, fall back to the legacy sysUpTime OID
 			poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
 
-			if (poll_result && is_numeric(poll_result)) {
+			if (poll_result && result_is_numeric(poll_result)) {
 				snprintf(sysUptime, BUFSIZE, "%s", poll_result);
 			}
 
-			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result != NULL ? poll_result : "U", is_numeric(poll_result) ));
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result != NULL ? poll_result : "U", result_is_numeric(poll_result) ));
 
 			SPINE_FREE(poll_result);
 		}
@@ -679,7 +650,7 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 			die("ERROR: Fatal malloc error: poller.c uptime result");
 		}
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, result_is_numeric(poll_result) ));
 	} else {
 		poll_result = snmp_get(host, reindex->arg1);
 	}
@@ -1637,30 +1608,6 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
 	}
 }
 
-/*! \fn int is_multipart_output(const char *result)
- *  \brief validates the output syntax is a valid name value pair syntax
- *  \param result the value to be checked for legality
- *
- *	This function will poll a specific host using the script pointed to by
- *  the command variable.
- *
- *  \return TRUE if the result is valid, otherwise FALSE.
- *
- */
-int is_multipart_output(const char *result) {
-	if (result == NULL) return FALSE;
-	if (strchr(result, ':') == NULL && strchr(result, '!') == NULL) return FALSE;
-	if (strchr(result, ' ') == NULL) return TRUE;
-
-	size_t space_cnt = 0;
-	size_t delim_cnt = 0;
-	for (const char *cursor = result; *cursor != '\0'; cursor++) {
-		if (*cursor == ':' || *cursor == '!') delim_cnt++;
-		else if (*cursor == ' ') space_cnt++;
-	}
-	return space_cnt + 1 == delim_cnt;
-}
-
 static void poll_system_uptime(host_t *host) {
 	char *poll_result;
 	// Get the legacy system uptime instance first
@@ -1668,7 +1615,7 @@ static void poll_system_uptime(host_t *host) {
 	poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.3.0");
 	SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
 
-	if (poll_result && is_numeric(poll_result)) {
+	if (poll_result && result_is_numeric(poll_result)) {
 		host->system.snmp_sysUpTimeInstance = atoll(poll_result);
 		SPINE_FREE(poll_result);
 
@@ -1677,7 +1624,7 @@ static void poll_system_uptime(host_t *host) {
 		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.6.3.10.2.1.3.0");
 		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
 
-		if (poll_result && is_numeric(poll_result)) {
+		if (poll_result && result_is_numeric(poll_result)) {
 			host->system.snmp_sysUpTimeInstance = atoll(poll_result) * 100;
 		}
 	}
@@ -1705,33 +1652,6 @@ void get_system_information(host_t *host, MYSQL *mysql, int system) {
 		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.5.0", host->system.snmp_sysName, sizeof(host->system.snmp_sysName));
 		poll_system_field(host, mysql, ".1.3.6.1.2.1.1.6.0", host->system.snmp_sysLocation, sizeof(host->system.snmp_sysLocation));
 	}
-}
-
-/*! \fn int validate_result(char *result)
- *  \brief validates the output from the polling action is valid
- *  \param result the value to be checked for legality
- *
- *	This function will poll a specific host using the script pointed to by
- *  the command variable.
- *
- *  \return TRUE if the result is valid, otherwise FALSE.
- *
- */
-int validate_result(char *result) {
-	/* check the easy cases first */
-	if (result) {
-		if (is_numeric(result)) {
-			return TRUE;
-		} else {
-			if (is_multipart_output(trim(result))) {
-				return TRUE;
-			} else {
-				return FALSE;
-			}
-		}
-	}
-
-	return FALSE;
 }
 
 static int acquire_script_permit(const host_t *host) {

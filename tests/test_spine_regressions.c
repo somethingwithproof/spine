@@ -56,15 +56,11 @@ static void test_string_conversions(void) {
 	assert(strcmp(reverse(empty), "") == 0);
 	assert(strcmp(reverse(one), "x") == 0);
 	assert(strcmp(reverse(word), "dcba") == 0);
-	char hex[] = "\"FF ff\t\"";
-	char maximum[] = "FFFFFFFFFFFFFFFF";
-	char overflow[] = "10000000000000000";
-	char invalid[] = "not hex";
-	unsigned long long value = 0;
-	assert(hex2dec(hex, &value) && value == 65535);
-	assert(hex2dec(maximum, &value) && value == ULLONG_MAX);
-	assert(!hex2dec(overflow, &value));
-	assert(!hex2dec(invalid, &value) && !hex2dec(NULL, &value));
+	classified_result_t hex;
+	assert(classify_result("\"FF ff\t\"", &hex) == RESULT_HEX_COUNTER && hex.value.counter == 65535);
+	assert(classify_result("FF:FF:FF:FF FF-FF-FF-FF", &hex) == RESULT_HEX_COUNTER && hex.value.counter == ULLONG_MAX);
+	assert(classify_result("01 00 00 00 00 00 00 00 00", &hex) == RESULT_UNKNOWN && IS_UNDEFINED(hex.text));
+	assert(classify_result("not hex", &hex) == RESULT_UNKNOWN);
 	char input[BUFSIZE * 2];
 	memset(input, '\\', sizeof(input) - 1);
 	input[sizeof(input) - 1] = '\0';
@@ -668,7 +664,16 @@ static void test_poll_result_formats(void) {
 		{"a:1 b!2", "a:1 b!2", POLL_RESULT_VALID},
 		{"a!1", "a!1", POLL_RESULT_VALID},
 		{"U", "U", POLL_RESULT_UNDEFINED},
-		{"nonsense", "", POLL_RESULT_INVALID}
+		{"nonsense", "U", POLL_RESULT_INVALID},
+		/* Padding is not data: " 42" once parsed as the octets 0x42. */
+		{" 42", "42", POLL_RESULT_VALID},
+		{"42\n", "42", POLL_RESULT_VALID},
+		{"  10\n", "10", POLL_RESULT_VALID},
+		{"\"42\"", "42", POLL_RESULT_VALID},
+		{"1F FF FF FF FF FF FF F1", "2305843009213693937", POLL_RESULT_VALID},
+		{"0x1A", "U", POLL_RESULT_INVALID},
+		{"---", "U", POLL_RESULT_INVALID},
+		{"   ", "U", POLL_RESULT_INVALID}
 	};
 	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
 		for (int snmp = 0; snmp <= 1; snmp++) {
