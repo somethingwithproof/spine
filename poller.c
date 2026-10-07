@@ -657,6 +657,17 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 	return poll_result;
 }
 
+/* trim() can return a pointer past the start of the allocation. Move the
+ * trimmed text to the front so the caller still frees what malloc returned. */
+static char *trim_owned(char *owned) {
+	char *trimmed;
+
+	if (owned == NULL) return NULL;
+	trimmed = trim(owned);
+	if (trimmed != owned) memmove(owned, trimmed, strlen(trimmed) + 1);
+	return owned;
+}
+
 static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
 	char *poll_result = NULL;
 	int php_process;
@@ -673,7 +684,7 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 			break;
 		}
 
-		poll_result = trim(exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ"));
+		poll_result = trim_owned(exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ"));
 
 		php_command_script(reindex->arg1, script, sizeof(script));
 		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));
@@ -682,7 +693,7 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 	case POLLER_ACTION_PHP_SCRIPT_SERVER: /* script (php script server) */
 		php_process = php_get_process();
 
-		poll_result = trim(php_cmd(reindex->arg1, php_process));
+		poll_result = trim_owned(php_cmd(reindex->arg1, php_process));
 
 		php_command_script(reindex->arg1, script, sizeof(script));
 		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));

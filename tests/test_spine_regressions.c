@@ -29,6 +29,7 @@ extern void test_script_stream_contracts(void);
 extern void test_additional_database_contracts(MYSQL *mysql);
 extern void test_settings_write_contracts(MYSQL *mysql);
 extern void test_additional_reindex_contracts(MYSQL *mysql);
+extern void test_reindex_result_contracts(MYSQL *mysql);
 extern void test_additional_snmp_session_boundaries(void);
 extern void test_snmpv3_agent_contracts(void);
 
@@ -2318,6 +2319,7 @@ static void test_database_configuration(void) {
 	test_collector_transfer(&mysql);
 	test_poll_pipeline(&mysql);
 	test_output_write_contracts(&mysql);
+	test_reindex_result_contracts(&mysql);
 	const char *reindex_agent = getenv("SPINE_TEST_SNMP_HOST");
 	if (reindex_agent != NULL && reindex_agent[0] != '\0') test_additional_reindex_contracts(&mysql);
 	test_cli_transfer_exit(&mysql);

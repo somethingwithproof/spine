@@ -177,3 +177,86 @@ void test_additional_reindex_contracts(MYSQL *mysql) {
 	assert(db_insert(mysql, LOCAL, "DELETE FROM host WHERE id=45"));
 	puts("production live SNMP and PHP reindex contracts passed");
 }
+
+static int poll_reindex_result(MYSQL *mysql, int action, const char *argument,
+	const char *op, const char *expected) {
+	char escaped_argument[BUFSIZE];
+	char query[LRG_BUFSIZE];
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex WHERE host_id=46"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command WHERE command='46:7'"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id=811"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id=811"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host_errors WHERE host_id=46"));
+	db_escape(mysql, escaped_argument, sizeof(escaped_argument), argument);
+	spine_snprintf(query, sizeof(query), "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (46,7,%d,'%s','%s','%s')", action, op, expected, escaped_argument);
+	assert(db_insert(mysql, LOCAL, query));
+	reindex_test_work_t work = {0};
+	work.thread.host_id = 46;
+	work.thread.host_thread = 1;
+	work.thread.host_threads = 1;
+	work.thread.host_data_ids = 1;
+	work.thread.host_time_double = get_time_as_double();
+	STRNCOPY(work.thread.host_time, "1791158400");
+	poller_thread_t *device = &work.thread;
+	poller_thread_t **prior_details = details;
+	details = &device;
+	pthread_t worker;
+	assert(pthread_create(&worker, NULL, run_reindex_worker, &work) == 0);
+	assert(pthread_join(worker, NULL) == 0);
+	details = prior_details;
+	assert(work.thread.complete && work.thread.threads_complete == 1);
+	assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+	return work.errors;
+}
+
+/* Runs against the database alone: the SNMP host points at a port with no
+ * agent, which is the failure the uptime case needs. */
+void test_reindex_result_contracts(MYSQL *mysql) {
+	config_t previous_config = set;
+	pool_t *previous_pool = db_pool_local;
+	set.poller.threads = 1;
+	set.poller.poller_id = 1;
+	set.poller.poller_interval = 0;
+	set.poller.active_profiles = 1;
+	set.poller.mode = REMOTE_OFFLINE;
+	set.boost.boost_enabled = FALSE;
+	set.boost.boost_redirect = FALSE;
+	set.availability.ping_only = FALSE;
+	set.php.script_timeout = 2;
+	set.logging.spine_log_level = 0;
+	set.logging.log_destination = 0;
+	set.snmp.mibs = FALSE;
+	set.snmp.snmp_retries = 0;
+	db_pool_local = calloc(1, sizeof(*db_pool_local));
+	assert(db_pool_local != NULL);
+	db_create_connection_pool(LOCAL);
+	assert(spine_permits_init(&available_scripts, 2) == 0);
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host WHERE id=46"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE local_data_id=811"));
+	char query[LRG_BUFSIZE];
+	spine_snprintf(query, sizeof(query), "INSERT INTO host(id,hostname,availability_method,snmp_version,snmp_community,snmp_port,snmp_timeout,status_fail_date,status_rec_date,max_oids) VALUES (46,'127.0.0.1',%d,2,'regression',1,200,'2026-10-05 00:00:00','2026-10-05 00:00:00',5)", AVAIL_NONE);
+	assert(db_insert(mysql, LOCAL, query));
+	assert(db_insert(mysql, LOCAL, "INSERT INTO poller_item(local_data_id,host_id,poller_id,action,arg1,rrd_name) VALUES(811,46,1,1,'/usr/bin/printf 123','reindex_result')"));
+	snmp_spine_init();
+
+	/* Trimmed script output must be freed through the pointer malloc returned. */
+	assert(poll_reindex_result(mysql, POLLER_ACTION_SCRIPT, "/usr/bin/printf ' 123'", "=", "123") == 0);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") == 0);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id=811 AND output='123'") == 1);
+	assert(poll_reindex_result(mysql, POLLER_ACTION_SCRIPT, "/usr/bin/printf '\"123\"\\n'", "=", "122") == 0);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") == 1);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='123'") == 1);
+
+	assert(spine_permits_destroy(&available_scripts) == 0);
+	db_close_connection_pool(LOCAL);
+	db_pool_local = previous_pool;
+	set = previous_config;
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex WHERE host_id=46"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command WHERE command='46:7'"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output WHERE local_data_id=811"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost WHERE local_data_id=811"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE local_data_id=811"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host_errors WHERE host_id=46"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM host WHERE id=46"));
+	puts("production reindex result contracts passed");
+}
