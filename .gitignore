@@ -31,3 +31,7 @@ spine
 spine.1
 *.o
 *.m4
+
+# Local assistant sessions and isolated worktrees
+.omc/
+.worktrees/
