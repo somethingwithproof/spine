@@ -1103,6 +1103,8 @@ static bool snmp_item_changed(const snmp_item_key_t *key, const target_t *item) 
 					(!STRMATCH(key->engine_id, item->snmp.engine_id))));
 }
 
+/* The batch-full, credential-change and final flushes all come through here,
+ * so every item gets the same regex, validation and spike kill. */
 static void flush_snmp_batch(host_t *host, snmp_poll_batch_t *batch,
 	double thread_start, bool spike_kill) {
 	if (batch->count <= 0) return;
@@ -1125,8 +1127,7 @@ static void poll_snmp_item(host_t *host, snmp_poll_batch_t *batch, int position,
 		return;
 	}
 	if (snmp_item_changed(&batch->key, item)) {
-		/* Credential-switch flushes preserve the legacy no-discard policy. */
-		flush_snmp_batch(host, batch, thread_start, FALSE);
+		flush_snmp_batch(host, batch, thread_start, spike_kill);
 		if (host->snmp.session != NULL) {
 			snmp_host_cleanup(host->snmp.session);
 			host->snmp.session = NULL;
@@ -1218,11 +1219,7 @@ static int collect_poll_items(host_t *host, snmp_poll_batch_t *batch, int num_ro
 	}
 
 	/* process last multi-get request if applicable */
-	if (batch->count > 0) {
-		snmp_get_multi(host, batch->items, batch->oids, batch->count);
-
-		store_snmp_results(host, batch->items, batch->oids, batch->count, batch->errors, thread_start, spike_kill);
-	}
+	flush_snmp_batch(host, batch, thread_start, spike_kill);
 
 	return rows_processed;
 }
