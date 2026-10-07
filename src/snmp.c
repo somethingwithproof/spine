@@ -224,6 +224,211 @@ void snmp_spine_close(void) {
 	snmp_shutdown("spine");
 }
 
+static int snmp_derive_auth_key(const spine_snmp_profile_t *profile, struct snmp_session *session, const char *secret) {
+	session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+	if (secret == NULL || session->securityAuthProto == NULL ||
+		generate_Ku(session->securityAuthProto,
+		session->securityAuthProtoLen,
+		(const u_char *) secret, strlen(secret),
+		session->securityAuthKey,
+		&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
+		return 0;
+	}
+	return 1;
+}
+
+static int snmp_derive_priv_key(const spine_snmp_profile_t *profile, struct snmp_session *session, const char *secret) {
+	session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+	if (secret == NULL || session->securityPrivProto == NULL ||
+		generate_Ku(session->securityAuthProto,
+		session->securityAuthProtoLen,
+		(const u_char *) secret, strlen(secret),
+		session->securityPrivKey,
+		&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", profile->host_id));
+		return 0;
+	}
+	return 1;
+}
+
+/* Derive keys from private copies without consuming the caller's profile:
+ * the poller compares and reuses it between item sessions. */
+static int snmp_prepare_private_keys(const spine_snmp_profile_t *profile, struct snmp_session *session, int with_privacy) {
+	char *authentication = strdup(profile->snmp_password);
+	char *privacy = with_privacy ? strdup(profile->snmp_priv_passphrase) : NULL;
+	int prepared = 0;
+
+	/* authPriv cannot be constructed safely without both local copies.
+	 * Treat allocator failure like key-derivation failure instead of
+	 * handing net-snmp an authPriv session with an empty key. */
+	if (with_privacy && (authentication == NULL || privacy == NULL)) {
+		SPINE_LOG(("SNMP: Device[%i] Error allocating SNMPv3 passphrase storage.", profile->host_id));
+	} else {
+		prepared = snmp_derive_auth_key(profile, session, authentication);
+		/* Release the authentication copy before privacy derivation. */
+		free_passphrase(&authentication);
+		if (prepared && with_privacy) prepared = snmp_derive_priv_key(profile, session, privacy);
+	}
+
+	free_passphrase(&authentication);
+	free_passphrase(&privacy);
+	return prepared;
+}
+
+static int snmp_configure_v3(const spine_snmp_profile_t *profile, struct snmp_session *session) {
+	int auth_type;
+	int priv_type;
+	int security_level;
+	const oid *auth_proto;
+
+	session->community       = NULL;
+	session->community_len   = 0;
+
+	session->securityName    = profile->snmp_username;
+	session->securityNameLen = strlen(session->securityName);
+
+	if (profile->snmp_context && strlen(profile->snmp_context)) {
+		session->contextName    = profile->snmp_context;
+		session->contextNameLen = strlen(session->contextName);
+	}
+
+	if (profile->snmp_engine_id && strlen(profile->snmp_engine_id)) {
+		session->contextEngineID    = (unsigned char*) profile->snmp_engine_id;
+		session->contextEngineIDLen = strlen(profile->snmp_engine_id);
+	}
+
+	/* Cacti stores "[None]" when no protocol is selected. Match cmd.php's
+	 * effective-level rules for incomplete pairs, but report the downgrade
+	 * explicitly so an operator does not mistake it for auth or privacy. */
+	security_level = spine_snmpv3_security_level(profile->snmp_auth_protocol, profile->snmp_password,
+		profile->snmp_priv_protocol, profile->snmp_priv_passphrase);
+
+	/* Refusals precede downgrade warnings so the log never promises that a
+	 * device will be polled when this function is about to reject it. */
+	if (spine_snmpv3_passphrase_is_set(profile->snmp_password) &&
+		(profile->snmp_auth_protocol == NULL || profile->snmp_auth_protocol[0] == '\0')) {
+		SPINE_LOG(("SNMP: Device[%i] Error authentication password is set but the authentication protocol is empty.", profile->host_id));
+		return 0;
+	}
+
+	if (spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase) &&
+		(profile->snmp_priv_protocol == NULL || profile->snmp_priv_protocol[0] == '\0')) {
+		SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is set but the privacy protocol is empty.", profile->host_id));
+		return 0;
+	}
+
+	/* Complete privacy credentials with no usable authentication cannot be
+	 * honoured by USM. Refuse that case before describing any downgrade. */
+	if (security_level == SNMP_SEC_LEVEL_NOAUTH &&
+		spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) &&
+		spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
+		SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is configured but authentication is unavailable; set an auth protocol and password, or clear the privacy passphrase.", profile->host_id));
+		return 0;
+	}
+
+	if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol) !=
+		spine_snmpv3_passphrase_is_set(profile->snmp_password)) {
+		SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete authentication settings; Cacti's effective security level is noAuthNoPriv.", profile->host_id));
+	}
+
+	if (spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) !=
+		spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
+		SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete privacy settings; Cacti's effective security level does not include encryption.", profile->host_id));
+	}
+
+	/* A protocol that is set but unrecognised is a configuration error at
+	 * any security level. Deciding the level first and only validating on
+	 * the authenticated path would let a typo through as noAuthNoPriv,
+	 * because a device with no passphrase never reaches the check. */
+	if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol)) {
+		auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
+
+		if (auth_type <= 0) {
+			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", profile->host_id, profile->snmp_auth_protocol));
+			return 0;
+		}
+
+		/* Install it whenever it is configured, not only when the level
+		 * says the session authenticates. The privacy branch below can
+		 * still raise the level, and leaving this to that branch meant a
+		 * device with a protocol but no passphrase got the library
+		 * default instead of the one it was configured with. */
+		auth_proto = sc_get_auth_oid(auth_type, &session->securityAuthProtoLen);
+		free(session->securityAuthProto);
+		session->securityAuthProto = auth_proto == NULL ? NULL :
+			snmp_duplicate_objid(auth_proto, session->securityAuthProtoLen);
+		if (session->securityAuthProto == NULL) {
+			SPINE_LOG(("SNMP: Device[%i] Error installing auth protocol %s.", profile->host_id, profile->snmp_auth_protocol));
+			return 0;
+		}
+	}
+
+	session->securityLevel = security_level;
+
+	/* Privacy follows the computed level. Selecting it from the privacy
+	 * fields alone disagreed with spine_snmpv3_security_level(), which
+	 * requires authentication before encryption: a device with privacy
+	 * configured but no auth passphrase took this branch's else and was
+	 * built as authPriv with no authentication key. */
+	if (security_level != SNMP_SEC_LEVEL_AUTHPRIV) {
+		session->securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
+		session->securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
+		session->securityPrivKeyLen   = USM_PRIV_KU_LEN;
+
+		if (session->securityPrivProto == NULL) {
+			session->securityPrivProtoLen = 0;
+			SPINE_LOG(("SNMP: Device[%i] Error installing the no-privacy protocol.", profile->host_id));
+			return 0;
+		}
+
+		/* The authentication key was only ever derived on the privacy path,
+		 * so authNoPriv sessions authenticated with an empty key and every
+		 * such device failed with a USM authentication error. */
+		if (security_level == SNMP_SEC_LEVEL_AUTHNOPRIV &&
+			!snmp_prepare_private_keys(profile, session, FALSE)) {
+			return 0;
+		}
+	} else {
+		const oid *priv_proto;
+
+		priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
+
+		if (priv_type < 0) {
+			SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", profile->host_id, profile->snmp_priv_protocol));
+			return 0;
+		}
+
+		priv_proto = sc_get_priv_oid(priv_type, &session->securityPrivProtoLen);
+		free(session->securityPrivProto);
+		session->securityPrivProto = priv_proto == NULL ? NULL :
+			snmp_duplicate_objid(priv_proto, session->securityPrivProtoLen);
+		if (session->securityPrivProto == NULL) {
+			SPINE_LOG(("SNMP: Device[%i] Error installing privacy protocol %s.", profile->host_id, profile->snmp_priv_protocol));
+			return 0;
+		}
+		/* security_level is AUTHPRIV here by construction: this branch is
+		 * only reached when it is. Assigning the computed value keeps one
+		 * predicate authoritative rather than two that can disagree. */
+		session->securityLevel     = security_level;
+
+		if (!snmp_prepare_private_keys(profile, session, TRUE)) {
+			return 0;
+		}
+	}
+
+	SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", profile->host_id, profile->snmp_auth_protocol, profile->snmp_priv_protocol));
+	return 1;
+}
+
+static void snmp_release_session_fields(struct snmp_session *session) {
+	snmp_clear_session_keys(session);
+	free(session->peername);
+	free(session->securityAuthProto);
+	free(session->securityPrivProto);
+	free(session->localname);
+}
+
 /* Initialize Net-SNMP from one complete, caller-owned credential profile. */
 void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	if (profile == NULL) return NULL;
@@ -232,11 +437,6 @@ void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	struct snmp_session session;
 	char   hostnameport[BUFSIZE];
 	size_t len;
-
-	char   *Apsz = NULL;
-	char   *Xpsz = NULL;
-	char   *Cpsz = NULL;
-	int    priv_type = -1;
 
 	/* initialize SNMP */
 	snmp_sess_init(&session);
@@ -319,271 +519,16 @@ void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	if ((profile->snmp_version == 2) || (profile->snmp_version == 1)) {
 		session.community     = (unsigned char*) profile->snmp_community;
 		session.community_len = strlen(profile->snmp_community);
-	} else {
-		session.community       = (unsigned char *) Cpsz;
-		session.community_len   = 0;
-
-		session.securityName    = profile->snmp_username;
-		session.securityNameLen = strlen(session.securityName);
-
-		if (profile->snmp_context && strlen(profile->snmp_context)) {
-			session.contextName    = profile->snmp_context;
-			session.contextNameLen = strlen(session.contextName);
-		}
-
-		if (profile->snmp_engine_id && strlen(profile->snmp_engine_id)) {
-			session.contextEngineID    = (unsigned char*) profile->snmp_engine_id;
-			session.contextEngineIDLen = strlen(profile->snmp_engine_id);
-		}
-
-		/* set the authentication protocol */
-		{
-		int auth_type;
-		int security_level;
-		const oid *auth_proto;
-
-		/* Cacti stores "[None]" when no protocol is selected. Match cmd.php's
-		 * effective-level rules for incomplete pairs, but report the downgrade
-		 * explicitly so an operator does not mistake it for auth or privacy. */
-		security_level = spine_snmpv3_security_level(profile->snmp_auth_protocol, profile->snmp_password,
-			profile->snmp_priv_protocol, profile->snmp_priv_passphrase);
-
-		/* Refusals precede downgrade warnings so the log never promises that a
-		 * device will be polled when this function is about to reject it. */
-		if (spine_snmpv3_passphrase_is_set(profile->snmp_password) &&
-			(profile->snmp_auth_protocol == NULL || profile->snmp_auth_protocol[0] == '\0')) {
-			SPINE_LOG(("SNMP: Device[%i] Error authentication password is set but the authentication protocol is empty.", profile->host_id));
-			free(session.peername);
-			free(session.localname);
-			return 0;
-		}
-
-		if (spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase) &&
-			(profile->snmp_priv_protocol == NULL || profile->snmp_priv_protocol[0] == '\0')) {
-			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is set but the privacy protocol is empty.", profile->host_id));
-			free(session.peername);
-			free(session.localname);
-			return 0;
-		}
-
-		/* Complete privacy credentials with no usable authentication cannot be
-		 * honoured by USM. Refuse that case before describing any downgrade. */
-		if (security_level == SNMP_SEC_LEVEL_NOAUTH &&
-			spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) &&
-			spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
-			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is configured but authentication is unavailable; set an auth protocol and password, or clear the privacy passphrase.", profile->host_id));
-			free(session.peername);
-			free(session.localname);
-			return 0;
-		}
-
-		if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol) !=
-			spine_snmpv3_passphrase_is_set(profile->snmp_password)) {
-			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete authentication settings; Cacti's effective security level is noAuthNoPriv.", profile->host_id));
-		}
-
-		if (spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) !=
-			spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
-			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete privacy settings; Cacti's effective security level does not include encryption.", profile->host_id));
-		}
-
-		/* A protocol that is set but unrecognised is a configuration error at
-		 * any security level. Deciding the level first and only validating on
-		 * the authenticated path would let a typo through as noAuthNoPriv,
-		 * because a device with no passphrase never reaches the check. */
-		if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol)) {
-			auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
-
-			if (auth_type <= 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", profile->host_id, profile->snmp_auth_protocol));
-				free(session.peername);
-				free(session.localname);
-				return 0;
-			}
-
-			/* Install it whenever it is configured, not only when the level
-			 * says the session authenticates. The privacy branch below can
-			 * still raise the level, and leaving this to that branch meant a
-			 * device with a protocol but no passphrase got the library
-			 * default instead of the one it was configured with. */
-			auth_proto = sc_get_auth_oid(auth_type, &session.securityAuthProtoLen);
-			free(session.securityAuthProto);
-			session.securityAuthProto = auth_proto == NULL ? NULL :
-				snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
-			if (session.securityAuthProto == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error installing auth protocol %s.", profile->host_id, profile->snmp_auth_protocol));
-				free(session.peername);
-				free(session.localname);
-				return 0;
-			}
-		}
-
-		session.securityLevel = security_level;
-
-		/* Privacy follows the computed level. Selecting it from the privacy
-		 * fields alone disagreed with spine_snmpv3_security_level(), which
-		 * requires authentication before encryption: a device with privacy
-		 * configured but no auth passphrase took this branch's else and was
-		 * built as authPriv with no authentication key. */
-		if (security_level != SNMP_SEC_LEVEL_AUTHPRIV) {
-			session.securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
-			session.securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
-			session.securityPrivKeyLen   = USM_PRIV_KU_LEN;
-
-			if (session.securityPrivProto == NULL) {
-				session.securityPrivProtoLen = 0;
-				SPINE_LOG(("SNMP: Device[%i] Error installing the no-privacy protocol.", profile->host_id));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.localname);
-				return 0;
-			}
-
-			/* The authentication key was only ever derived on the privacy path,
-			 * so authNoPriv sessions authenticated with an empty key and every
-			 * such device failed with a USM authentication error. */
-			if (security_level == SNMP_SEC_LEVEL_AUTHNOPRIV) {
-				free_passphrase(&Apsz);
-				Apsz = strdup(profile->snmp_password);
-
-				session.securityAuthKeyLen = USM_AUTH_KU_LEN;
-				if (Apsz == NULL || session.securityAuthProto == NULL ||
-					generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Apsz, strlen(Apsz),
-					session.securityAuthKey,
-					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
-					free(session.peername);
-					free(session.securityAuthProto);
-					free(session.securityPrivProto);
-					free_passphrase(&Apsz);
-					free_passphrase(&Xpsz);
-					free(session.localname);
-					snmp_clear_session_keys(&session);
-					return 0;
-				}
-
-				/* The privacy path releases this after deriving its key; this
-				 * one did not, so every authNoPriv session leaked the
-				 * passphrase copy. */
-				free_passphrase(&Apsz);
-			}
-		} else {
-			const oid *priv_proto;
-
-			priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
-
-			if (priv_type < 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", profile->host_id, profile->snmp_priv_protocol));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.localname);
-				return 0;
-			}
-
-			priv_proto = sc_get_priv_oid(priv_type, &session.securityPrivProtoLen);
-			free(session.securityPrivProto);
-			session.securityPrivProto = priv_proto == NULL ? NULL :
-				snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
-			if (session.securityPrivProto == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error installing privacy protocol %s.", profile->host_id, profile->snmp_priv_protocol));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.localname);
-				return 0;
-			}
-			/* security_level is AUTHPRIV here by construction: this branch is
-			 * only reached when it is. Assigning the computed value keeps one
-			 * predicate authoritative rather than two that can disagree. */
-			session.securityLevel     = security_level;
-
-			// Auth Protocol Setup
-			free_passphrase(&Apsz);
-			Apsz = strdup(profile->snmp_password);
-
-			// Privacy Protocol Setup
-			free_passphrase(&Xpsz);
-			Xpsz = strdup(profile->snmp_priv_passphrase);
-
-			/* authPriv cannot be constructed safely without both local copies.
-			 * Treat allocator failure like key-derivation failure instead of
-			 * handing net-snmp an authPriv session with an empty key. */
-			if (Apsz == NULL || Xpsz == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error allocating SNMPv3 passphrase storage.", profile->host_id));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.securityPrivProto);
-				free_passphrase(&Apsz);
-				free_passphrase(&Xpsz);
-				free(session.localname);
-				return 0;
-			}
-
-			{
-				session.securityAuthKeyLen = USM_AUTH_KU_LEN;
-				if (session.securityAuthProto == NULL ||
-					generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Apsz, strlen(Apsz),
-					session.securityAuthKey,
-					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
-					free(session.peername);
-					free(session.securityAuthProto);
-					free(session.securityPrivProto);
-					free_passphrase(&Apsz);
-					free_passphrase(&Xpsz);
-					if (session.localname) {
-						free(session.localname);
-						session.localname = NULL;
-					}
-					snmp_clear_session_keys(&session);
-					return 0;
-				}
-
-				free_passphrase(&Apsz);
-			}
-
-			{
-				session.securityPrivKeyLen = USM_PRIV_KU_LEN;
-				if (session.securityPrivProto == NULL ||
-					generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Xpsz, strlen(Xpsz),
-					session.securityPrivKey,
-					&session.securityPrivKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", profile->host_id));
-					free(session.peername);
-					free(session.securityAuthProto);
-					free(session.securityPrivProto);
-					free_passphrase(&Xpsz);
-					if (session.localname) {
-						free(session.localname);
-						session.localname = NULL;
-					}
-					snmp_clear_session_keys(&session);
-					return 0;
-				}
-
-				free_passphrase(&Xpsz);
-			}
-		}
-
-		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", profile->host_id, profile->snmp_auth_protocol, profile->snmp_priv_protocol));
-		} /* end auth/priv block */
+	} else if (!snmp_configure_v3(profile, &session)) {
+		snmp_release_session_fields(&session);
+		return NULL;
 	}
 
 	/* open SNMP Session */
 	thread_mutex_lock(LOCK_SNMP);
 	sessp = snmp_sess_open(&session);
 	thread_mutex_unlock(LOCK_SNMP);
-	snmp_clear_session_keys(&session);
-
-	free(session.peername);
-	free(session.securityAuthProto);
-	free(session.securityPrivProto);
-	free(session.localname);
+	snmp_release_session_fields(&session);
 
 	if (!sessp) {
 		if (is_debug_device(profile->host_id)) {
