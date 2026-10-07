@@ -64,7 +64,7 @@ check_PROGRAMS += test_spine_faults
 test_spine_faults_SOURCES = $(spine_shared_sources) tests/test_spine_faults.c
 test_spine_faults_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)
 test_spine_faults_LDADD = test_spine_regressions-spine.$(OBJEXT)
-test_spine_faults_LDFLAGS = $(AM_LDFLAGS) -Wl,--wrap=strftime -Wl,--wrap=mysql_query -Wl,--wrap=mysql_ping \
+test_spine_faults_LDFLAGS = $(AM_LDFLAGS) -Wl,--wrap=strftime -Wl,--wrap=mysql_query -Wl,--wrap=mysql_ping -Wl,--wrap=mysql_errno \
  -Wl,--wrap=pipe -Wl,--wrap=socketpair -Wl,--wrap=posix_spawn \
  -Wl,--wrap=malloc -Wl,--wrap=strdup \
  -Wl,--wrap=snmp_sess_open -Wl,--wrap=snmp_sess_close -Wl,--wrap=pthread_create

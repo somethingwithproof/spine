@@ -45,6 +45,7 @@ static char *item_inserts[8];
 static int host_insert_count;
 static int item_insert_count;
 static int total_insert_count;
+static int host_insert_failures;
 
 #define mysql_num_rows test_mysql_num_rows
 #define mysql_get_server_version test_mysql_get_server_version
@@ -134,6 +135,10 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 		assert_true(host_insert_count < 8);
 		host_inserts[host_insert_count++] = strdup(query);
 		assert_non_null(host_inserts[host_insert_count - 1]);
+		if (host_insert_failures > 0) {
+			host_insert_failures--;
+			return 0;
+		}
 	} else if (strncmp(query, "INSERT INTO poller_item ", strlen("INSERT INTO poller_item ")) == 0) {
 		assert_true(item_insert_count < 8);
 		item_inserts[item_insert_count++] = strdup(query);
@@ -445,6 +450,33 @@ static void test_remote_push_flushes_wide_rows_before_overflow(void **state) {
 	fake_query_kind = FAKE_QUERY_DEFAULT;
 }
 
+/* A failed batch must end the push: the row that triggered the flush is not
+ * queued for a later batch, and poller items are never attempted. */
+static void test_remote_push_stops_on_failed_batch(void **state) {
+	int before;
+
+	(void) state;
+	memset(&set, 0, sizeof(set));
+	set.poller.poller_id = 2;
+	row_is_null = 0;
+	fake_query_kind = FAKE_QUERY_DEFAULT;
+	byte_boundary_mode = 0;
+	host_insert_count = 0;
+	item_insert_count = 0;
+	host_insert_failures = 1;
+	before = frees_seen;
+
+	assert_false(poller_transfer_status(&fake_mysql, &fake_mysql));
+
+	assert_int_equal(host_insert_failures, 0);
+	assert_int_equal(host_insert_count, 1);
+	assert_int_equal(item_insert_count, 0);
+	assert_int_equal(frees_seen - before, 1);
+	assert_int_equal(count_occurrences(host_inserts[0], " ('501', "), 0);
+	free(host_inserts[0]);
+	host_inserts[0] = NULL;
+	fake_query_kind = FAKE_QUERY_DEFAULT;
+}
 
 /* ---- issue#565: spine_log() appends the newline without overrunning ---- */
 
@@ -560,6 +592,7 @@ int main(void) {
 		cmocka_unit_test(test_success_path_frees_once),
 		cmocka_unit_test(test_remote_push_keeps_batch_boundary_rows),
 		cmocka_unit_test(test_remote_push_flushes_wide_rows_before_overflow),
+		cmocka_unit_test(test_remote_push_stops_on_failed_batch),
 		cmocka_unit_test(test_spine_log_appends_a_newline),
 		cmocka_unit_test(test_spine_log_survives_a_full_line),
 		cmocka_unit_test(test_spine_log_does_not_double_an_existing_newline),

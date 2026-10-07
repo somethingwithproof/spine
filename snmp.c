@@ -186,7 +186,7 @@ static bool snmp_set_security_keys(struct snmp_session *session, int host_id,
 
 	Xpsz = strdup(priv_password);
 	if (Xpsz == NULL) {
-		if (Apsz != NULL) spine_clear_sensitive(Apsz, strlen(Apsz));
+		spine_clear_sensitive(Apsz, strlen(Apsz));
 		free(Apsz);
 		die("ERROR: Fatal malloc error: SNMP privacy passphrase");
 	}

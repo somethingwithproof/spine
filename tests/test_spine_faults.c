@@ -21,6 +21,7 @@
 extern size_t __real_strftime(char *, size_t, const char *, const struct tm *);
 extern int __real_mysql_query(MYSQL *, const char *);
 extern int __real_mysql_ping(MYSQL *);
+extern unsigned int __real_mysql_errno(MYSQL *);
 extern int __real_pipe(int [2]);
 extern int __real_socketpair(int, int, int, int [2]);
 extern int __real_posix_spawn(pid_t *, const char *, const posix_spawn_file_actions_t *,
@@ -41,6 +42,9 @@ static int query_fault_armed;
 static int observed_query_error;
 static int query_fault_calls;
 static int query_ping_calls;
+static MYSQL *interrupted_connection;
+static int interrupted_queries;
+static int interrupted_query_calls;
 static int pipe_failures;
 static int socketpair_failures;
 static int spawn_failures;
@@ -48,6 +52,7 @@ static int spawn_failure_errno;
 static int spawn_fault_calls;
 static int allocation_failures;
 static int copy_failures;
+static const char *copy_failure_text;
 static bool account_snmp_sessions;
 static void *owned_snmp_session;
 static int session_opens;
@@ -140,6 +145,16 @@ size_t __wrap_strftime(char *output, size_t capacity, const char *format, const 
 
 int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 	static const char completion[] = "UPDATE poller_time SET end_time=NOW() WHERE poller_id=";
+	/* The interrupted handle is never connected; it must not reach the client library. */
+	if (mysql == interrupted_connection) {
+		interrupted_query_calls++;
+		if (interrupted_queries > 0) {
+			interrupted_queries--;
+			errno = EINTR;
+			return 1;
+		}
+		return 0;
+	}
 	if (launch_case_active && strncmp(query, completion, sizeof(completion) - 1) == 0) {
 		inspect_worker_launch_completion();
 	}
@@ -162,6 +177,11 @@ int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 int __wrap_mysql_ping(MYSQL *mysql) {
 	if (mysql == query_fault_connection) query_ping_calls++;
 	return __real_mysql_ping(mysql);
+}
+
+unsigned int __wrap_mysql_errno(MYSQL *mysql) {
+	if (mysql == interrupted_connection) return 2013;
+	return __real_mysql_errno(mysql);
 }
 
 int __wrap_pipe(int descriptors[2]) {
@@ -189,6 +209,7 @@ void *__wrap_malloc(size_t size) {
 
 char *__wrap_strdup(const char *text) {
 	if (copy_failures > 0) { copy_failures--; errno = ENOMEM; return NULL; }
+	if (copy_failure_text != NULL && strcmp(text, copy_failure_text) == 0) { errno = ENOMEM; return NULL; }
 	return __real_strdup(text);
 }
 
@@ -348,6 +369,67 @@ static void arm_lost_connection(MYSQL *mysql, const char *statement) {
 	query_fault_calls = 0;
 	query_ping_calls = 0;
 	observed_query_error = 0;
+}
+
+/* A lost-connection error raised while a signal interrupted the call is
+ * retried in place: db_insert() must neither give up nor ping for a reconnect. */
+static void test_interrupted_insert_retry(void) {
+	MYSQL offline;
+	assert(mysql_init(&offline) == &offline);
+	set.poller.SQL_readonly = FALSE;
+	interrupted_connection = &offline;
+	interrupted_queries = 1;
+	interrupted_query_calls = 0;
+	query_fault_connection = &offline;
+	query_ping_calls = 0;
+	assert(db_insert(&offline, LOCAL, "INSERT INTO interrupted(value) VALUES(1)"));
+	assert(interrupted_queries == 0 && interrupted_query_calls == 2 && query_ping_calls == 0);
+	interrupted_connection = NULL;
+	query_fault_connection = NULL;
+	mysql_close(&offline);
+	puts("production interrupted insert retry regressions passed");
+}
+
+/* die() ends the process, so the copy failure runs in a child. The
+ * authentication copy has already succeeded and must be released first. */
+static void test_snmpv3_privacy_copy_failure(void) {
+	int output[2];
+	assert(pipe(output) == 0);
+	fflush(stdout);
+	fflush(stderr);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		if (dup2(output[1], STDERR_FILENO) != STDERR_FILENO) _exit(3);
+		close(output[0]);
+		close(output[1]);
+		snmp_spine_init();
+		copy_failure_text = "fault-privacy-passphrase";
+		snmp_connection_t options = {
+			.host_id = 47, .hostname = "127.0.0.1", .snmp_version = 3,
+			.snmp_community = "", .snmp_username = "fault-v3-user",
+			.snmp_password = "fault-auth-passphrase", .snmp_auth_protocol = "SHA",
+			.snmp_priv_passphrase = "fault-privacy-passphrase", .snmp_priv_protocol = "AES",
+			.snmp_context = "", .snmp_engine_id = "", .snmp_port = 1162,
+			.snmp_timeout = 500
+		};
+		snmp_host_init(&options);
+		_exit(4);
+	}
+	assert(close(output[1]) == 0);
+	char message[BUFSIZE] = {0};
+	size_t used = 0;
+	ssize_t count;
+	while (used < sizeof(message) - 1 && (count = read(output[0], message + used, sizeof(message) - 1 - used)) > 0) {
+		used += (size_t)count;
+	}
+	assert(close(output[0]) == 0);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+	assert(strstr(message, "ERROR: Fatal malloc error: SNMP privacy passphrase") != NULL);
+	assert(strstr(message, "fault-auth-passphrase") == NULL);
+	puts("production SNMPv3 privacy copy failure regressions passed");
 }
 
 static void test_real_database_retry(void) {
@@ -616,6 +698,8 @@ int main(int argc, char **argv) {
 	alarm(20);
 	test_logger_format_failure();
 	test_process_creation_failures();
+	test_interrupted_insert_retry();
+	test_snmpv3_privacy_copy_failure();
 	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
 		test_real_database_retry();
 		test_ping_only_session_lifetime();

@@ -1622,7 +1622,7 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 			if (level == 1) expected_errors += cases[index].queued + (cases[index].queued && STRMATCH(cases[index].output, "U"));
 			assert(work->errors == expected_errors);
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_command WHERE poller_id=1 AND action=%d AND command='%d:7'", POLLER_COMMAND_REINDEX, work->thread.host_id);
-			assert(database_count(mysql, query) == cases[index].queued);
+			assert(database_count(mysql, query) == (unsigned long)cases[index].queued);
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_reindex WHERE assert_value='%s'", cases[index].stored);
 			assert(database_count(mysql, query) == 1);
 			spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_output WHERE local_data_id=601 AND output='%s'", cases[index].output);

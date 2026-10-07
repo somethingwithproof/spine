@@ -59,7 +59,8 @@ GNU autotools.
 ## Testing and CI
 
 - When configuring CI, it SHOULD run at least: build (gcc+clang), cppcheck, flawfinder, and CodeQL.
-- Before opening a PR, run `cppcheck --enable=all --std=c11 *.c *.h`
+- Before opening a PR, run
+  `cppcheck --enable=all --std=c11 --library=scripts/cppcheck/spine.cfg *.c *.h`
   locally and fix all errors (warnings are informational).
 - flawfinder level-5 hits fail CI; lower levels are informational.
 
