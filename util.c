@@ -2201,12 +2201,17 @@ void checkAsRoot(void) {
 		} else if (geteuid() != 0) {
 			int probe;
 
-			/* Root is not the only way in.  net.ipv4.ping_group_range lists
-			 * the groups allowed to open datagram ICMP sockets, so ask the
-			 * kernel for one instead of assuming ICMP is unavailable */
-			probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+			/* A file capability (setcap cap_net_raw+ep) works without libcap
+			 * support too, so ask the kernel rather than hasCaps().  Root is
+			 * not the only way in either: net.ipv4.ping_group_range lists the
+			 * groups allowed to open datagram ICMP sockets. */
+			probe = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 
 			if (probe != -1) {
+				close(probe);
+				SPINE_LOG_DEBUG(("DEBUG: Spine may open raw ICMP sockets."));
+				set.availability.icmp_avail = TRUE;
+			} else if ((probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP)) != -1) {
 				close(probe);
 				SPINE_LOG_DEBUG(("DEBUG: Spine may use unprivileged ICMP sockets."));
 				set.availability.icmp_avail = TRUE;
@@ -2214,7 +2219,7 @@ void checkAsRoot(void) {
 				SPINE_LOG(("WARNING: Spine is setuid root but could not get raw ICMP access before dropping root, and net.ipv4.ping_group_range does not cover this user.  ICMP pings fall back to UDP; SNMP polling continues."));
 				set.availability.icmp_avail = FALSE;
 			} else {
-				SPINE_LOG_DEBUG(("WARNING: Spine NOT running as root.  This is required if using ICMP unless net.ipv4.ping_group_range covers this user.  Please run \"chown root:root spine;chmod u+s spine\" to resolve."));
+				SPINE_LOG_DEBUG(("WARNING: Spine has no ICMP access.  Install it setuid root (chown root:root spine; chmod u+s spine), grant it CAP_NET_RAW (setcap cap_net_raw+ep spine), or widen net.ipv4.ping_group_range to cover this user."));
 				set.availability.icmp_avail = FALSE;
 			}
 		} else {
