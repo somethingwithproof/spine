@@ -1282,10 +1282,9 @@ static void evaluate_reindex_result(spine_spine_host_t *host, reindex_t *reindex
 		queue_changed_reindex(host, reindex, state, poll_result, query3);
 	} else if ((!strcmp(reindex->op, ">")) && (atoll(reindex->assert_value) < atoll(poll_result))) {
 		queue_increasing_reindex(host, reindex, state, poll_result, query3);
-	} else if (strcmp(reindex->assert_value, "0")) {
-		if ((!strcmp(reindex->op, "<")) && (atoll(reindex->assert_value) > atoll(poll_result))) {
-			queue_decreasing_reindex(host, reindex, state, poll_result, query3);
-		}
+	} else if (strcmp(reindex->assert_value, "0") && (!strcmp(reindex->op, "<")) &&
+		(atoll(reindex->assert_value) > atoll(poll_result))) {
+		queue_decreasing_reindex(host, reindex, state, poll_result, query3);
 	}
 
 	persist_reindex_assertion(host, reindex, state, poll_result, query3);
@@ -1521,11 +1520,10 @@ static void load_legacy_host_system(spine_spine_host_t *host, MYSQL_ROW row, MYS
 }
 
 static void refresh_legacy_system_information(spine_spine_host_t *host, MYSQL *mysql, int *ignore_sysinfo) {
-	if ((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE)) {
-		if (host->snmp_session != NULL && set.mibs) {
-			get_system_information(host, mysql, 1);
-			*ignore_sysinfo = FALSE;
-		}
+	if ((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE) &&
+		host->snmp_session != NULL && set.mibs) {
+		get_system_information(host, mysql, 1);
+		*ignore_sysinfo = FALSE;
 	}
 }
 
