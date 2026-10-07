@@ -388,6 +388,22 @@ function(spine_add_tests)
           spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
       target_link_options(test_snmp_secret_allocations PRIVATE "LINKER:--wrap=strdup" "LINKER:--wrap=free")
       add_test(NAME snmp_secret_allocations COMMAND test_snmp_secret_allocations)
+
+      # Transport errors own a heap diagnostic, never a Net-SNMP session.
+      add_executable(test_snmp_error_cleanup tests/unit/test_snmp_error_cleanup.c
+                     src/snmp.c src/util.c tests/unit/test_spine_stubs.c
+                     ${SPINE_UTIL_SUPPORT_SOURCES})
+      target_include_directories(test_snmp_error_cleanup PRIVATE
+          ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tests/unit ${CMAKE_SOURCE_DIR}/third_party)
+      if(TARGET spine_build_options)
+        target_link_libraries(test_snmp_error_cleanup PRIVATE spine_build_options)
+      endif()
+      target_link_libraries(test_snmp_error_cleanup PRIVATE
+          spine_platform_test_support spine_hardening spine_mysql spine_netsnmp Threads::Threads)
+      target_link_options(test_snmp_error_cleanup PRIVATE
+          "LINKER:--wrap=snmp_sess_synch_response" "LINKER:--wrap=snmp_sess_error"
+          "LINKER:--wrap=snmp_sess_close" "LINKER:--wrap=free")
+      add_test(NAME snmp_error_cleanup COMMAND test_snmp_error_cleanup)
     endif()
 
     # CB age-reap: mock-clock driven. test_spine_stubs provides config_t set
