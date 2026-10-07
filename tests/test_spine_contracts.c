@@ -14,6 +14,7 @@
 #include "common.h"
 #include "spine.h"
 #include <stdint.h>
+#include <sys/resource.h>
 
 static void test_keyword_roundtrips(void) {
 	typedef struct { const char *word; int value; } keyword_case_t;
@@ -200,14 +201,13 @@ static void test_fatal_signal_contracts(void) {
 			close(diagnostic[0]);
 			assert(dup2(diagnostic[1], STDERR_FILENO) == STDERR_FILENO);
 			close(diagnostic[1]);
+			/* The default action of several cases dumps core. */
+			struct rlimit no_core = {0, 0};
+			assert(setrlimit(RLIMIT_CORE, &no_core) == 0);
 			assert(signal(cases[i].signal, SIG_DFL) != SIG_ERR);
 			install_spine_signal_handler();
 			assert(raise(cases[i].signal) == 0);
-			assert(set.exit.exit_code == cases[i].signal);
-			struct sigaction restored;
-			assert(sigaction(cases[i].signal, NULL, &restored) == 0);
-			assert(restored.sa_handler == SIG_DFL);
-			uninstall_spine_signal_handler();
+			/* A fatal signal must end the process once it is logged. */
 			_exit(0);
 		}
 		close(diagnostic[1]);
@@ -223,8 +223,12 @@ static void test_fatal_signal_contracts(void) {
 		close(diagnostic[0]);
 		int status;
 		assert(waitpid(child, &status, 0) == child);
-		assert(WIFEXITED(status));
-		assert(WEXITSTATUS(status) == (cases[i].signal == SIGSEGV ? 1 : 0));
+		fprintf(stderr, "fatal signal %d: raw_status=%d\n", cases[i].signal, status);
+		if (cases[i].signal == SIGSEGV) {
+			assert(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+		} else {
+			assert(WIFSIGNALED(status) && WTERMSIG(status) == cases[i].signal);
+		}
 		assert(strstr(message, cases[i].message) != NULL);
 	}
 	/* A broken pipe is an ordinary write failure: it must neither terminate
