@@ -2,7 +2,6 @@ name: Fuzzing
 
 on:
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 2'
@@ -11,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -35,6 +34,7 @@ jobs:
   cli-fuzz-smoke:
     name: CLI fuzz smoke (asan/ubsan)
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

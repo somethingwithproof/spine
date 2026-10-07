@@ -65,7 +65,7 @@ def main() -> int:
 		file_path = m.group("file")
 		line = int(m.group("line"))
 		col = int(m.group("col"))
-		message = m.group("message").strip()
+		message = m.group("message").strip() or raw_line.strip()
 		level = level_from_severity(m.group("severity"))
 		key = (file_path, line, col, rule_id, message, level)
 		if key in seen:

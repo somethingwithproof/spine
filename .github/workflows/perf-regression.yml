@@ -2,7 +2,6 @@ name: Performance Regression
 
 on:
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
   schedule:
     - cron: '0 7 * * 1'
@@ -11,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -30,6 +29,7 @@ jobs:
   cli-benchmark:
     name: CLI CPU/RSS benchmark
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -136,6 +136,7 @@ jobs:
   snmp-simulator-benchmark:
     name: SNMP simulator benchmark
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -248,6 +249,7 @@ jobs:
   poll-benchmark:
     name: Poll Timing Benchmark
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

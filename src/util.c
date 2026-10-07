@@ -1461,9 +1461,7 @@ static int spine_config_tokenize(char *buff, size_t buff_len,
 			file, lineno, p1, p2_cap - 1);
 		return -1;
 	}
-	if (vlen > 0) {
-		memcpy(p2, buff + vs, vlen);
-	}
+	memcpy(p2, buff + vs, vlen);
 	p2[vlen] = '\0';
 	return 1;
 }
@@ -1482,9 +1480,6 @@ int read_spine_config(const char *file) {
 	 * room for future additions; anything longer is almost certainly a
 	 * malformed or truncated line. Value cap matches the struct member
 	 * sizes in spine.h (BUFSIZE). */
-	char p1[64];
-	char p2[BUFSIZE];
-	int  lineno = 0;
 
 	/* O_NOFOLLOW refuses to traverse a symlink at the final component so an
 	 * attacker who can plant a symlink at /etc/spine.conf cannot redirect
@@ -1516,6 +1511,9 @@ int read_spine_config(const char *file) {
 		}
 		return -1;
 	} else {
+		char p1[64];
+		char p2[BUFSIZE];
+		int lineno = 0;
 		/* spine.conf carries DB credentials. Hard-fail only on the bits that
 		 * actually leak or corrupt them: world-readable (password exfil) or
 		 * group/world-writable (tamper). Soft-warn on owner mismatch because
@@ -2730,6 +2728,9 @@ const char *regex_replace(const char *exp, const char *value) {
 	pthread_mutex_lock(&regex_cache_mutex);
 	regex_cache_entry_t *entry = NULL;
 	HASH_FIND_STR(regex_cache, exp, entry);
+	/* HASH_FIND_STR can produce a cache hit; cppcheck cannot model this
+	 * optional PCRE2 configuration through the vendored hash macro. */
+	// cppcheck-suppress knownConditionTrueFalse
 	if (!entry) {
 		int errornumber;
 		PCRE2_SIZE erroroffset;
@@ -2739,6 +2740,8 @@ const char *regex_replace(const char *exp, const char *value) {
 			entry = calloc(1, sizeof(regex_cache_entry_t));
 			strlcpy(entry->id, exp, sizeof(entry->id));
 			entry->re = re;
+			/* The fatal-allocation arm is internal to vendored uthash. */
+			// cppcheck-suppress unreachableCode
 			HASH_ADD_STR(regex_cache, id, entry);
 		}
 	} else {
@@ -2753,7 +2756,7 @@ const char *regex_replace(const char *exp, const char *value) {
 	int rc = pcre2_match(re, (PCRE2_SPTR)value, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL);
 	if (rc < 0) return value;
 	
-	PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
+	const PCRE2_SIZE *ovector = pcre2_get_ovector_pointer(match_data);
 	size_t match_len = ovector[1] - ovector[0];
 	if (match_len >= SMALL_BUFSIZE) {
 		match_len = SMALL_BUFSIZE - 1;
@@ -2988,9 +2991,8 @@ static void emit_mask(char *out, size_t outsz, size_t *pos) {
 
 static int short_flag_is_cred(const char *flag, size_t flag_len) {
 	int i;
-	size_t n;
 	for (i = 0; cred_short_flags[i] != NULL; i++) {
-		n = strlen(cred_short_flags[i]);
+		size_t n = strlen(cred_short_flags[i]);
 		if (flag_len == n && strncmp(flag, cred_short_flags[i], n) == 0) {
 			return 1;
 		}
@@ -3000,9 +3002,8 @@ static int short_flag_is_cred(const char *flag, size_t flag_len) {
 
 static int long_flag_is_cred(const char *flag, size_t flag_len) {
 	int i;
-	size_t n;
 	for (i = 0; cred_long_flags[i] != NULL; i++) {
-		n = strlen(cred_long_flags[i]);
+		size_t n = strlen(cred_long_flags[i]);
 		if (flag_len == n && strncmp(flag, cred_long_flags[i], n) == 0) {
 			return 1;
 		}

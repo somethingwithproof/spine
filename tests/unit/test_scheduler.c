@@ -150,6 +150,7 @@ void test_aimd_window(void) {
     
     /* Verify max_concurrency is 5 (10 / 2) not 1 (10 / 2 / 2 / 2 / 2) */
     uint32_t throttled = spine_governor_get_throttled_hosts();
+    assert(throttled == 0);
     /* Since we only dispatched 1 task (t), it won't be throttled if max_concurrency is 5.
        If max_concurrency was 0 or 1, it might be. Let's just assert it dispatched. */
     assert(t->state == STATE_INFLIGHT);

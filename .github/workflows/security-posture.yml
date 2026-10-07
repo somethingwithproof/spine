@@ -4,17 +4,15 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
   schedule:
     - cron: '0 5 * * 1'
 
 permissions:
   contents: read
-  security-events: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -25,6 +23,7 @@ jobs:
   trufflehog:
     name: TruffleHog secret scan
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -38,8 +37,12 @@ jobs:
           extra_args: --only-verified
 
   semgrep:
+    permissions:
+      contents: read
+      security-events: write
     name: Semgrep security scan
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     continue-on-error: true
 
     steps:
@@ -49,7 +52,7 @@ jobs:
       - name: Install Semgrep
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check semgrep==1.114.0
+          python3 -m pip install --only-binary=:all: --disable-pip-version-check semgrep==1.114.0
 
       - name: Run Semgrep
         run: |
@@ -58,7 +61,7 @@ jobs:
 
       - name: Upload Semgrep SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -74,6 +77,7 @@ jobs:
   scorecard:
     name: OpenSSF Scorecard
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     continue-on-error: true
 
     steps:
@@ -82,14 +86,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Scorecard CLI
+      - name: Select Scorecard build runtime
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492
+        with:
+          tool_versions: go 1.26.8
+
+      - name: Build locked Scorecard CLI
+        working-directory: .github/scorecard
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y golang-go
-          mkdir -p "${HOME}/.local/bin"
-          GOBIN="${HOME}/.local/bin" go install github.com/ossf/scorecard/v5/cmd/scorecard@latest
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          mkdir -p bin
+          mise exec go@1.26.8 -- go build -mod=readonly -trimpath -o bin/scorecard github.com/ossf/scorecard/v5
+          echo "${PWD}/bin" >> "${GITHUB_PATH}"
 
       - name: Run Scorecard
         env:
@@ -109,6 +117,7 @@ jobs:
   workflow-policy:
     name: Workflow policy checks
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -117,7 +126,7 @@ jobs:
       - name: Install policy checker dependencies
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check pyyaml==6.0.2
+          python3 -m pip install --only-binary=:all: --disable-pip-version-check pyyaml==6.0.2
 
       - name: Enforce workflow policy
         run: |

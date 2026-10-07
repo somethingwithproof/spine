@@ -15,18 +15,48 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  workflow-policy:
+    name: CI policy tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/requirements-ci.txt
+      - name: Install locked CI tools
+        run: >-
+          python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
+      - name: Validate workflows and analysis policy
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/check-workflow-policy.py
+          python3 .github/scripts/test-ci-policy.py
+
   flawfinder:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
-          python-version: "3.x"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/requirements-ci.txt
 
       - name: Install flawfinder
-        run: pip install flawfinder==2.0.19
+        run: >-
+          python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
 
       # Note: flawfinder will light up like a christmas tree on this codebase.
       # error-level=5 means only critical hits fail the build — the rest is
@@ -49,6 +79,7 @@ jobs:
 
   build-cmake-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -80,7 +111,7 @@ jobs:
         run: cmake --build --preset ci-main
 
       - name: Run CTest
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Run platform smoke tests
         run: |
@@ -95,6 +126,7 @@ jobs:
   build-no-systemd:
     name: Build without libsystemd
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
@@ -119,10 +151,11 @@ jobs:
         run: ./build/spine --help | head -3
 
       - name: Run CTest
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --no-tests=error
 
   build-cmake-linux-sanitizers:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       CC: clang
       CFLAGS: -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -153,7 +186,7 @@ jobs:
       - name: Run CTest (sanitizers)
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure
+          ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Run Docker integration tests
         run: |
@@ -167,6 +200,7 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 60
     continue-on-error: false
     defaults:
       run:
@@ -219,8 +253,8 @@ jobs:
       - name: Run CTest
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure
-          ctest --test-dir build --output-on-failure -R "^icmp_win_loader$"
+          ctest --test-dir build --output-on-failure --no-tests=error
+          ctest --test-dir build --output-on-failure --no-tests=error -R "^icmp_win_loader$"
 
       - name: Upload binary
         if: steps.netsnmp.outputs.available == 'true' && success()
@@ -244,6 +278,7 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -273,7 +308,7 @@ jobs:
         run: cmake --build --preset ci-main
 
       - name: Run CTest
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Run platform smoke tests
         run: |
@@ -283,6 +318,7 @@ jobs:
 
   build-freebsd:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
@@ -301,6 +337,6 @@ jobs:
           run: |
             cmake -G Ninja -S . -B build -DSPINE_BUILD_MAIN=ON
             cmake --build build
-            ctest --test-dir build --output-on-failure
+            ctest --test-dir build --output-on-failure --no-tests=error
             make -C tests/unit clean
             make -C tests/unit run

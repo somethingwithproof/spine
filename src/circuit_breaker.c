@@ -98,6 +98,9 @@ static void spine_cb_reap_locked(time_t now) {
 		 * is the entire reason the breaker exists. */
 		if (entry->skip_cycles > 0) continue;
 		if (now - entry->last_activity > SPINE_CB_IDLE_SECS) {
+			/* _prev is declared inside the vendored uthash macro; this
+			 * call site cannot const-qualify that implementation detail. */
+			// cppcheck-suppress constVariablePointer
 			HASH_DEL(spine_cb_table, entry);
 			free(entry);
 			spine_cb_stat_reaped_total++;

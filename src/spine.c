@@ -282,7 +282,7 @@ static void spine_loop_worker(void *arg) {
     }
 }
 
-int spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det) {
+int spine_async_poll_start(const uv_loop_t *target_loop, poller_thread_t *det) {
     /* Find which loop struct this target_loop belongs to */
     spine_loop_t *sl = NULL;
     int k;
