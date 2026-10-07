@@ -1298,6 +1298,8 @@ int read_spine_config(const char *file) {
 	char name[BUFSIZE];
 	char value[BUFSIZE];
 	char display_file[BUFSIZE];
+	int line = 0;
+	bool line_start = TRUE;
 	strncopy(display_file, file, sizeof(display_file));
 	spine_sanitize_log_message(display_file);
 
@@ -1311,11 +1313,14 @@ int read_spine_config(const char *file) {
 		fprintf(stdout, "SPINE: Using spine config file [%s]\n", display_file);
 	}
 	while (fgets(buff, sizeof(buff), fp) != NULL) {
+		/* A line longer than buff arrives in several pieces; count it once. */
+		if (line_start) line++;
+		line_start = strchr(buff, '\n') != NULL;
 		if (buff[0] == '#' || buff[0] == ' ' || buff[0] == '\n') continue;
 		if (sscanf(buff, "%15s %255s", name, value) != 2) continue;
+		/* -C accepts any path, so report where the line is, never what it holds. */
 		if (!apply_config_directive(name, value) && !set.console.stderr_notty) {
-			spine_sanitize_log_message(name);
-			fprintf(stderr, "WARNING: Unrecognized directive: %s in %s\n", name, display_file);
+			fprintf(stderr, "WARNING: Unrecognized directive on line %d of %s\n", line, display_file);
 		}
 	}
 	int failed = ferror(fp);

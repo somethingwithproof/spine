@@ -492,6 +492,52 @@ static void test_config_directives(void) {
 	assert(read_spine_config(path) == -1);
 }
 
+/* -C accepts any readable path, so a warning about a line that is not a
+ * directive must not reveal what the line holds. */
+static void test_config_unknown_lines_not_echoed(void) {
+	char path[] = "spine-config-echo-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	FILE *file = fdopen(fd, "w");
+	assert(file != NULL);
+	assert(fputs("DB_Host localhost\nroot:$6$saltsecret:19000:0:99999:7:::\n", file) != EOF);
+	assert(fclose(file) == 0);
+	int errors[2];
+	assert(pipe(errors) == 0);
+	fflush(NULL);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		assert(close(errors[0]) == 0);
+		assert(dup2(errors[1], STDERR_FILENO) == STDERR_FILENO);
+		assert(close(errors[1]) == 0);
+		memset(&set, 0, sizeof set);
+		set.console.stdout_notty = TRUE;
+		set.console.stderr_notty = FALSE;
+		config_defaults();
+		_exit(read_spine_config(path) == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+	}
+	assert(close(errors[1]) == 0);
+	char message[1024];
+	size_t used = 0;
+	for (;;) {
+		ssize_t received = read(errors[0], message + used, sizeof(message) - used - 1);
+		if (received < 0 && errno == EINTR) continue;
+		assert(received >= 0);
+		if (received == 0) break;
+		used += (size_t)received;
+		assert(used < sizeof(message) - 1);
+	}
+	message[used] = '\0';
+	assert(close(errors[0]) == 0);
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS);
+	assert(unlink(path) == 0);
+	assert(strstr(message, "line 2") != NULL);
+	assert(strstr(message, "root") == NULL && strstr(message, "salt") == NULL);
+}
+
 static void test_config_structure_bindings(void) {
 	config_t previous = set;
 	memset(&set, 0, sizeof set);
@@ -2477,6 +2523,7 @@ int main(int argc, char **argv) {
 	test_log_sanitization();
 	test_log_append_and_failures();
 	test_config_directives();
+	test_config_unknown_lines_not_echoed();
 	test_config_structure_bindings();
 	test_date_formats();
 	test_device_logging();
