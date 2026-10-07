@@ -71,7 +71,8 @@ merged.
 - Add CI lanes for the newest GCC and Clang. Newer compilers turn unsafe
   legacy behaviour into errors, and GCC 15 defaults to C23, so every build
   passes an explicit `-std`. Revisit C23 once the oldest supported
-  distribution can build it; Rocky Linux 8 ships GCC 8.
+  distribution can build it; Rocky Linux 8 ships GCC 8 and is supported
+  until May 2029.
 
 Done when: the fault suite covers a database outage, an SNMP timeout storm,
 a hung script and a crashed PHP script server, and asserts the outcome of
@@ -160,7 +161,10 @@ poller joins a release only after it meets its Phase 4 exit test.
   information split into separate debug packages. Enable link-time
   optimisation only if the Phase 4 benchmark shows a gain.
 - Publish a support matrix of distributions, MySQL and MariaDB versions,
-  Net-SNMP versions and Cacti versions, each cell tested in CI.
+  Net-SNMP versions and Cacti versions, each cell tested in CI. Support only
+  releases still in vendor support: add a release after it ships, drop it at
+  its end-of-life date, and let a weekly CI check flag any lane past end of
+  life.
 - Define a compatibility and deprecation policy for configuration keys and
   command-line options.
 
