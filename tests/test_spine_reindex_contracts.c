@@ -264,11 +264,52 @@ void test_reindex_result_contracts(MYSQL *mysql) {
 	assert(errors == 1);
 	assert(reindex_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=46 AND errors=1 AND local_data_ids=''") == 1);
 
-	/* An uptime that cannot be read is unknown, as an unreadable script is.
-	 * It must not queue a reindex, and "<" records U as Cacti does, not "". */
+	/* An uptime that cannot be read is unknown. It must not queue a reindex
+	 * or replace the last good assertion. */
 	poll_reindex_result(mysql, POLLER_ACTION_SNMP, ".1.3.6.1.2.1.1.3.0", "<", "124");
 	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") == 0);
-	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='U'") == 1);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='124'") == 1);
+
+	/* Good baseline, unreadable cycle, then a reboot. Keeping U as the
+	 * baseline would compare as 0 and the reboot would never fire. */
+	char sample_path[] = "/tmp/spine-reindex-sample-XXXXXX";
+	int sample = mkstemp(sample_path);
+	assert(sample >= 0);
+	assert(close(sample) == 0);
+	char command[BUFSIZE];
+	spine_snprintf(command, sizeof(command), "/bin/cat %s", sample_path);
+	static const struct { const char *sample; int commands; const char *stored; } cycles[] = {
+		{"500", 0, "500"}, {"U", 0, "500"}, {"100", 1, "100"}
+	};
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex WHERE host_id=46"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_command WHERE command='46:7'"));
+	spine_snprintf(query, sizeof(query), "INSERT INTO poller_reindex(host_id,data_query_id,action,op,assert_value,arg1) VALUES (46,7,%d,'<','0','%s')", POLLER_ACTION_SCRIPT, command);
+	assert(db_insert(mysql, LOCAL, query));
+	for (size_t cycle = 0; cycle < sizeof(cycles) / sizeof(cycles[0]); cycle++) {
+		FILE *file = fopen(sample_path, "w");
+		assert(file != NULL && fputs(cycles[cycle].sample, file) >= 0 && fclose(file) == 0);
+		reindex_test_work_t work = {0};
+		work.thread.host_id = 46;
+		work.thread.host_thread = 1;
+		work.thread.host_threads = 1;
+		work.thread.host_data_ids = 1;
+		work.thread.host_time_double = get_time_as_double();
+		STRNCOPY(work.thread.host_time, "1791158400");
+		poller_thread_t *device = &work.thread;
+		poller_thread_t **prior_details = details;
+		details = &device;
+		pthread_t worker;
+		assert(pthread_create(&worker, NULL, run_reindex_worker, &work) == 0);
+		assert(pthread_join(worker, NULL) == 0);
+		details = prior_details;
+		spine_snprintf(query, sizeof(query), "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='%s'", cycles[cycle].stored);
+		if (reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") != (unsigned long)cycles[cycle].commands ||
+			reindex_count(mysql, query) != 1) {
+			fprintf(stderr, "reindex baseline: cycle=%zu sample=%s expected commands=%d stored=%s\n", cycle, cycles[cycle].sample, cycles[cycle].commands, cycles[cycle].stored);
+			assert(0);
+		}
+	}
+	assert(unlink(sample_path) == 0);
 
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);

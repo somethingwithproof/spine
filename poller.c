@@ -566,7 +566,11 @@ static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, c
 	/* Advancing the stored value without a queued reindex would lose the
 	 * reindex for good: the next poll compares against the new value. */
 	bool queued = !failed || queue_reindex(evaluation, reindex);
-	if (queued && (failed || STRMATCH(reindex->op, ">") || STRMATCH(reindex->op, "<"))) update_reindex_value(evaluation, reindex, value);
+	/* Keep the last good baseline. U compares as 0, so storing it would hide
+	 * the next reboot under "<" and fire a false reindex under ">". */
+	if (queued && !unavailable && (failed || STRMATCH(reindex->op, ">") || STRMATCH(reindex->op, "<"))) {
+		update_reindex_value(evaluation, reindex, value);
+	}
 	/* A failed uptime assertion means the counters reset, so the sample is a spike. */
 	if (failed && (STRMATCH(reindex->op, "<") ||
 		STRMATCH(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||

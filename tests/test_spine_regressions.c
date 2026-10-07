@@ -1824,7 +1824,7 @@ static void test_reindex_pipeline(MYSQL *mysql, test_poll_work_t *work) {
 		{"<", "0", "/usr/bin/printf 123", POLLER_ACTION_SCRIPT, 0, "123", "123"},
 		{"=", "123", "/usr/bin/printf 'a\\nb\\n'", POLLER_ACTION_SCRIPT_COUNT, 1, "2", "123"},
 		{"=", "123", "/usr/bin/printf U", POLLER_ACTION_SCRIPT, 0, "123", "123"},
-		{"<", "124", "/usr/bin/printf U", POLLER_ACTION_SCRIPT, 0, "U", "123"},
+		{"<", "124", "/usr/bin/printf U", POLLER_ACTION_SCRIPT, 0, "124", "123"},
 		{"<", "124", "unknown", 99, 0, "124", "123"}
 	};
 	for (int level = 0; level <= 2; level++) {
