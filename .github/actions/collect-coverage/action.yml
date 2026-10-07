@@ -1,0 +1,52 @@
+# Copyright (C) 2004-2026 The Cacti Group
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
+# License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this library; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+name: Collect native coverage
+description: Build the real CMake targets, run CTest and retain native coverage.
+runs:
+  using: composite
+  steps:
+    - name: Install locked coverage tooling
+      shell: bash
+      run: python3 -m pip install --require-hashes -r .github/requirements-coverage.txt
+    - name: Configure coverage and compilation database
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake --preset ci-main -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=gcc \
+          -DCMAKE_C_FLAGS='-O0 -g3 --coverage' -DCMAKE_EXE_LINKER_FLAGS=--coverage \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    - name: Build instrumented production and tests
+      shell: bash
+      run: cmake --build --preset ci-main --parallel 4
+    - name: Execute native tests
+      shell: bash
+      run: ctest --test-dir build --output-on-failure --no-tests=error
+    - name: Exercise the actual instrumented polling producer
+      shell: bash
+      run: python3 .github/scripts/coverage-native.py
+    - name: Collect coverage including unexecuted compilation units
+      shell: bash
+      # Retain diagnostics on test failure without changing its failure status.
+      if: ${{ !cancelled() }}
+      run: |
+        set -euo pipefail
+        mkdir -p coverage
+        gcovr --root . --filter 'src/' --exclude 'src/third_party/' \
+          --sonarqube coverage/sonar.xml --lcov coverage.filtered.info \
+          --html-details coverage/index.html --print-summary build
+        test -s coverage/sonar.xml
+        test -s coverage.filtered.info
+        python3 .github/scripts/validate-coverage.py

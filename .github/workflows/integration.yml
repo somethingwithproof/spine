@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -23,7 +23,7 @@ env:
   COMMON_DEPS: >-
     cmake make pkg-config
     gcc clang llvm mariadb-client
-    libsnmp-dev default-libmysqlclient-dev help2man libssl-dev
+    libsnmp-dev default-libmysqlclient-dev help2man libssl-dev libseccomp-dev libuv1-dev
   DB_HOST: 127.0.0.1
   DB_PORT: '3306'
   DB_NAME: cacti
@@ -32,8 +32,9 @@ env:
 
 jobs:
   db-integration:
-    name: DB integration (${{ matrix.db_name }} ${{ matrix.db_version }})
+    name: DB service and native tests (${{ matrix.db_name }} ${{ matrix.db_version }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -123,7 +124,7 @@ jobs:
           export SPINE_DB_NAME="${DB_NAME}"
           export SPINE_DB_USER="${DB_USER}"
           export SPINE_DB_PASS="${DB_PASS}"
-          ctest --test-dir build --output-on-failure || echo "::notice::ctest returned non-zero."
+          ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: SNMP simulator placeholder
         run: |
@@ -144,6 +145,7 @@ jobs:
   netsnmp-compat:
     name: net-snmp ${{ matrix.snmp_version }} build
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -167,7 +169,7 @@ jobs:
             apt-get update
             apt-get install -y --no-install-recommends \
               gcc make cmake pkg-config \
-              libsnmp-dev default-libmysqlclient-dev libssl-dev
+              libsnmp-dev default-libmysqlclient-dev libssl-dev libseccomp-dev libuv1-dev
             echo "net-snmp version:"
             dpkg -l libsnmp-dev | grep libsnmp
             cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -190,6 +192,7 @@ jobs:
   docker-tests:
     name: Docker Integration Tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 

@@ -4,14 +4,13 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -26,14 +25,12 @@ env:
     libsnmp-dev default-libmysqlclient-dev help2man libssl-dev
     libseccomp-dev libuv1-dev
   COVERAGE_MIN_LINE_PCT: '10.0'
-  CFLAGS_COVERAGE: >-
-    -O0 -g3 --coverage
-  LDFLAGS_COVERAGE: --coverage
 
 jobs:
   gcc-coverage:
     name: gcc coverage
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -44,44 +41,14 @@ jobs:
         with:
           packages: ${{ env.COMMON_DEPS }}
 
-      - name: Configure
-        env:
-          LDFLAGS: ${{ env.LDFLAGS_COVERAGE }}
-        run: |
-          set -euo pipefail
-          cmake -B build -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=gcc \
-            -DCMAKE_C_FLAGS="${CFLAGS_COVERAGE}"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/requirements-coverage.txt
 
-      - name: Build
-        run: |
-          set -euo pipefail
-          cmake --build build -j"$(nproc)"
-
-      - name: Test
-        run: |
-          set -euo pipefail
-          ctest --test-dir build --output-on-failure || echo "::notice::ctest returned non-zero; continuing to collect coverage."
-
-      - name: Generate lcov + genhtml report
-        run: |
-          set -euo pipefail
-          if lcov --capture --directory build --output-file coverage.raw.info --ignore-errors mismatch; then
-            lcov \
-              --remove coverage.raw.info \
-              '/usr/*' \
-              '*/build/*' \
-              '*/tests/*' \
-              '*/test/*' \
-              --output-file coverage.filtered.info \
-              --ignore-errors unused
-            genhtml coverage.filtered.info --output-directory coverage-html
-          else
-            echo "::warning::No coverage data files were found."
-            mkdir -p coverage-html
-            echo "No coverage data generated." > coverage-html/index.html
-            : > coverage.filtered.info
-          fi
+      - name: Build, test and collect native coverage
+        uses: ./.github/actions/collect-coverage
 
       - name: Enforce minimum line coverage
         run: |
@@ -116,5 +83,5 @@ jobs:
           name: coverage-report
           path: |
             coverage.filtered.info
-            coverage-html
+            coverage/
           if-no-files-found: ignore
