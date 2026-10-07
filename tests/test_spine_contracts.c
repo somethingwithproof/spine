@@ -258,6 +258,31 @@ void test_additional_contracts(void) {
 	puts("production additional contracts passed");
 }
 
+/* The client library never clears errno, so an EINTR left over from an
+ * unrelated call must not stand in for an interrupted query. Run in a child
+ * so an unbounded retry shows up as the alarm instead of a hung suite. */
+static void assert_stale_interrupt_is_retried(void) {
+	fflush(NULL);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		alarm(10);
+		MYSQL administrator;
+		MYSQL victim;
+		db_connect(LOCAL, &administrator);
+		db_connect(LOCAL, &victim);
+		char query[100];
+		snprintf(query, sizeof(query), "KILL CONNECTION %lu", mysql_thread_id(&victim));
+		if (mysql_query(&administrator, query) != 0) _exit(2);
+		errno = EINTR;
+		_exit(db_insert(&victim, LOCAL, "SET @spine_regression_interrupt=1") == TRUE ? 0 : 3);
+	}
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	fprintf(stderr, "stale EINTR retry: raw_status=%d\n", status);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
 void test_additional_database_contracts(MYSQL *mysql) {
 	assert(db_column_exists(mysql, LOCAL, "host", "id") == TRUE);
 	assert(db_column_exists(mysql, LOCAL, "host", "regression_missing_column") == FALSE);
@@ -302,4 +327,5 @@ void test_additional_database_contracts(MYSQL *mysql) {
 		}
 	}
 	db_disconnect(&victim);
+	assert_stale_interrupt_is_retried();
 }

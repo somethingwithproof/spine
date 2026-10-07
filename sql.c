@@ -47,12 +47,15 @@
  *
  */
 static void retry_disconnected_query(MYSQL *mysql, int type, int error, const char *function, int *error_count) {
-	if (errno == EINTR) {
+	/* Every attempt counts. A signal that interrupted the call gets a few
+	 * in-place retries, but the client library does not reset errno, so a
+	 * stale EINTR used to skip both the reconnect and the count forever. */
+	if (++*error_count > 30) die("FATAL: Too many Reconnect Attempts!");
+	if (errno == EINTR && *error_count <= 3) {
 		spine_sleep_usec(50000);
 		return;
 	}
 	db_reconnect(mysql, type, error, function);
-	if (++*error_count > 30) die("FATAL: Too many Reconnect Attempts!");
 }
 
 int db_insert(MYSQL *mysql, int type, const char *query) {
@@ -278,11 +281,9 @@ void db_connect(int type, MYSQL *mysql) {
 		if (!connect_error) {
 			error = mysql_errno(mysql);
 
-			if ((error == 2002 || error == 2003 || error == 2006 || error == 2013) && errno == EINTR) {
-				spine_sleep_usec(5000);
-				tries++;
-				success = FALSE;
-			} else if (error == 2002) {
+			/* A stale EINTR in errno used to refund the attempt here and made
+			 * the loop unbounded; every failed connect now spends a try. */
+			if (error == 2002) {
 				printf("Database: Connection Failed: Attempt:'%d', Error:'%u', Message:'%s'\n", attempts, mysql_errno(mysql), mysql_error(mysql));
 				sleep(1);
 				success = FALSE;
