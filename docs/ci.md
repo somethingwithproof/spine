@@ -39,6 +39,11 @@ correctness checks remain separate from Sonar:
 - `Release`, `Release Verification`, `OCI Publish`: existing packages,
   hardening, checksums, SBOMs, provenance and Sigstore signing.
 
+PR correctness/security workflows now accept all target branches, including
+stacked PR bases and best-of-best; inherited main/develop-only PR filters
+no longer silently omit those checks. Push/schedule/release triggers remain
+as documented in the audit.
+
 Jobs have bounded timeouts (60 minutes for normal validation, 120 for
 deep/VM lanes; Sonar45, policy5–10). Validation cancels obsolete runs for the
 same PR/ref. Release/signing/publishing runs queue rather than canceling
@@ -125,13 +130,17 @@ coverage report does not claim shell/Python coverage. The collector also runs th
 repository SQL fixture in four profile/Boost combinations plus an invalid-output case, forcing batch
 flushes and verifying exact producer bytes and scheduling. Its scenario,
 binary, schema, runner and source hashes are required by the report validator.
+The validator checks every compiled production unit against the report;
+OS-guarded empty units require proof from the actual native gcov tool,
+rather than a source exclusion. Missing/malformed analysis-policy outputs
+and omitted worker coverage are regression-tested failures.
 Separate SNMP/rejection/lifecycle Docker suites retain their own verification;
 their subprocess coverage is not claimed by this collector.
 
 The initial CTest-only Linux baseline passed29/29 tests and measured 15.7% lines,
 29.6% functions and 10.9% branches across its compiled production units.
-The expanded macOS instrumented producer run covers42.4% lines,64.2%
-functions and27.7% branches, with native producer provenance verified. These
+The expanded macOS instrumented producer run covers41.9% lines,61.9%
+functions and27.6% branches, with native producer provenance verified. These
 platform-specific denominators differ. They are coverage gaps to improve,
 not evidence of complete coverage. They
 are a different branch/scope from the develop stack's narrower producer

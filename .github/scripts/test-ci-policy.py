@@ -96,6 +96,8 @@ class SonarPolicy(unittest.TestCase):
             self.assertEqual(gate.result("success", "true", state, "")[0], 1)
         self.assertEqual(gate.result("success", "false", "skipped", "true")[0], 1)
         self.assertEqual(gate.result("failure", "false", "skipped", "")[0], 1)
+        for malformed in ("", "TRUE", "unknown"):
+            self.assertEqual(gate.result("success", malformed, "skipped", "")[0], 1)
 
 
 class WorkflowPolicy(unittest.TestCase):
@@ -131,12 +133,12 @@ class CoverageEvidence(unittest.TestCase):
             root = Path(directory)
             paths = {"src/spine.c": "main", "src/poller.c": "poll",
                      "src/host_worker.c": "worker", "build/spine": "binary",
-                     "build/compile_commands.json": "[]", "tests/snmpv3/db/init.sql": "schema",
+                     "build/compile_commands.json": json.dumps([{"file": str(root / source), "directory": str(root), "output": str(root / (source + ".o"))} for source in ("src/spine.c", "src/poller.c", "src/host_worker.c")]), "tests/snmpv3/db/init.sql": "schema",
                      ".github/scripts/coverage-native.py": "runner"}
             for name, content in paths.items():
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(content)
             (root / "coverage").mkdir()
-            xml = '<coverage version="1"><file path="src/spine.c"><lineToCover lineNumber="1" covered="true"/></file><file path="src/poller.c"><lineToCover lineNumber="1" covered="true"/></file></coverage>'
+            xml = '<coverage version="1"><file path="src/spine.c"><lineToCover lineNumber="1" covered="true"/></file><file path="src/poller.c"><lineToCover lineNumber="1" covered="true"/></file><file path="src/host_worker.c"><lineToCover lineNumber="1" covered="false"/></file></coverage>'
             (root / "coverage/sonar.xml").write_text(xml)
             hashes = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in paths.items()}
             manifest = {"producer": "coverage-native",
@@ -153,6 +155,9 @@ class CoverageEvidence(unittest.TestCase):
                 bad = json.loads(json.dumps(manifest)); mutation(bad); path.write_text(json.dumps(bad))
                 with self.assertRaises(ValueError): coverage.validate(root)
             path.write_text(json.dumps(manifest))
+            omitted = xml.replace('<file path="src/host_worker.c"><lineToCover lineNumber="1" covered="false"/></file>', '')
+            (root / "coverage/sonar.xml").write_text(omitted)
+            with self.assertRaises(ValueError): coverage.validate(root)
             (root / "coverage/sonar.xml").write_text(xml.replace('covered="true"', 'covered="false"'))
             with self.assertRaises(ValueError): coverage.validate(root)
             path.unlink()

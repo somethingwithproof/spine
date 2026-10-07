@@ -42,3 +42,6 @@ __pycache__/
 # Agent / tooling session state
 .omc/
 .claude/worktrees/
+
+# Machine-local permission/settings overrides are not repository inputs.
+settings.local.json
