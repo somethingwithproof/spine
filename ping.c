@@ -38,6 +38,7 @@
 #ifdef SPINE_HAVE_ICMPV6
 static int ping_icmp_ipv6(const host_t *host, ping_t *ping);
 #endif
+static const char *ping_address(const char *hostname, char *address, size_t capacity);
 
 /*! \fn int ping_host(host_t *host, ping_t *ping)
  *  \brief ping a host to determine if it is reachable for polling
@@ -995,6 +996,7 @@ cleanup:
 static int init_sockaddr6(struct sockaddr_in6 *name, const char *hostname) {
 	struct addrinfo hints, *hostinfo;
 	int rv, retry_count;
+	char address[BUFSIZE];
 
 	memset(&hints, 0, sizeof(hints));
 
@@ -1008,7 +1010,7 @@ static int init_sockaddr6(struct sockaddr_in6 *name, const char *hostname) {
 	hostinfo    = NULL;
 
 	while (TRUE) {
-		rv = getaddrinfo(hostname, NULL, &hints, &hostinfo);
+		rv = getaddrinfo(ping_address(hostname, address, sizeof(address)), NULL, &hints, &hostinfo);
 
 		if (rv == 0) {
 			break;
@@ -1576,6 +1578,7 @@ int get_address_type(host_t *host) {
 	struct addrinfo hints;
 	struct addrinfo *res_list;
 	char addrstr[255];
+	char address[BUFSIZE];
 	const void *ptr = NULL;
 	int addr_found = FALSE;
 
@@ -1586,7 +1589,7 @@ int get_address_type(host_t *host) {
 	hints.ai_flags    = AI_CANONNAME | AI_ADDRCONFIG;
 	int error;
 
-	if ((error = getaddrinfo(host->hostname, NULL, &hints, &res_list)) != 0) {
+	if ((error = getaddrinfo(ping_address(host->hostname, address, sizeof(address)), NULL, &hints, &res_list)) != 0) {
 		SPINE_LOG(("WARNING: Unable to determine address info for %s (%s)", host->hostname, gai_strerror(error)));
 		return SPINE_NONE;
 	}
@@ -1637,10 +1640,12 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, int port) {
 	if (port < 0 || port > 65535) return FALSE;
 	struct addrinfo hints = {0};
 	struct addrinfo *hostinfo = NULL;
+	char address[BUFSIZE];
 	hints.ai_family = AF_INET;
 	hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG;
+	ping_address(hostname, address, sizeof(address));
 	for (int attempt = 0; ; attempt++) {
-		int status = getaddrinfo(hostname, NULL, &hints, &hostinfo);
+		int status = getaddrinfo(address, NULL, &hints, &hostinfo);
 		if (status == 0) break;
 		if (status == EAI_AGAIN && attempt < 3) {
 			SPINE_LOG(("WARNING: Temporary DNS error for host %s (%s), retrying", hostname, gai_strerror(status)));
@@ -1661,35 +1666,115 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, int port) {
 	return TRUE;
 }
 
-/*! \brief Parse a device hostname with an optional transport and port. */
-name_t *get_namebyhost(const char *hostname, name_t *name) {
-	if (name == NULL) {
-		name = calloc(1, sizeof(*name));
-		if (name == NULL) die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
-	}
-	/* IPv6 transport addresses are passed intact to the address resolver. */
-	if (strchr(hostname, '[') != NULL || strstr(hostname, "::") != NULL || char_count(hostname, ':') > 2) {
-		strncopy(name->hostname, hostname, sizeof(name->hostname));
-		return name;
-	}
-	char *copy = strdup(hostname);
-	if (copy == NULL) die("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
-	char *saveptr = NULL;
-	const char *token = strtok_r(copy, ":", &saveptr);
+/*! \fn static int split_host_spec(const char *spec, int *method, char *address, size_t capacity, int *port)
+ *  \brief splits a "[transport:]host[:port]" device name into its parts
+ *
+ *  Cacti keeps Net-SNMP transport specifiers such as udp6:[2001:db8::1]:161
+ *  in the hostname.  An IPv6 host is either bracketed, so that a port can
+ *  follow it, or a bare literal in which every colon belongs to the address.
+ *  A port that is not a plain number from 1 to 65535 is reported as 0.
+ *
+ *  \return TRUE if the host part is IPv6, FALSE otherwise
+ */
+static int split_host_spec(const char *spec, int *method, char *address, size_t capacity, int *port) {
 	static const char *const methods[] = {"TCP", "UDP", "TCP6", "UDP6"};
-	if (token != NULL) {
-		for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
-			if (strcasecmp(token, methods[i]) == 0) {
-				name->method = (int)i + 1;
-				token = strtok_r(NULL, ":", &saveptr);
+	const char *host = spec;
+	const char *colon;
+	const char *end;
+	const char *port_text = NULL;
+	size_t length;
+	size_t i;
+	int ipv6 = FALSE;
+
+	*method = 0;
+	*port   = 0;
+
+	colon = strchr(spec, ':');
+
+	if (colon != NULL) {
+		for (i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
+			length = strlen(methods[i]);
+
+			if ((size_t) (colon - spec) == length && strncasecmp(spec, methods[i], length) == 0) {
+				*method = (int) i + 1;
+				host    = colon + 1;
 				break;
 			}
 		}
 	}
-	strncopy(name->hostname, token != NULL ? token : hostname, sizeof(name->hostname));
-	token = strtok_r(NULL, ":", &saveptr);
-	if (token != NULL) name->port = atoi(token);
-	free(copy);
+
+	if (host[0] == '[' && (end = strchr(host, ']')) != NULL) {
+		ipv6   = TRUE;
+		host   = host + 1;
+		length = (size_t) (end - host);
+
+		if (end[1] == ':') {
+			port_text = end + 2;
+		}
+	} else if (char_count(host, ':') > 1 || host[0] == '[') {
+		ipv6   = TRUE;
+		length = strlen(host);
+	} else if ((colon = strchr(host, ':')) != NULL) {
+		length    = (size_t) (colon - host);
+		port_text = colon + 1;
+	} else {
+		length = strlen(host);
+	}
+
+	if (length >= capacity) {
+		length = capacity - 1;
+	}
+
+	memcpy(address, host, length);
+	address[length] = '\0';
+
+	if (port_text != NULL && port_text[0] >= '0' && port_text[0] <= '9') {
+		char *rest;
+		long value;
+
+		errno = 0;
+		value = strtol(port_text, &rest, 10);
+
+		if (errno == 0 && *rest == '\0' && value > 0 && value <= 65535) {
+			*port = (int) value;
+		}
+	}
+
+	return ipv6;
+}
+
+/*! \fn static const char *ping_address(const char *hostname, char *address, size_t capacity)
+ *  \brief the bare address a network probe resolves for a device name
+ */
+static const char *ping_address(const char *hostname, char *address, size_t capacity) {
+	int method;
+	int port;
+
+	split_host_spec(hostname, &method, address, capacity, &port);
+
+	return address;
+}
+
+/*! \fn name_t *get_namebyhost(const char *hostname, name_t *name)
+ *  \brief parses a device hostname with an optional transport and port
+ *
+ *  An IPv6 name is returned whole: Net-SNMP needs the transport and the
+ *  brackets to reach the agent, and the ping code strips them itself.
+ */
+name_t *get_namebyhost(const char *hostname, name_t *name) {
+	char address[BUFSIZE];
+
+	if (name == NULL) {
+		name = calloc(1, sizeof(*name));
+		if (name == NULL) die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
+	}
+
+	if (split_host_spec(hostname, &name->method, address, sizeof(address), &name->port)) {
+		strncopy(name->hostname, hostname, sizeof(name->hostname));
+	} else {
+		strncopy(name->hostname, address, sizeof(name->hostname));
+	}
+
 	return name;
 }
 

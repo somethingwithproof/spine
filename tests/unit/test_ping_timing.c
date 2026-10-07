@@ -379,6 +379,79 @@ static void test_udp_data_reply_is_alive(void **state) {
 	assert_string_equal(ping.ping_response, "UDP: Device is Alive");
 }
 
+/* --- G9: transport-qualified and bracketed IPv6 device names -------------- */
+
+static void test_namebyhost_table(void **state) {
+	static const struct {
+		const char *input;
+		const char *hostname;
+		int method;
+		int port;
+	} cases[] = {
+		{"router.example",          "router.example",          0, 0},
+		{"router.example:161",      "router.example",          0, 161},
+		{"TCP:router.example:443",  "router.example",          1, 443},
+		{"udp:router.example:53",   "router.example",          2, 53},
+		{"tcp6:router.example:22",  "router.example",          3, 22},
+		{"192.0.2.7",               "192.0.2.7",               0, 0},
+		{"2001:db8::1",             "2001:db8::1",             0, 0},
+		{"fe80::1%eth0",            "fe80::1%eth0",            0, 0},
+		{"[2001:db8::1]",           "[2001:db8::1]",           0, 0},
+		{"[::1]:161",               "[::1]:161",               0, 161},
+		{"udp6:[2001:db8::1]:161",  "udp6:[2001:db8::1]:161",  4, 161},
+		{"tcp6:[::1]:22",           "tcp6:[::1]:22",           3, 22},
+		{"UDP6:[::1]",              "UDP6:[::1]",              4, 0},
+		{"udp6:[::1]:notaport",     "udp6:[::1]:notaport",     4, 0},
+	};
+	size_t i;
+
+	(void) state;
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		name_t *name = get_namebyhost(cases[i].input, NULL);
+
+		assert_non_null(name);
+		if (strcmp(name->hostname, cases[i].hostname) != 0 ||
+			name->method != cases[i].method || name->port != cases[i].port) {
+			fail_msg("get_namebyhost(\"%s\") gave {\"%s\", %d, %d}, expected {\"%s\", %d, %d}",
+				cases[i].input, name->hostname, name->method, name->port,
+				cases[i].hostname, cases[i].method, cases[i].port);
+		}
+		free(name);
+	}
+}
+
+#ifdef SPINE_HAVE_ICMPV6
+static void test_icmpv6_resolves_transport_qualified_names(void **state) {
+	static const char *const names[] = {
+		"udp6:[::1]:161", "tcp6:[::1]:22", "[::1]:161", "[::1]", "UDP6:[::1]", "::1"
+	};
+	struct sockaddr_in6 address;
+	size_t i;
+
+	(void) state;
+	for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+		memset(&address, 0, sizeof(address));
+		if (!init_sockaddr6(&address, names[i])) {
+			fail_msg("init_sockaddr6(\"%s\") failed", names[i]);
+		}
+		assert_memory_equal(&address.sin6_addr, &in6addr_loopback, sizeof(struct in6_addr));
+	}
+}
+
+static void test_icmpv6_pings_a_transport_qualified_name(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_controlled_icmp_socket();
+	icmp6_mode = 1;
+	make_host(&host, "udp6:[::1]:161", PING_ICMP);
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_UP);
+}
+#endif
+
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_icmp_retry_after_one_lost_probe_is_alive, timing_setup, timing_teardown),
@@ -394,6 +467,11 @@ int main(void) {
 		#endif
 		cmocka_unit_test_setup_teardown(test_udp_port_unreachable_is_alive, timing_setup, timing_teardown),
 		cmocka_unit_test_setup_teardown(test_udp_data_reply_is_alive, timing_setup, timing_teardown),
+		cmocka_unit_test_setup_teardown(test_namebyhost_table, timing_setup, timing_teardown),
+		#ifdef SPINE_HAVE_ICMPV6
+		cmocka_unit_test_setup_teardown(test_icmpv6_resolves_transport_qualified_names, timing_setup, timing_teardown),
+		cmocka_unit_test_setup_teardown(test_icmpv6_pings_a_transport_qualified_name, timing_setup, timing_teardown),
+		#endif
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
