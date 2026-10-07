@@ -249,7 +249,7 @@ static void snmp_release_session_fields(struct snmp_session *session) {
 }
 
 /* Initialize Net-SNMP from one complete, caller-owned credential profile. */
-void *snmp_host_init(const spine_snmp_profile_t *profile) {
+void *spine_snmp_profile_open(const spine_snmp_profile_t *profile) {
 	if (profile == NULL) return NULL;
 
 	void   *sessp = NULL;
@@ -358,6 +358,26 @@ void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	}
 
 	return sessp;
+}
+
+/* Preserve the public legacy ABI; internal callers use named profile fields. */
+void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community, char *snmp_username, char *snmp_password, char *snmp_auth_protocol, char *snmp_priv_passphrase, char *snmp_priv_protocol, char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout) {
+	const spine_snmp_profile_t profile = {
+		.host_id = host_id,
+		.hostname = hostname,
+		.snmp_version = snmp_version,
+		.snmp_community = snmp_community,
+		.snmp_username = snmp_username,
+		.snmp_password = snmp_password,
+		.snmp_auth_protocol = snmp_auth_protocol,
+		.snmp_priv_passphrase = snmp_priv_passphrase,
+		.snmp_priv_protocol = snmp_priv_protocol,
+		.snmp_context = snmp_context,
+		.snmp_engine_id = snmp_engine_id,
+		.snmp_port = snmp_port,
+		.snmp_timeout = snmp_timeout,
+	};
+	return spine_snmp_profile_open(&profile);
 }
 
 /*! \fn void snmp_host_cleanup(void *snmp_session)

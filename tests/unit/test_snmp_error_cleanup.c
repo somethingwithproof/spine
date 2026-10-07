@@ -172,7 +172,7 @@ int main(void) {
 	char empty[] = "";
 	char auth_protocol[] = "SHA";
 	char priv_protocol[] = "[None]";
-	owned_session = snmp_host_init(&(spine_snmp_profile_t){
+	owned_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = 1,
 			.hostname = hostname,
 			.snmp_version = 2,
