@@ -75,6 +75,13 @@ merged.
   Keep pthreads until Phase 4 brings libuv, whose thread API covers what
   `<threads.h>` would, on Windows too. Upstream C99 code still
   compiles as C17, so the switch does not block upstream merges.
+- Tighten typing so the compiler catches more mistakes. Fix the 26
+  implicit-conversion warnings that `-Wconversion -Wsign-conversion` reports
+  today, then make those warnings errors in CI. Use `bool` instead of `int`
+  with `TRUE` and `FALSE`, and enums instead of integer `#define` constants
+  for states and ping methods, checked with `-Wswitch-enum`. Give host,
+  data-source and poller IDs distinct one-member struct types, so passing
+  one where another belongs no longer compiles. Finish const-correctness.
 - Annotate locks and the data they protect for Clang's thread-safety
   analysis (`-Wthread-safety`), so the compiler rejects unlocked access to
   shared state.
