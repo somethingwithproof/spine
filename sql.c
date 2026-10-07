@@ -46,7 +46,7 @@
  *  \return TRUE if successful, or FALSE if not.
  *
  */
-static void retry_disconnected_query(MYSQL *mysql, int type, int error, char *function, int *error_count) {
+static void retry_disconnected_query(MYSQL *mysql, int type, int error, const char *function, int *error_count) {
 	if (errno == EINTR) {
 		spine_sleep_usec(50000);
 		return;
