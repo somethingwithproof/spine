@@ -1,0 +1,187 @@
+# Copyright (C) 2004-2026 The Cacti Group
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
+# License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this library; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+name: Sonar
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_sonar:
+        description: Run analysis (ENABLE_SONAR must also be true)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Sonar execution policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      eligible: ${{ steps.policy.outputs.eligible }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+      - name: Evaluate branch policy
+        id: policy
+        env:
+          ENABLE_SONAR: ${{ vars.ENABLE_SONAR }}
+          SONAR_REQUIRED: ${{ vars.SONAR_REQUIRED }}
+        run: python3 .github/scripts/sonar-policy.py
+
+  analyze:
+    name: Sonar analysis
+    needs: policy
+    # Independent trust boundary: a fork cannot enable this job by modifying
+    # the policy script. Do not use pull_request_target for this workflow.
+    if: >-
+      needs.policy.outputs.eligible == 'true' &&
+      vars.ENABLE_SONAR == 'true' &&
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Same isolated database as regressions.yml; run_coverage.sh mutates it.
+    services:
+      database:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+          MARIADB_DATABASE: spine_regressions
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - name: Verify analysis credential
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SONAR_TOKEN" ]]; then
+            echo '::error::Sonar was requested but SONAR_TOKEN is missing. See docs/ci.md.'
+            exit 1
+          fi
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: .github/requirements-coverage.txt
+      - name: Install build dependencies
+        uses: ./.github/actions/install-apt-deps
+        with:
+          packages: autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin lcov bear jq
+      - name: Build, test and record compilation database
+        run: |
+          set -euo pipefail
+          mkdir -p config m4
+          autoreconf -fi
+          ./configure
+          # A plain build first: run_coverage.sh cleans and rebuilds with
+          # coverage flags, which would leave bear nothing to observe.
+          bear --output compile_commands.json -- make -j2 check
+          sources="$(make --no-print-directory coverage-test-source-list coverage-fault-source-list | sort -u)"
+          missing=0
+          while IFS= read -r source; do
+            [[ -n "$source" ]] || continue
+            if ! jq -e --arg f "$PWD/$source" 'any(.[]; (if (.file | startswith("/")) then .file else .directory + "/" + .file end) == $f)' compile_commands.json > /dev/null; then
+              echo "::error::compile_commands.json has no entry for $source"
+              missing=1
+            fi
+          done <<< "$sources"
+          exit "$missing"
+      - name: Load regression fixtures
+        run: |
+          set -euo pipefail
+          mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/configuration.sql
+          mariadb --protocol=TCP --host=127.0.0.1 --user=root spine_regressions < tests/fixtures/poller.sql
+      - name: Measure every production translation unit
+        env:
+          SPINE_TEST_SNMP_HOST: 127.0.0.1
+          SPINE_TEST_DB_HOST: 127.0.0.1
+        run: |
+          set -euo pipefail
+          snmpd -f -Lo -C -c tests/fixtures/snmpd.conf > coverage-snmp-agent.log 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid"; wait "$agent_pid" || true' EXIT
+          sleep 1
+          tests/tools/run_coverage.sh
+      - name: Convert coverage for SonarCloud
+        run: |
+          set -euo pipefail
+          python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-coverage.txt
+          # Read only the producers run_coverage.sh verified. A tree search
+          # would also find configure's conftest notes and the copies the
+          # script keeps under coverage/.
+          run_dir="$(cat coverage/latest-run.txt)"
+          test "$(cat "$run_dir/status.txt")" = success
+          mapfile -t producers < "$run_dir/producers.txt"
+          gcovr --root . --exclude 'tests/' --exclude 'uthash\.h$' \
+            --sonarqube coverage/sonar.xml --print-summary \
+            "${producers[@]/%/.gcda}"
+          test -s coverage/sonar.xml
+      - name: Analyze and wait for quality gate
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=600
+      - name: Upload analysis coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sonar-coverage
+          path: |
+            coverage/
+            compile_commands.json
+          if-no-files-found: warn
+
+  quality-gate:
+    name: Sonar Quality Gate
+    needs: [policy, analyze]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+      - name: Report requested analysis outcome
+        env:
+          POLICY_RESULT: ${{ needs.policy.result }}
+          ELIGIBLE: ${{ needs.policy.outputs.eligible }}
+          ANALYSIS_RESULT: ${{ needs.analyze.result }}
+          SONAR_REQUIRED: ${{ vars.SONAR_REQUIRED }}
+        run: python3 .github/scripts/sonar-gate.py
