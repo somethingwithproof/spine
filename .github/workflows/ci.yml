@@ -163,6 +163,7 @@ jobs:
           docker compose -f tests/snmpv3/docker-compose.yml down -v --remove-orphans || true
           ./tests/integration/test_ipv6_transport.sh
           bash ./tests/integration/test_poll_submission.sh
+          bash ./tests/integration/test_poll_persistence.sh
 
   build-windows:
     runs-on: windows-latest
