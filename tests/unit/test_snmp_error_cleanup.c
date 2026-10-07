@@ -32,7 +32,7 @@
 */
 #include "common.h"
 #include "spine.h"
-#include "snmp.h"
+#include "../../src/snmp.h"
 #include "test_platform_helpers.h"
 
 extern int *debug_devices;
