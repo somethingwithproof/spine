@@ -67,6 +67,8 @@ static int launch_fault_calls;
 static int launch_checkpoints;
 static int launch_device_counter;
 static spine_permits_t *launch_startup;
+static int completion_writes;
+static int completion_writes_locked;
 
 int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attributes,
 	void *(*start)(void *), void *arg) {
@@ -106,7 +108,9 @@ static void inspect_worker_launch_completion(void) {
 
 static void verify_worker_launch_exit(void) {
 	fflush(NULL);
-	fprintf(stderr, "worker launch checkpoint: checkpoints=%i calls=%i faults=%i pending=%i exit=%i\n", launch_checkpoints, launch_calls, launch_fault_calls, launch_failures, set.exit.exit_code);
+	fprintf(stderr, "worker launch checkpoint: checkpoints=%i calls=%i faults=%i pending=%i exit=%i completion_writes=%i locked=%i\n", launch_checkpoints, launch_calls, launch_fault_calls, launch_failures, set.exit.exit_code, completion_writes, completion_writes_locked);
+	assert(completion_writes_locked == 0);
+	assert(launch_error == EPERM || completion_writes > 0);
 	assert(launch_checkpoints == 1 && launch_failures == 0);
 	assert(launch_fault_calls == launch_expected_faults);
 	assert(launch_calls == (launch_error == EAGAIN ? 2 : 1));
@@ -145,6 +149,8 @@ size_t __wrap_strftime(char *output, size_t capacity, const char *format, const 
 
 int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 	static const char completion[] = "UPDATE poller_time SET end_time=NOW() WHERE poller_id=";
+	static const char polling_time[] = "UPDATE host SET polling_time";
+	static const char host_errors[] = "INSERT INTO host_errors";
 	/* The interrupted handle is never connected; it must not reach the client library. */
 	if (mysql == interrupted_connection) {
 		interrupted_query_calls++;
@@ -157,6 +163,14 @@ int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 	}
 	if (launch_case_active && strncmp(query, completion, sizeof(completion) - 1) == 0) {
 		inspect_worker_launch_completion();
+	}
+	/* Device bookkeeping writes can wait out a read timeout and a reconnect;
+	 * holding LOCK_THDET across them would stall every other worker. */
+	if (launch_case_active && (strncmp(query, polling_time, sizeof(polling_time) - 1) == 0 ||
+			strncmp(query, host_errors, sizeof(host_errors) - 1) == 0)) {
+		completion_writes++;
+		if (thread_mutex_trylock(LOCK_THDET) == 0) thread_mutex_unlock(LOCK_THDET);
+		else completion_writes_locked++;
 	}
 	if (query_fault_armed && mysql == query_fault_connection && strcmp(query, query_fault_statement) == 0) {
 		query_fault_armed = 0;

@@ -1293,9 +1293,11 @@ static poll_host_load_t load_poll_host(MYSQL *mysql, const poller_queries_t *que
 	return POLL_HOST_LOADED;
 }
 
-/* poll_failed means this partition could not use the database, so its own
- * completion queries are skipped too: mysql may be NULL, and a connection
- * that just failed would only spend another retry budget under LOCK_THDET. */
+/* LOCK_THDET only guards the shared completion state. The database writes
+ * run after it is released: each can wait out a read timeout and a reconnect,
+ * and holding the lock across them would stall every other worker. A
+ * poll_failed partition skips them, since mysql may be NULL and a connection
+ * that just failed would only spend another retry budget. */
 static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 	const poller_thread_t *work, const poll_error_context_t *error_context,
 	bool output_failed, bool poll_failed, double poll_start) {
@@ -1306,6 +1308,8 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 	int errors = *error_context->errors;
 	const char *error_string = error_context->buffer;
 	double poll_time;
+	bool last_partition;
+	bool update_schedule = FALSE;
 	/* record the polling time for the device */
 	poll_time = get_time_as_double() - poll_start;
 	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, host_thread, poll_time));
@@ -1324,24 +1328,31 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 		SPINE_LOG(("ERROR: Device[%i] HT[%i] polling failed on a database error; due items stay eligible for recollection", host_id, host_thread));
 	}
 	device->threads_complete++;
-	if (device->threads_complete == device->host_threads) {
+	last_partition = device->threads_complete == device->host_threads;
+	if (last_partition) {
 		bool failed = device->output_failed || device->poll_failed;
-		/* Keep the due-item set stable until every device partition has finished. */
-		if (set.poller.active_profiles != 1 && !failed && !poll_failed) {
-			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
-			db_query(mysql, LOCAL, queries->schedule);
-		}
+		/* Keep the due-item set stable until every device partition has
+		 * finished; only this last partition runs the update. */
+		update_schedule = set.poller.active_profiles != 1 && !failed;
 		device->complete = !failed;
+	}
+	thread_mutex_unlock(LOCK_THDET);
 
-		if (!poll_failed) {
-			poll_time = get_time_as_double();
-			queries->items[0] = '\0';
-			snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-			db_query(mysql, LOCAL, queries->items);
-		}
+	if (poll_failed) return;
+
+	if (update_schedule) {
+		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
+		db_query(mysql, LOCAL, queries->schedule);
 	}
 
-	if (errors > 0 && !poll_failed) {
+	if (last_partition) {
+		poll_time = get_time_as_double();
+		queries->items[0] = '\0';
+		snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
+		db_query(mysql, LOCAL, queries->items);
+	}
+
+	if (errors > 0) {
 		int error_query_len = spine_count_to_int(strlen(error_string) + BUFSIZE);
 		char *error_query = (char *)malloc(error_query_len);
 		if (error_query == NULL) die("ERROR: Fatal malloc error: poller.c error_query!");
@@ -1357,8 +1368,6 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 
 		free(error_query);
 	}
-
-	thread_mutex_unlock(LOCK_THDET);
 }
 
 void poll_host(const poller_thread_t *work, int *host_errors) {
