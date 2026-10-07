@@ -52,10 +52,11 @@ static void test_platform_spawn_and_terminate(void) {
 	char cmd_body[] = "ping -n 3 127.0.0.1 >NUL";
 	char *argv[] = { cmd_path, cmd_flag, cmd_body, NULL };
 #else
-	char shell_path[] = "/bin/sh";
-	char shell_flag[] = "-c";
-	char shell_body[] = "sleep 1";
-	char *argv[] = { shell_path, shell_flag, shell_body, NULL };
+	/* Terminate the child itself. A shell may defer/ignore SIGTERM while
+	 * waiting for its sleep child and then report successful shell exit. */
+	char sleep_path[] = "/bin/sleep";
+	char sleep_duration[] = "30";
+	char *argv[] = { sleep_path, sleep_duration, NULL };
 #endif
 
 	ASSERT_INT_EQ(spine_process_spawn_retry(&pid, argv[0], NULL, NULL, argv, NULL, 1, 1000), 0);
