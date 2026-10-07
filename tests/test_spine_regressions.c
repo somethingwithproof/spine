@@ -1605,6 +1605,8 @@ static void *test_poll_worker(void *argument) {
 	return NULL;
 }
 
+/* A worker without a connection fails its device and returns; the process
+ * keeps polling other devices and still exits with a failure status. */
 static void test_poll_missing_connection(const poller_thread_t *work) {
 	for (int remote = 0; remote <= 1; remote++) {
 		pid_t child = fork();
@@ -1616,13 +1618,23 @@ static void test_poll_missing_connection(const poller_thread_t *work) {
 				set.poller.mode = REMOTE_ONLINE;
 				db_pool_remote = &unavailable;
 			} else db_pool_local[0].free = FALSE;
+			extern poller_thread_t **details;
+			poller_thread_t *device = details[work->device_counter];
+			device->complete = FALSE;
+			device->threads_complete = 0;
 			int errors = 0;
+			set.exit.exit_code = EXIT_SUCCESS;
 			poll_host(work, &errors);
-			_exit(0);
+			if (!device->poll_failed || device->complete || device->threads_complete != 1) _exit(3);
+			/* The local slot borrowed for a remote poll goes back to the pool. */
+			if (remote && !db_pool_local[0].free) _exit(4);
+			/* The failure still reaches the process exit status. */
+			_exit(set.exit.exit_code == EXIT_FAILURE ? 0 : 5);
 		}
 		int status;
 		assert(waitpid(child, &status, 0) == child);
-		assert(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE);
+		fprintf(stderr, "missing connection: remote=%d raw_status=%d\n", remote, status);
+		assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	}
 }
 

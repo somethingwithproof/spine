@@ -1246,9 +1246,16 @@ static void release_poll_connections(const poller_thread_t *work,
 	}
 }
 
-/* FALSE requests the existing missing-device early return. Other database
- * failures leave the host ignored and continue through the normal caller. */
-static bool load_poll_host(MYSQL *mysql, const poller_queries_t *queries,
+typedef enum {
+	POLL_HOST_LOADED,
+	POLL_HOST_MISSING,
+	POLL_HOST_FAILED
+} poll_host_load_t;
+
+/* A device deleted since selection returns quietly. A failed device query
+ * fails the device: treating it as an ignored host would still advance its
+ * schedule and drop the samples it never collected. */
+static poll_host_load_t load_poll_host(MYSQL *mysql, const poller_queries_t *queries,
 	host_t *host, ping_t *ping, const poller_thread_t *work) {
 	/* host_id=0 denotes a data source without a device. */
 	if (!work->host_id) {
@@ -1256,22 +1263,22 @@ static bool load_poll_host(MYSQL *mysql, const poller_queries_t *queries,
 		host->snmp.max_oids = 1;
 		host->snmp.session = NULL;
 		host->ignore_host = FALSE;
-		return TRUE;
+		return POLL_HOST_LOADED;
 	}
 	MYSQL_RES *result = db_query(mysql, LOCAL, queries->host);
 	if (result == NULL) {
-		host->ignore_host = TRUE;
-		return TRUE;
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to load the device", work->host_id, work->host_thread));
+		return POLL_HOST_FAILED;
 	}
 	if (spine_count_to_int(mysql_num_rows(result)) != 1) {
 		db_free_result(result);
-		return FALSE;
+		return POLL_HOST_MISSING;
 	}
 	MYSQL_ROW row = mysql_fetch_row(result);
 	if (row == NULL) {
 		SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", host->id, work->host_thread));
 		host->ignore_host = TRUE;
-		return TRUE;
+		return POLL_HOST_LOADED;
 	}
 	load_host_metadata(mysql, row, host, work);
 	db_free_result(result);
@@ -1280,12 +1287,15 @@ static bool load_poll_host(MYSQL *mysql, const poller_queries_t *queries,
 	if (work->host_thread == 1) {
 		persist_host_status(mysql, host, include_system_information && host->ignore_host != TRUE);
 	}
-	return TRUE;
+	return POLL_HOST_LOADED;
 }
 
+/* poll_failed means this partition could not use the database, so its own
+ * completion queries are skipped too: mysql may be NULL, and a connection
+ * that just failed would only spend another retry budget under LOCK_THDET. */
 static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 	const poller_thread_t *work, const poll_error_context_t *error_context,
-	bool output_failed, double poll_start) {
+	bool output_failed, bool poll_failed, double poll_start) {
 	extern poller_thread_t **details;
 	int host_id = work->host_id;
 	int host_thread = work->host_thread;
@@ -1305,23 +1315,30 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 		set.exit.exit_code = EXIT_FAILURE;
 		SPINE_LOG(("ERROR: Device[%i] HT[%i] output write failed; partial writes remain and due items stay eligible for recollection", host_id, host_thread));
 	}
+	if (poll_failed) {
+		device->poll_failed = TRUE;
+		set.exit.exit_code = EXIT_FAILURE;
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] polling failed on a database error; due items stay eligible for recollection", host_id, host_thread));
+	}
 	device->threads_complete++;
 	if (device->threads_complete == device->host_threads) {
+		bool failed = device->output_failed || device->poll_failed;
 		/* Keep the due-item set stable until every device partition has finished. */
-		if (set.poller.active_profiles != 1 && !device->output_failed) {
+		if (set.poller.active_profiles != 1 && !failed && !poll_failed) {
 			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
 			db_query(mysql, LOCAL, queries->schedule);
 		}
-		device->complete = !device->output_failed;
+		device->complete = !failed;
 
-		poll_time = get_time_as_double();
-		queries->items[0] = '\0';
-		snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-		db_query(mysql, LOCAL, queries->items);
-
+		if (!poll_failed) {
+			poll_time = get_time_as_double();
+			queries->items[0] = '\0';
+			snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
+			db_query(mysql, LOCAL, queries->items);
+		}
 	}
 
-	if (errors > 0) {
+	if (errors > 0 && !poll_failed) {
 		int error_query_len = spine_count_to_int(strlen(error_string) + BUFSIZE);
 		char *error_query = (char *)malloc(error_query_len);
 		if (error_query == NULL) die("ERROR: Fatal malloc error: poller.c error_query!");
@@ -1361,6 +1378,8 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	int    spike_kill = FALSE;
 	int    rows_processed = 0;
 	bool   output_failed = FALSE;
+	bool   poll_failed = FALSE;
+	poll_host_load_t loaded;
 
 
 	double poll_time = get_time_as_double();
@@ -1401,14 +1420,26 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	MYSQL_RES *result;
 
 	local_cnn = db_get_connection(LOCAL);
-	if (local_cnn == NULL) die("ERROR: No local database connection available for polling");
-	mysql = &local_cnn->mysql;
-
-	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
+	if (local_cnn != NULL && set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		remote_cnn = db_get_connection(REMOTE);
-		if (remote_cnn == NULL) die("ERROR: No remote database connection available for polling");
-		mysqlr = &remote_cnn->mysql;
+		if (remote_cnn == NULL) {
+			db_release_connection(LOCAL, local_cnn->id);
+			local_cnn = NULL;
+		}
 	}
+
+	if (local_cnn == NULL) {
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] No database connection available for polling", host_id, host_thread));
+		complete_poll_host(NULL, NULL, work, &error_context, FALSE, TRUE, poll_time);
+		SPINE_FREE(error_string);
+		SPINE_FREE(buf_size);
+		SPINE_FREE(buf_errors);
+		mysql_thread_end();
+		return;
+	}
+
+	mysql = &local_cnn->mysql;
+	if (remote_cnn != NULL) mysqlr = &remote_cnn->mysql;
 
 	/* allocate host and ping structures with appropriate values */
 	if (!(host = (host_t *) malloc(sizeof(host_t)))) {
@@ -1438,7 +1469,11 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	snprintf(ping->snmp_status,   50,            "down");
 	snprintf(ping->snmp_response, SMALL_BUFSIZE, "SNMP not performed due to setting or ping result");
 
-	if (!load_poll_host(mysql, &queries, host, ping, work)) {
+	loaded = load_poll_host(mysql, &queries, host, ping, work);
+	if (loaded == POLL_HOST_FAILED) {
+		complete_poll_host(mysql, &queries, work, &error_context, FALSE, TRUE, poll_time);
+	}
+	if (loaded != POLL_HOST_LOADED) {
 		release_poll_connections(work, local_cnn, remote_cnn);
 		SPINE_FREE(host);
 		SPINE_FREE(reindex);
@@ -1475,6 +1510,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 
 	/* calculate the number of poller items to poll this cycle */
 	result = select_poll_items(mysql, &queries, host, work, &num_rows);
+	poll_failed = result == NULL;
 
 	if (num_rows > 0) {
 		poll_item_storage_t storage = load_poll_items(result, host, num_rows);
@@ -1514,7 +1550,7 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	SPINE_FREE(reindex);
 	SPINE_FREE(ping);
 
-	complete_poll_host(mysql, &queries, work, &error_context, output_failed, poll_time);
+	complete_poll_host(mysql, &queries, work, &error_context, output_failed, poll_failed, poll_time);
 
 	release_poll_connections(work, local_cnn, remote_cnn);
 

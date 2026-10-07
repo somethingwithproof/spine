@@ -651,6 +651,9 @@ static void report_worker_completion(int num_rows) {
 			if (det->output_failed) {
 				SPINE_LOG(("ERROR: Device[%i] output persistence failed; due items remain scheduled for retry", det->host_id));
 			}
+			if (det->poll_failed) {
+				SPINE_LOG(("ERROR: Device[%i] polling failed on a database error; due items remain scheduled for retry", det->host_id));
+			}
 			SPINE_LOG_HIGH(("INFO: Device[%i] Thread %scomplete and %d to %d sources",
 				det->host_id,
 				det->complete ? "":"in",
@@ -745,6 +748,7 @@ static void launch_poll_workers(MYSQL *mysql, MYSQL_RES *result, int num_rows,
 			poller_details->complete         = FALSE;
 			poller_details->threads_complete = 0;
 			poller_details->output_failed    = FALSE;
+			poller_details->poll_failed      = FALSE;
 
 			thread_mutex_lock(LOCK_THDET);
 			details[device_counter] = poller_details;
