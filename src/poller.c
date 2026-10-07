@@ -3062,13 +3062,14 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 								timeout.tv_sec  = rint(floor(script_timeout-(end_time-begin_time)));
 								remaining_usec  = set.script_timeout - timeout.tv_sec - (end_time - begin_time);
 
-								if (remaining_usec > 0) {
+								if (timeout.tv_sec < 0) {
+									timeout.tv_sec  = 0;
+									timeout.tv_usec = 0;
+								} else if (remaining_usec > 0) {
 									timeout.tv_usec = rint(remaining_usec * 1000000);
 								} else {
 									timeout.tv_usec = 0;
 								}
-								timeout.tv_sec = rint(floor(script_timeout-(end_time-begin_time)));
-								timeout.tv_usec = rint((script_timeout-(end_time-begin_time)-timeout.tv_sec)*1000000);
 
 								if (timeout.tv_sec + timeout.tv_usec > 0) {
 									goto retry;
