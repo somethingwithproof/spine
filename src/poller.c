@@ -523,8 +523,8 @@ static void advance_persisted_schedule(const HostPollingRequest *request, MYSQL 
 
 static ResultCode host_poll_stage_persist_results(const HostPollingRequest *request, HostPollingStageOutput *output) {
 	HostPollPipelineData *pipeline_data = (HostPollPipelineData *)request->user_data;
-	pool_t *local_cnn;
-	pool_t *remote_cnn = NULL;
+	const pool_t *local_cnn;
+	const pool_t *remote_cnn = NULL;
 	MYSQL mysql;
 	MYSQL mysqlr;
 	MYSQL mysqlt;
@@ -1238,14 +1238,15 @@ static void record_reindex_spike(spine_spine_host_t *host, const reindex_asserti
 
 static void persist_reindex_assertion(spine_spine_host_t *host, const reindex_t *reindex,
 	const reindex_assertion_t *state, const char *poll_result, char *query3) {
-	char temp_poll_result[BUFSIZE];
-	char temp_arg1[BUFSIZE];
 	/* update 'poller_reindex' with the correct information if:
 	 * 1) the assert fails
 	 * 2) the OP code is > or < meaning the current value could have changed without causing
 	 *     the assert to fail */
 	if ((*state->assert_fail) || (!strcmp(reindex->op, ">")) || (!strcmp(reindex->op, "<"))) {
 		if (state->spine_host_thread == 1) {
+			char temp_poll_result[BUFSIZE];
+			char temp_arg1[BUFSIZE];
+
 			db_escape(state->local, temp_poll_result, sizeof(temp_poll_result), poll_result);
 			db_escape(state->local, temp_arg1, sizeof(temp_arg1), reindex->arg1);
 
@@ -1384,10 +1385,11 @@ static void consume_profile_switch_result(const spine_spine_host_t *host, target
 }
 
 static void consume_full_batch_result(const spine_spine_host_t *host, target_t *poller_items, snmp_oids_t *snmp_oids, int j, const legacy_result_context_t *context) {
-	char temp_result[RESULTS_BUFFER];
 	normalize_snmp_result(host, poller_items, snmp_oids, j, context);
 
 	if (strlen(poller_items[snmp_oids[j].array_position].output_regex)) {
+		char temp_result[RESULTS_BUFFER];
+
 		snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(poller_items[snmp_oids[j].array_position].output_regex, snmp_oids[j].result));
 		snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%s", temp_result);
 	}
@@ -1397,10 +1399,11 @@ static void consume_full_batch_result(const spine_spine_host_t *host, target_t *
 }
 
 static void consume_final_batch_result(const spine_spine_host_t *host, target_t *poller_items, snmp_oids_t *snmp_oids, int j, const legacy_result_context_t *context) {
-	char temp_result[RESULTS_BUFFER];
 	normalize_snmp_result(host, poller_items, snmp_oids, j, context);
 
 	if (strlen(poller_items[snmp_oids[j].array_position].output_regex)) {
+		char temp_result[RESULTS_BUFFER];
+
 		snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(poller_items[snmp_oids[j].array_position].output_regex, snmp_oids[j].result));
 		snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%s", temp_result);
 	}
@@ -1563,9 +1566,9 @@ static void check_legacy_host_availability(spine_spine_host_t *host, ping_t *pin
 }
 
 static void persist_legacy_host_status(const spine_spine_host_t *host, MYSQL *mysql, int spine_host_thread, int ignore_sysinfo) {
-	char update_sql[BIG_BUFSIZE];
 	/* update host table */
 	if (spine_host_thread == 1) {
+		char update_sql[BIG_BUFSIZE];
 		char escaped_last_error[BUFSIZE];
 		db_escape(mysql, escaped_last_error, sizeof(escaped_last_error), host->status_last_error);
 
@@ -2759,7 +2762,6 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
 int is_multipart_output(char *result) {
 	int space_cnt = 0;
 	int delim_cnt = 0;
-	int i;
 
 	/* check the easy cases first */
 	if (result) {
@@ -2769,6 +2771,7 @@ int is_multipart_output(char *result) {
 				return TRUE;
 			} else {
 				const int len = strlen(result);
+				int i;
 
 				for (i=0; i<len; i++) {
 					if ((result[i] == ':') || (result[i] == '!')) {
@@ -2946,7 +2949,7 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 	int pid;
 
 	int bytes_read;
-	double begin_time = 0;
+	double begin_time;
 	double end_time = 0;
 	double script_timeout;
 	double remaining_usec = 0;
