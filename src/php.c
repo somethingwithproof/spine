@@ -157,7 +157,7 @@ int php_get_process(void) {
 	return i;
 }
 
-/*! \fn char *php_readpipe(int php_process, char *command)
+/*! \fn char *php_readpipe(int php_process, const char *command)
  *  \brief read a line from a PHP Script Server process
  *  \param php_process the PHP Script Server process to obtain output from
  *
@@ -168,7 +168,7 @@ int php_get_process(void) {
  *
  *  \return a string pointer to the PHP Script Server response
  */
-char *php_readpipe(int php_process, char *command) {
+char *php_readpipe(int php_process, const char *command) {
 	struct timeval timeout;
 	double begin_time = 0;
 	double end_time = 0;

@@ -64,11 +64,28 @@ static credential_profile_t make_profile(const char *authentication, const char 
 	return profile;
 }
 
-static void *open_profile(credential_profile_t *profile) {
-	return snmp_host_init(1, profile->hostname, 3, profile->community,
-		profile->username, profile->authentication, profile->auth_protocol,
-		profile->privacy, profile->priv_protocol, profile->context, profile->engine_id,
-		1161, 100);
+static void *open_profile(credential_profile_t *profile, int legacy) {
+	if (legacy) {
+		return snmp_host_init(1, profile->hostname, 3, profile->community,
+			profile->username, profile->authentication, profile->auth_protocol,
+			profile->privacy, profile->priv_protocol, profile->context,
+			profile->engine_id, 1161, 100);
+	}
+	return spine_snmp_profile_open(&(spine_snmp_profile_t){
+			.host_id = 1,
+			.hostname = profile->hostname,
+			.snmp_version = 3,
+			.snmp_community = profile->community,
+			.snmp_username = profile->username,
+			.snmp_password = profile->authentication,
+			.snmp_auth_protocol = profile->auth_protocol,
+			.snmp_priv_passphrase = profile->privacy,
+			.snmp_priv_protocol = profile->priv_protocol,
+			.snmp_context = profile->context,
+			.snmp_engine_id = profile->engine_id,
+			.snmp_port = 1161,
+			.snmp_timeout = 100,
+		});
 }
 
 static void test_repeated_authpriv_creation(void) {
@@ -79,7 +96,7 @@ static void test_repeated_authpriv_creation(void) {
 	size_t auth_key_length = 0;
 	size_t priv_key_length = 0;
 	for (int iteration = 0; iteration < 2; iteration++) {
-		void *handle = open_profile(&profile);
+		void *handle = open_profile(&profile, iteration == 0);
 		ASSERT_TRUE(memcmp(&profile, &before, sizeof(profile)) == 0);
 		ASSERT_TRUE(handle != NULL);
 		if (handle == NULL) {
@@ -119,7 +136,7 @@ static void test_failed_key_derivation_preserves_profile(void) {
 	for (size_t index = 0; index < sizeof(authentication) / sizeof(authentication[0]); index++) {
 		credential_profile_t profile = make_profile(authentication[index], privacy[index]);
 		const credential_profile_t before = profile;
-		void *handle = open_profile(&profile);
+		void *handle = open_profile(&profile, 0);
 		ASSERT_TRUE(handle == NULL);
 		ASSERT_TRUE(memcmp(&profile, &before, sizeof(profile)) == 0);
 		if (handle != NULL) snmp_host_cleanup(handle);
@@ -127,6 +144,7 @@ static void test_failed_key_derivation_preserves_profile(void) {
 }
 
 int main(void) {
+	ASSERT_TRUE(spine_snmp_profile_open(NULL) == NULL);
 	const int platform_status = spine_platform_init();
 	ASSERT_TRUE(platform_status == 0);
 	if (platform_status != 0) return finish_tests("SNMP platform initialization");
