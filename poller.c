@@ -1744,7 +1744,8 @@ static bool read_script_result(const script_result_context_t *context, int fd, d
 		SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", context->host->id));
 		int pid = nft_pchild(fd);
 		if (pid > 1) {
-			kill(pid, SIGKILL);
+			/* nft_popen() made the script a group leader; take its descendants too. */
+			kill(-pid, SIGKILL);
 		} else {
 			SPINE_LOG(("Device[%i] ERROR: Unable to find the timed-out POPEN child", context->host->id));
 		}

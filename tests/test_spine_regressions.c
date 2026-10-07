@@ -1020,6 +1020,37 @@ static void test_script_execution(void) {
 	set.php.script_timeout = previous_timeout;
 }
 
+/* A timed-out script is killed with everything it started. The background
+ * sleep inherits the write end of the witness pipe, so EOF on the read end
+ * proves that no descendant outlived the timeout. */
+static void test_script_timeout_kills_descendants(void) {
+	assert(spine_permits_init(&available_scripts, 1) == 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "regression-device");
+	int previous_timeout = set.php.script_timeout;
+	set.php.script_timeout = 1;
+	int witness[2];
+	assert(pipe(witness) == 0);
+	char command[] = "/bin/sh -c '/bin/sleep 30 & /bin/sleep 30'";
+	char *result = exec_poll(&host, command, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	assert(close(witness[1]) == 0);
+	assert(witness[0] < FD_SETSIZE);
+	fd_set readable;
+	FD_ZERO(&readable);
+	FD_SET(witness[0], &readable);
+	struct timeval timeout = {3, 0};
+	int ready = select(witness[0] + 1, &readable, NULL, NULL, &timeout);
+	char byte;
+	fprintf(stderr, "script timeout descendants: ready=%d\n", ready);
+	assert(ready == 1 && read(witness[0], &byte, 1) == 0);
+	assert(close(witness[0]) == 0);
+	assert(spine_permits_available(&available_scripts) == 1);
+	assert(spine_permits_destroy(&available_scripts) == 0);
+	set.php.script_timeout = previous_timeout;
+}
+
 static void test_php_command(size_t length) {
 	char command[BUFSIZE];
 	assert(length <= sizeof(command) - 3);
@@ -2628,6 +2659,7 @@ int main(int argc, char **argv) {
 	test_php_owned_shutdown();
 	test_host_status_transitions();
 	test_script_execution();
+	test_script_timeout_kills_descendants();
 	test_script_stream_contracts();
 	test_cli_alias_contracts();
 	test_privilege_contracts();
