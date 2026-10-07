@@ -21,6 +21,7 @@
 extern size_t __real_strftime(char *, size_t, const char *, const struct tm *);
 extern int __real_mysql_query(MYSQL *, const char *);
 extern int __real_mysql_ping(MYSQL *);
+extern unsigned int __real_mysql_errno(MYSQL *);
 extern int __real_pipe(int [2]);
 extern int __real_socketpair(int, int, int, int [2]);
 extern int __real_posix_spawn(pid_t *, const char *, const posix_spawn_file_actions_t *,
@@ -41,6 +42,9 @@ static int query_fault_armed;
 static int observed_query_error;
 static int query_fault_calls;
 static int query_ping_calls;
+static MYSQL *interrupted_connection;
+static int interrupted_queries;
+static int interrupted_query_calls;
 static int pipe_failures;
 static int socketpair_failures;
 static int spawn_failures;
@@ -140,6 +144,16 @@ size_t __wrap_strftime(char *output, size_t capacity, const char *format, const 
 
 int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 	static const char completion[] = "UPDATE poller_time SET end_time=NOW() WHERE poller_id=";
+	/* The interrupted handle is never connected; it must not reach the client library. */
+	if (mysql == interrupted_connection) {
+		interrupted_query_calls++;
+		if (interrupted_queries > 0) {
+			interrupted_queries--;
+			errno = EINTR;
+			return 1;
+		}
+		return 0;
+	}
 	if (launch_case_active && strncmp(query, completion, sizeof(completion) - 1) == 0) {
 		inspect_worker_launch_completion();
 	}
@@ -162,6 +176,11 @@ int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 int __wrap_mysql_ping(MYSQL *mysql) {
 	if (mysql == query_fault_connection) query_ping_calls++;
 	return __real_mysql_ping(mysql);
+}
+
+unsigned int __wrap_mysql_errno(MYSQL *mysql) {
+	if (mysql == interrupted_connection) return 2013;
+	return __real_mysql_errno(mysql);
 }
 
 int __wrap_pipe(int descriptors[2]) {
@@ -348,6 +367,25 @@ static void arm_lost_connection(MYSQL *mysql, const char *statement) {
 	query_fault_calls = 0;
 	query_ping_calls = 0;
 	observed_query_error = 0;
+}
+
+/* A lost-connection error raised while a signal interrupted the call is
+ * retried in place: db_insert() must neither give up nor ping for a reconnect. */
+static void test_interrupted_insert_retry(void) {
+	MYSQL offline;
+	assert(mysql_init(&offline) == &offline);
+	set.poller.SQL_readonly = FALSE;
+	interrupted_connection = &offline;
+	interrupted_queries = 1;
+	interrupted_query_calls = 0;
+	query_fault_connection = &offline;
+	query_ping_calls = 0;
+	assert(db_insert(&offline, LOCAL, "INSERT INTO interrupted(value) VALUES(1)"));
+	assert(interrupted_queries == 0 && interrupted_query_calls == 2 && query_ping_calls == 0);
+	interrupted_connection = NULL;
+	query_fault_connection = NULL;
+	mysql_close(&offline);
+	puts("production interrupted insert retry regressions passed");
 }
 
 static void test_real_database_retry(void) {
@@ -616,6 +654,7 @@ int main(int argc, char **argv) {
 	alarm(20);
 	test_logger_format_failure();
 	test_process_creation_failures();
+	test_interrupted_insert_retry();
 	if (argc == 2 && strcmp(argv[1], "--database") == 0) {
 		test_real_database_retry();
 		test_ping_only_session_lifetime();
