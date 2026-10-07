@@ -576,18 +576,13 @@ static bool evaluate_reindex_assertion(const reindex_evaluation_t *evaluation, c
 	return failed;
 }
 
-/* The decimal forms is_numeric() accepted: counters, signed values, floats. */
-static bool result_is_numeric(const char *text) {
+/* An uptime is a non-negative integer; anything else cannot be compared. */
+static bool parse_uptime(const char *text, unsigned long long *ticks) {
 	classified_result_t classified;
 
-	switch (classify_result(text, &classified)) {
-	case RESULT_COUNTER:
-	case RESULT_SIGNED:
-	case RESULT_FLOAT:
-		return TRUE;
-	default:
-		return FALSE;
-	}
+	if (classify_result(text, &classified) != RESULT_COUNTER) return FALSE;
+	*ticks = (unsigned long long)classified.value.counter;
+	return TRUE;
 }
 
 static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
@@ -609,6 +604,9 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 		snprintf(poll_result, BUFSIZE, "%s", sysUptime);
 	} else if (strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||
 		strstr(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")) {
+		unsigned long long ticks;
+		bool uptime_use_engine_oid;
+
 		// Ensure uptime is empty to start with
 		sysUptime[0] = '\0';
 
@@ -620,10 +618,10 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 		   engine OID is not present with numeric data. */
 		poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
 
-		bool uptime_use_engine_oid = (poll_result != NULL && result_is_numeric(poll_result));
+		uptime_use_engine_oid = parse_uptime(poll_result, &ticks);
 
 		if (uptime_use_engine_oid) {
-			snprintf(sysUptime, BUFSIZE, "%lld", atoll(poll_result) * 100);
+			snprintf(sysUptime, BUFSIZE, "%llu", ticks * 100);
 		}
 
 		SPINE_FREE(poll_result);
@@ -634,11 +632,11 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 			// Engine OID unavailable, fall back to the legacy sysUpTime OID
 			poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
 
-			if (poll_result && result_is_numeric(poll_result)) {
-				snprintf(sysUptime, BUFSIZE, "%s", poll_result);
+			if (parse_uptime(poll_result, &ticks)) {
+				snprintf(sysUptime, BUFSIZE, "%llu", ticks);
 			}
 
-			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result != NULL ? poll_result : "U", result_is_numeric(poll_result) ));
+			SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result != NULL ? poll_result : "U", sysUptime[0] != '\0'));
 
 			SPINE_FREE(poll_result);
 		}
@@ -650,7 +648,7 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 			die("ERROR: Fatal malloc error: poller.c uptime result");
 		}
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, result_is_numeric(poll_result) ));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] Extended Uptime Result: %s, Is Numeric: %d", host->id, host_thread, reindex->data_query_id, poll_result, sysUptime[0] != '\0'));
 	} else {
 		poll_result = snmp_get(host, reindex->arg1);
 	}
@@ -1610,13 +1608,14 @@ void buffer_output_errors(char *error_string, int *buf_size, int *buf_errors, in
 
 static void poll_system_uptime(host_t *host) {
 	char *poll_result;
+	unsigned long long ticks;
 	// Get the legacy system uptime instance first
 	SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.3.0');", host->id));
 	poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.3.0");
 	SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
 
-	if (poll_result && result_is_numeric(poll_result)) {
-		host->system.snmp_sysUpTimeInstance = atoll(poll_result);
+	if (parse_uptime(poll_result, &ticks)) {
+		host->system.snmp_sysUpTimeInstance = ticks;
 		SPINE_FREE(poll_result);
 
 		// Attempt to get the more modern version
@@ -1624,8 +1623,8 @@ static void poll_system_uptime(host_t *host) {
 		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.6.3.10.2.1.3.0");
 		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
 
-		if (poll_result && result_is_numeric(poll_result)) {
-			host->system.snmp_sysUpTimeInstance = atoll(poll_result) * 100;
+		if (parse_uptime(poll_result, &ticks)) {
+			host->system.snmp_sysUpTimeInstance = ticks * 100;
 		}
 	}
 	SPINE_FREE(poll_result);
