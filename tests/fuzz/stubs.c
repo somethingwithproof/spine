@@ -3,6 +3,8 @@
  * Every translation unit except spine.c is linked as built, so the code under
  * test is the code that ships.  This file supplies only the globals that
  * spine.c would define, plus php_close, which lives beside main().
+ * spine_poll_work_failed() also lives in spine.c; the libuv worker callback
+ * in poller.c reports submission failures through it.
  */
 #include "common.h"
 #include "spine.h"
@@ -19,3 +21,6 @@ pool_t     *db_pool_local;
 pool_t     *db_pool_remote;
 php_t      *php_processes;
 poller_thread_t *details;
+
+void spine_poll_work_failed(void) {
+}

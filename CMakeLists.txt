@@ -525,3 +525,26 @@ configure_file(
     ${CMAKE_BINARY_DIR}/config/config.h
     @ONLY
 )
+
+# Add after spine is fully configured; GNU/Linux only (GNU linker wrap contract).
+# No dependency or feature exclusions: inherit the actual production target.
+if(BUILD_TESTING AND SPINE_BUILD_MAIN AND LIBUV_FOUND AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_executable(test_native_partition_lifecycle
+    ${SPINE_CORE_SOURCES} tests/unit/test_native_partition_lifecycle.c)
+  foreach(prop IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS
+                        LINK_LIBRARIES LINK_DIRECTORIES LINK_OPTIONS)
+    get_target_property(value spine ${prop})
+    if(value)
+      set_property(TARGET test_native_partition_lifecycle PROPERTY ${prop} "${value}")
+    endif()
+  endforeach()
+  target_link_options(test_native_partition_lifecycle PRIVATE
+    "LINKER:--wrap=main" "LINKER:--wrap=calloc" "LINKER:--wrap=free"
+    "LINKER:--wrap=uv_queue_work" "LINKER:--wrap=uv_signal_start"
+    "LINKER:--wrap=pthread_mutex_unlock")
+  # The owned integration runner invokes both modes only after real SQL setup:
+  # SPINE_NATIVE_LIFECYCLE_SCENARIO=partition-order <target> <native CLI args>
+  # SPINE_NATIVE_LIFECYCLE_SCENARIO=early-stop <target> <native CLI args>
+  # Register the runner in the actual native CI job; do not add a DB-less CTest
+  # that passes without executing either named assertion marker.
+endif()

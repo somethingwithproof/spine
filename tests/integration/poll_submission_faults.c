@@ -6,7 +6,7 @@
  | This program is free software; you can redistribute it and/or           |
  | modify it under the terms of the GNU Lesser General Public              |
  | License as published by the Free Software Foundation; either            |
- | version 2.1 of the License, or (at your option) any later version. 	   |
+ | version 2.1 of the License, or (at your option) any later version.      |
  |                                                                         |
  | This program is distributed in the hope that it will be useful,         |
  | but WITHOUT ANY WARRANTY; without even the implied warranty of          |
@@ -31,28 +31,37 @@
  +-------------------------------------------------------------------------+
 */
 
-#ifndef SPINE_POLLER_H
-#define SPINE_POLLER_H
-extern void *child(void *arg);
-extern void child_cleanup(void *arg);
-extern void child_cleanup_thread(void *arg);
-extern void child_cleanup_script(void *arg);
-extern void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
-#ifdef HAVE_LIBUV
-/* Concurrency Governor: Limit in-flight async handles to avoid OS/Network saturation */
-#define MAX_ASYNC_CONCURRENCY 500
-extern int spine_queue_poll(poller_thread_t *det);
-/* Record asynchronous submission/completion failure for the main-thread outcome. */
-extern void spine_poll_work_failed(void);
-#endif
-extern int poller_store_hex_result(char *result, size_t result_size, const char *hex, int *errors);
-extern char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const char *type);
-extern void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system);
-extern int is_multipart_output(char *result);
-extern int validate_result(char *result);
-extern int format_poller_output_row(char *output, size_t output_size,
-	int local_data_id, const char *escaped_rrd_name,
-	const char *host_time, const char *escaped_result);
-extern void buffer_output_errors(char * error_string, int * buf_size, int * buf_errors, int device_id, int thread_id, int local_data_id, bool flush);
+/* Test-only interposition around the real libuv submission calls. */
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <uv.h>
 
-#endif /* SPINE_POLLER_H */
+static int selected(const char *mode) {
+	const char *requested = getenv("SPINE_TEST_SUBMISSION_FAULT");
+	return requested != NULL && strcmp(requested, mode) == 0;
+}
+
+int uv_queue_work(uv_loop_t *loop, uv_work_t *request, uv_work_cb work, uv_after_work_cb after) {
+	if (selected("queue")) {
+		fputs("FIXTURE: rejected uv_queue_work\n", stderr);
+		return UV_ENOMEM;
+	}
+	int (*original)(uv_loop_t *, uv_work_t *, uv_work_cb, uv_after_work_cb) = dlsym(RTLD_NEXT, "uv_queue_work");
+	if (original == NULL) abort();
+	return original(loop, request, work, after);
+}
+
+int uv_async_send(uv_async_t *handle) {
+	static atomic_int sends;
+	if (selected("wake") && atomic_fetch_add(&sends, 1) == 0) {
+		fputs("FIXTURE: rejected first uv_async_send\n", stderr);
+		return UV_EINVAL;
+	}
+	int (*original)(uv_async_t *) = dlsym(RTLD_NEXT, "uv_async_send");
+	if (original == NULL) abort();
+	return original(handle);
+}
