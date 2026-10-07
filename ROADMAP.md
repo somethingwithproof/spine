@@ -72,7 +72,8 @@ merged.
 - Move the build from C99 to C17, recorded in an ADR. Adopt features one
   area at a time, each with tests: `<stdatomic.h>` for shared counters now
   guarded by global locks, and `_Static_assert` for buffer and struct sizes.
-  Keep pthreads; `<threads.h>` is missing on macOS. Upstream C99 code still
+  Keep pthreads until Phase 4 brings libuv, whose thread API covers what
+  `<threads.h>` would, on Windows too. Upstream C99 code still
   compiles as C17, so the switch does not block upstream merges.
 - Annotate locks and the data they protect for Clang's thread-safety
   analysis (`-Wthread-safety`), so the compiler rejects unlocked access to
@@ -182,7 +183,9 @@ none blocks a loop.
 5. Native Windows. With CMake and libuv in place, add a small platform
    layer for what libuv does not cover: ICMP through `IcmpSendEcho2`
    instead of raw sockets, and privilege handling, which has no setuid on
-   Windows. The retired best-of-best line has Windows ICMP and process code
+   Windows. Move threads, mutexes and condition variables from pthreads to
+   libuv's thread API behind the existing `locks.c` wrappers; counters keep
+   using `<stdatomic.h>`, since libuv has no general atomics. The retired best-of-best line has Windows ICMP and process code
    to start from (tag `archive/best-of-best`). Build with MSVC and MinGW in
    CI, including Net-SNMP and MariaDB Connector/C.
 6. Optional persistent mode. Cacti's `poller.php` starts Spine once per
