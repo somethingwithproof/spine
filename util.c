@@ -34,6 +34,170 @@
 #include "common.h"
 #include "spine.h"
 #include "regex.h"
+#include <stddef.h>
+#include <limits.h>
+
+/* Bounded formatting must reject truncation before a partial SQL statement or
+ * command can be used. Return the number actually written, never the size that
+ * would have been needed, so append callers cannot advance past the buffer. */
+int spine_snprintf(char *output, size_t capacity, const char *format, ...) {
+	va_list args;
+	int length;
+
+	va_start(args, format);
+	length = vsnprintf(output, capacity, format, args);
+	va_end(args);
+	if (length < 0 || (size_t) length >= capacity) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Formatted output exceeds its destination buffer");
+	}
+	return length;
+}
+
+int spine_count_to_int(unsigned long long count) {
+	if (count > INT_MAX) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Result count exceeds supported integer range");
+	}
+	return (int)count;
+}
+
+void spine_sleep_usec(unsigned int microseconds) {
+	struct timespec requested = {
+		(time_t)(microseconds / 1000000), (long)(microseconds % 1000000) * 1000
+	};
+	while (nanosleep(&requested, &requested) != 0) {
+		if (errno != EINTR) {
+			set.exit.exit_code = EXIT_FAILURE;
+			die("ERROR: Unable to wait for retry delay");
+		}
+	}
+}
+
+double spine_monotonic_time(void) {
+	struct timespec now;
+	if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to read monotonic clock");
+	}
+	return (double)now.tv_sec + (double)now.tv_nsec / 1000000000;
+}
+
+static int spine_wait_fd(int fd, double deadline, bool writable) {
+	if (fd < 0 || fd >= FD_SETSIZE) {
+		errno = EBADF;
+		return -1;
+	}
+	if (!isfinite(deadline)) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (;;) {
+		double remaining = deadline - spine_monotonic_time();
+		if (remaining <= 0) return 0;
+		if (remaining > INT_MAX) {
+			errno = EINVAL;
+			return -1;
+		}
+		struct timeval timeout;
+		timeout.tv_sec = (time_t)remaining;
+		timeout.tv_usec = (suseconds_t)((remaining - (double)timeout.tv_sec) * 1000000);
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(fd, &fds);
+		int status = select(fd + 1, writable ? NULL : &fds, writable ? &fds : NULL, NULL, &timeout);
+		if (status < 0 && errno == EINTR) continue;
+		return status;
+	}
+}
+
+int spine_wait_readable(int fd, double deadline) {
+	return spine_wait_fd(fd, deadline, FALSE);
+}
+
+int spine_wait_writable(int fd, double deadline) {
+	return spine_wait_fd(fd, deadline, TRUE);
+}
+
+
+int spine_permits_init(spine_permits_t *permits, int count) {
+	if (count < 0) return EINVAL;
+	int status = pthread_mutex_init(&permits->mutex, NULL);
+	if (status == 0) permits->available = count;
+	return status;
+}
+
+int spine_permits_destroy(spine_permits_t *permits) {
+	return pthread_mutex_destroy(&permits->mutex);
+}
+
+static void spine_permits_lock(spine_permits_t *permits) {
+	if (pthread_mutex_lock(&permits->mutex) != 0) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to lock process permits");
+	}
+}
+
+static void spine_permits_unlock(spine_permits_t *permits) {
+	if (pthread_mutex_unlock(&permits->mutex) != 0) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to unlock process permits");
+	}
+}
+
+int spine_permits_try_acquire(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int status = EAGAIN;
+	if (permits->available > 0) {
+		permits->available--;
+		status = 0;
+	}
+	spine_permits_unlock(permits);
+	return status;
+}
+
+int spine_permits_release(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int status = EOVERFLOW;
+	if (permits->available < INT_MAX) {
+		permits->available++;
+		status = 0;
+	}
+	spine_permits_unlock(permits);
+	return status;
+}
+
+int spine_permits_available(spine_permits_t *permits) {
+	spine_permits_lock(permits);
+	int available = permits->available;
+	spine_permits_unlock(permits);
+	return available;
+}
+
+void spine_clear_sensitive(void *buffer, size_t length) {
+	volatile unsigned char *bytes = buffer;
+	while (length > 0) {
+		*bytes++ = 0;
+		length--;
+	}
+}
+
+/* Preserve printable device output while keeping each log record on one line.
+ * Also remove terminal controls and Unicode line/paragraph separators. */
+void spine_sanitize_log_message(char *message) {
+	for (unsigned char *p = (unsigned char *)message; *p != 0; p++) {
+		if (*p < 0x20 || *p == 0x7f) {
+			*p = ' ';
+		} else if (p[0] == 0xc2 && p[1] == 0x85) {
+			p[0] = ' ';
+			p[1] = ' ';
+		} else if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
+			p[0] = ' ';
+			p[1] = ' ';
+			p[2] = ' ';
+		}
+	}
+}
 
 static int nopts = 0;
 
@@ -60,11 +224,14 @@ static struct {
  *
  */
 void set_option(const char *option, const char *value) {
+	if (option == NULL || value == NULL || nopts >= (int)(sizeof(opttable) / sizeof(opttable[0]))) {
+		die("ERROR: Invalid or excessive command-line setting overrides");
+	}
 	opttable[nopts  ].opt = option;
 	opttable[nopts++].val = value;
 }
 
-/*! \fn static const char *getsetting(MYSQL *psql, int mode, const char *setting)
+/*! \fn static char *getsetting(MYSQL *psql, int mode, const char *setting)
  *  \brief Returns a character pointer to a Cacti setting.
  *
  *  Given a pointer to a database and the name of a setting, return the string
@@ -77,18 +244,17 @@ void set_option(const char *option, const char *value) {
  *  \return the database option setting
  *
  */
-static const char *getsetting(MYSQL *psql, int mode, const char *setting) {
+static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
 			retval = strdup(opttable[i].val);
@@ -96,28 +262,14 @@ static const char *getsetting(MYSQL *psql, int mode, const char *setting) {
 		}
 	}
 
-	sprintf(qstring, "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
+	spine_snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
 
 	result = db_query(psql, mode, qstring);
-
-	if (result != 0) {
-		if (mysql_num_rows(result) > 0) {
-			mysql_row = mysql_fetch_row(result);
-
-			if (mysql_row != NULL) {
-				retval = strdup(mysql_row[0]);
-				db_free_result(result);
-				return retval;
-			}else{
-				return strdup("");
-			}
-		}else{
-			db_free_result(result);
-			return strdup("");
-		}
-	}else{
-		return strdup("");
-	}
+	if (result == NULL) return strdup("");
+	mysql_row = mysql_num_rows(result) > 0 ? mysql_fetch_row(result) : NULL;
+	retval = mysql_row != NULL && mysql_row[0] != NULL ? strdup(mysql_row[0]) : strdup("");
+	db_free_result(result);
+	return retval;
 }
 
 /*! \fn int putsetting(MYSQL *psql, const char *setting, const char *value)
@@ -137,26 +289,22 @@ int putsetting(MYSQL *psql, int mode, const char *mysetting, const char *myvalue
 	assert(mysetting != 0);
 	assert(myvalue   != 0);
 
-	if (set.dbonupdate == 0) {
-		sprintf(qstring, "INSERT INTO settings (name, value) "
+	if (set.database.onupdate == 0) {
+		spine_snprintf(qstring, sizeof(qstring), "INSERT INTO settings (name, value) "
 			"VALUES ('%s', '%s') "
 			"ON DUPLICATE KEY UPDATE value = VALUES(value)", mysetting, myvalue);
 	} else {
-		sprintf(qstring, "INSERT INTO settings (name, value) "
+		spine_snprintf(qstring, sizeof(qstring), "INSERT INTO settings (name, value) "
 			"VALUES ('%s', '%s') AS rs "
 			"ON DUPLICATE KEY UPDATE value = rs.value", mysetting, myvalue);
 	}
 
 	result = db_insert(psql, mode, qstring);
 
-	if (result == 0) {
-		return TRUE;
-	} else {
-		return FALSE;
-	}
+	return result;
 }
 
-/*! \fn static const char *getpsetting(MYSQL *psql, const char *setting)
+/*! \fn static char *getpsetting(MYSQL *psql, const char *setting)
  *  \brief Returns a character pointer to a Cacti poller setting.
  *
  *  Given a pointer to a database and the name of a setting,
@@ -169,18 +317,17 @@ int putsetting(MYSQL *psql, int mode, const char *mysetting, const char *myvalue
  *  \return the database option setting
  *
  */
-static const char *getpsetting(MYSQL *psql, int mode, const char *setting) {
+static char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
 			retval = strdup(opttable[i].val);
@@ -188,28 +335,14 @@ static const char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 		}
 	}
 
-	sprintf(qstring, "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller_id);
+	spine_snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller.poller_id);
 
 	result = db_query(psql, mode, qstring);
-
-	if (result != 0) {
-		if (mysql_num_rows(result) > 0) {
-			mysql_row = mysql_fetch_row(result);
-
-			if (mysql_row != NULL) {
-				retval = strdup(mysql_row[0]);
-				db_free_result(result);
-				return retval;
-			} else {
-				return 0;
-			}
-		} else {
-			db_free_result(result);
-			return 0;
-		}
-	} else {
-		return 0;
-	}
+	if (result == NULL) return NULL;
+	mysql_row = mysql_num_rows(result) > 0 ? mysql_fetch_row(result) : NULL;
+	retval = mysql_row != NULL && mysql_row[0] != NULL ? strdup(mysql_row[0]) : NULL;
+	db_free_result(result);
+	return retval;
 }
 
 /*! \fn static int getboolsetting(MYSQL *psql, int mode, const char *setting, int dflt)
@@ -223,7 +356,7 @@ static const char *getpsetting(MYSQL *psql, int mode, const char *setting) {
  *  \return boolean TRUE or FALSE based upon database setting or the DEFAULT if not found
  */
 static int getboolsetting(MYSQL *psql, int mode, const char *setting, int dflt) {
-	const char *rc;
+	char *rc;
 
 	assert(psql    != 0);
 	assert(setting != 0);
@@ -236,7 +369,7 @@ static int getboolsetting(MYSQL *psql, int mode, const char *setting, int dflt) 
 		STRIMATCH(rc, "yes" ) ||
 		STRIMATCH(rc, "true") ||
 		STRIMATCH(rc, "1"   ) ) {
-		free((char *)rc);
+		free(rc);
 		return TRUE;
 	}
 
@@ -244,17 +377,17 @@ static int getboolsetting(MYSQL *psql, int mode, const char *setting, int dflt) 
 		STRIMATCH(rc, "no"   ) ||
 		STRIMATCH(rc, "false") ||
 		STRIMATCH(rc, "0"    ) ) {
-		free((char *)rc);
+		free(rc);
 		return FALSE;
 	}
 
 	/* doesn't really match one of our keywords: what to do? */
-	free((char *)rc);
+	free(rc);
 
 	return dflt;
 }
 
-/*! \fn static const char *getglobalvariable(MYSQL *psql, const char *setting)
+/*! \fn static char *getglobalvariable(MYSQL *psql, const char *setting)
  *  \brief Returns a character pointer to a MySQL global variable setting.
  *
  *  Given a pointer to a database and the name of a global variable, return the string
@@ -264,46 +397,31 @@ static int getboolsetting(MYSQL *psql, int mode, const char *setting, int dflt) 
  *  \return the database global variable setting
  *
  */
-static const char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
+static char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
 	MYSQL_ROW mysql_row;
-	int       i;
 
 	assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
+	for (int i = 0; i < nopts; i++) {
 		if (STRIMATCH(setting, opttable[i].opt)) {
 			/* FOUND IT! */
-			return opttable[i].val;
+			return strdup(opttable[i].val);
 		}
 	}
 
-	sprintf(qstring, "SHOW GLOBAL VARIABLES LIKE '%s'", setting);
+	spine_snprintf(qstring, sizeof(qstring), "SHOW GLOBAL VARIABLES LIKE '%s'", setting);
 
 	result = db_query(psql, mode, qstring);
-
-	if (result != 0) {
-		if (mysql_num_rows(result) > 0) {
-			mysql_row = mysql_fetch_row(result);
-
-			if (mysql_row != NULL) {
-				retval = strdup(mysql_row[1]);
-				db_free_result(result);
-				return retval;
-			} else {
-				return 0;
-			}
-		} else {
-			db_free_result(result);
-			return 0;
-		}
-	} else {
-		return 0;
-	}
+	if (result == NULL) return NULL;
+	mysql_row = mysql_num_rows(result) > 0 ? mysql_fetch_row(result) : NULL;
+	retval = mysql_row != NULL && mysql_row[1] != NULL ? strdup(mysql_row[1]) : NULL;
+	db_free_result(result);
+	return retval;
 }
 
 /*! \fn int is_debug_device(int device_id)
@@ -326,357 +444,290 @@ int is_debug_device(int device_id) {
 	return FALSE;
 }
 
-/*! \fn void read_config_options(void)
- *  \brief Reads the default Spine runtime parameters from the database and set's the global array
- *
- *  load default values from the database for poller processing
- *
- */
-void read_config_options() {
-	MYSQL      mysql;
-	MYSQL      mysqlr;
-	MYSQL_RES  *result;
-	int        num_rows;
-	int        mode;
-	char       web_root[BUFSIZE];
-	char       sqlbuf[HUGE_BUFSIZE];
-	char       *sqlp = sqlbuf;
-	const char *res;
-	char       spine_capabilities[BUFSIZE];
-
-	/* publish spine snmpv3 capabilities to the database */
-	memset(spine_capabilities, 0, sizeof(spine_capabilities));
-
-	db_connect(LOCAL, &mysql);
-
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
-		db_connect(REMOTE, &mysqlr);
-		mode = REMOTE;
-	} else {
-		mode = LOCAL;
+void parse_debug_devices(char *device_list, int *devices, size_t capacity) {
+	if (capacity == 0) return;
+	devices[0] = 0;
+	char *saveptr = NULL;
+	const char *token = strtok_r(device_list, ",", &saveptr);
+	for (size_t i = 0; token != NULL && i < capacity - 1; i++, token = strtok_r(NULL, ",", &saveptr)) {
+		devices[i] = atoi(token);
+		devices[i + 1] = 0;
 	}
+}
 
-	/* get the mysql server version */
-	if ((res = getglobalvariable(&mysql, LOCAL, "version")) != 0) {
-		snprintf(set.dbversion, BUFSIZE, "%s", res);
-		free((char *)res);
-	}
-
-	if (STRIMATCH(set.dbversion, "mariadb")) {
-		set.dbonupdate = 0;
-	} else if (strpos(set.dbversion, "8.") == 0) {
-		set.dbonupdate = 1;
-	} else {
-		set.dbonupdate = 0;
-	}
-
-	/* get the cacti version from the database */
-	set.cacti_version = get_cacti_version(&mysql, LOCAL);
-
-	/* log the path_webroot variable */
-	SPINE_LOG_DEBUG(("DEBUG: The binary Cacti version is %d", set.cacti_version));
-
+static void read_logging_options(MYSQL *mysql) {
+	char *res;
+	char web_root[BUFSIZE] = {0};
 	/* get logging level from database - overrides spine.conf */
-	if ((res = getsetting(&mysql, LOCAL, "log_verbosity")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "log_verbosity")) != 0) {
 		const int n = atoi(res);
-		free((char *)res);
-		if (n != 0) set.log_level = n;
+		free(res);
+		if (n != 0) set.logging.log_level = n;
 	}
 
 	/* determine script server path operation and default log file processing */
-	if ((res = getsetting(&mysql, LOCAL, "path_webroot")) != 0) {
-		snprintf(set.path_php_server, BUFSIZE, "%s/script_server.php", res);
+	if ((res = getsetting(mysql, LOCAL, "path_webroot")) != 0) {
+		snprintf(set.php.path_php_server, BUFSIZE, "%s/script_server.php", res);
 		snprintf(web_root, BUFSIZE, "%s", res);
-		free((char *)res);
+		free(res);
 	}
 
 	/* determine logfile path */
-	if ((res = getsetting(&mysql, LOCAL, "path_cactilog")) != 0) {
+	if ((res = getsetting(mysql, LOCAL, "path_cactilog")) != 0) {
 		if (strlen(res) != 0) {
-			snprintf(set.path_logfile, DBL_BUFSIZE, "%s", res);
+			snprintf(set.logging.path_logfile, DBL_BUFSIZE, "%s", res);
 		} else {
 			if (strlen(web_root) != 0) {
-				snprintf(set.path_logfile, DBL_BUFSIZE, "%s/log/cacti.log", web_root);
+				snprintf(set.logging.path_logfile, DBL_BUFSIZE, "%s/log/cacti.log", web_root);
 			} else {
-				set.path_logfile[0] ='\0';
+				set.logging.path_logfile[0] ='\0';
 			}
 		}
-		free((char *)res);
+		free(res);
 	} else {
-		snprintf(set.path_logfile, DBL_BUFSIZE, "%s/log/cacti.log", web_root);
+		snprintf(set.logging.path_logfile, DBL_BUFSIZE, "%s/log/cacti.log", web_root);
  	}
 
 	/* get log separator */
-	if ((res = getsetting(&mysql, LOCAL, "default_datechar")) != 0) {
-		set.log_datetime_separator = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "default_datechar")) != 0) {
+		set.logging.log_datetime_separator = atoi(res);
+		free(res);
 
-		if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
-			set.log_datetime_separator = GDC_DEFAULT;
-		}
-	}
-
-	/* get log separator */
-	if ((res = getsetting(&mysql, LOCAL, "default_datechar")) != 0) {
-		set.log_datetime_separator = atoi(res);
-		free((char *)res);
-
-		if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
-			set.log_datetime_separator = GDC_DEFAULT;
+		if (set.logging.log_datetime_separator < GDC_MIN || set.logging.log_datetime_separator > GDC_MAX) {
+			set.logging.log_datetime_separator = GDC_DEFAULT;
 		}
 	}
 
 	/* determine log file, syslog or both, default is 1 or log file only */
-	if ((res = getsetting(&mysql, LOCAL, "log_destination")) != 0) {
-		set.log_destination = parse_logdest(res, LOGDEST_FILE);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "log_destination")) != 0) {
+		set.logging.log_destination = parse_logdest(res, LOGDEST_FILE);
+		free(res);
 	} else {
-		set.log_destination = LOGDEST_FILE;
+		set.logging.log_destination = LOGDEST_FILE;
 	}
 
 	/* log the path_webroot variable */
-	SPINE_LOG_DEBUG(("DEBUG: The path_php_server variable is %s", set.path_php_server));
+	SPINE_LOG_DEBUG(("DEBUG: The path_php_server variable is %s", set.php.path_php_server));
 
 	/* log the path_cactilog variable */
-	SPINE_LOG_DEBUG(("DEBUG: The path_cactilog variable is %s", set.path_logfile));
+	SPINE_LOG_DEBUG(("DEBUG: The path_cactilog variable is %s", set.logging.path_logfile));
 
 	/* the version variable */
-	SPINE_LOG_DEBUG(("DEBUG: The version variable is %s", set.dbversion));
+	SPINE_LOG_DEBUG(("DEBUG: The version variable is %s", set.database.version));
 
 	/* log the log_destination variable */
 	SPINE_LOG_DEBUG(("DEBUG: The log_destination variable is %i (%s)",
-		set.log_destination,
-		printable_logdest(set.log_destination)));
+		set.logging.log_destination,
+		printable_logdest(set.logging.log_destination)));
 
-	set.logfile_processed = TRUE;
+	set.logging.logfile_processed = TRUE;
 
-	/* get PHP Path Information for Scripting */
-	if ((res = getsetting(&mysql, LOCAL, "path_php_binary")) != 0) {
-		STRNCOPY(set.path_php, res);
-		free((char *)res);
-	}
+}
 
-	/* log the path_php variable */
-	SPINE_LOG_DEBUG(("DEBUG: The path_php variable is %s", set.path_php));
-
+static void read_ping_options(MYSQL *mysql) {
+	char *res;
 	/* set availability_method */
-	if ((res = getsetting(&mysql, LOCAL, "availability_method")) != 0) {
-		set.availability_method = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "availability_method")) != 0) {
+		set.availability.availability_method = atoi(res);
+		free(res);
 	}
 
 	/* log the availability_method variable */
-	SPINE_LOG_DEBUG(("DEBUG: The availability_method variable is %i", set.availability_method));
+	SPINE_LOG_DEBUG(("DEBUG: The availability_method variable is %i", set.availability.availability_method));
 
 	/* set ping_recovery_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_recovery_count")) != 0) {
-		set.ping_recovery_count = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "ping_recovery_count")) != 0) {
+		set.availability.ping_recovery_count = atoi(res);
+		free(res);
 	}
 
 	/* log the ping_recovery_count variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_recovery_count variable is %i", set.ping_recovery_count));
+	SPINE_LOG_DEBUG(("DEBUG: The ping_recovery_count variable is %i", set.availability.ping_recovery_count));
 
 	/* set ping_failure_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_failure_count")) != 0) {
-		set.ping_failure_count = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "ping_failure_count")) != 0) {
+		set.availability.ping_failure_count = atoi(res);
+		free(res);
 	}
 
 	/* log the ping_failure_count variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_failure_count variable is %i", set.ping_failure_count));
+	SPINE_LOG_DEBUG(("DEBUG: The ping_failure_count variable is %i", set.availability.ping_failure_count));
 
 	/* set ping_method */
-	if ((res = getsetting(&mysql, LOCAL, "ping_method")) != 0) {
-		set.ping_method = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "ping_method")) != 0) {
+		set.availability.ping_method = atoi(res);
+		free(res);
 	}
 
 	/* log the ping_method variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_method variable is %i", set.ping_method));
+	SPINE_LOG_DEBUG(("DEBUG: The ping_method variable is %i", set.availability.ping_method));
 
 	/* set ping_retries */
-	if ((res = getsetting(&mysql, LOCAL, "ping_retries")) != 0) {
-		set.ping_retries = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "ping_retries")) != 0) {
+		set.availability.ping_retries = atoi(res);
+		free(res);
 	}
 
 	/* log the ping_retries variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_retries variable is %i", set.ping_retries));
+	SPINE_LOG_DEBUG(("DEBUG: The ping_retries variable is %i", set.availability.ping_retries));
 
 	/* set ping_timeout */
-	if ((res = getsetting(&mysql, LOCAL, "ping_timeout")) != 0) {
-		set.ping_timeout = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "ping_timeout")) != 0) {
+		set.availability.ping_timeout = atoi(res);
+		free(res);
 	} else {
-		set.ping_timeout = 400;
+		set.availability.ping_timeout = 400;
 	}
 
 	/* log the ping_timeout variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_timeout variable is %i", set.ping_timeout));
+	SPINE_LOG_DEBUG(("DEBUG: The ping_timeout variable is %i", set.availability.ping_timeout));
 
 	/* set snmp_retries */
-	if ((res = getsetting(&mysql, LOCAL, "snmp_retries")) != 0) {
-		set.snmp_retries = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "snmp_retries")) != 0) {
+		set.snmp.snmp_retries = atoi(res);
+		free(res);
 	} else {
-		set.snmp_retries = 3;
+		set.snmp.snmp_retries = 3;
 	}
 
 	/* log the snmp_retries variable */
-	SPINE_LOG_DEBUG(("DEBUG: The snmp_retries variable is %i", set.snmp_retries));
+	SPINE_LOG_DEBUG(("DEBUG: The snmp_retries variable is %i", set.snmp.snmp_retries));
 
-	/* set logging option for errors */
-	set.log_perror = getboolsetting(&mysql, LOCAL, "log_perror", FALSE);
+}
 
-	/* log the log_perror variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_perror variable is %i", set.log_perror));
-
-	/* set logging option for errors */
-	set.log_pwarn = getboolsetting(&mysql, LOCAL, "log_pwarn", FALSE);
-
-	/* log the log_pwarn variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_pwarn variable is %i", set.log_pwarn));
-
-	/* set option to increase insert performance */
-	set.boost_redirect = getboolsetting(&mysql, LOCAL, "boost_redirect", FALSE);
-
-	/* log the boost_redirect variable */
-	SPINE_LOG_DEBUG(("DEBUG: The boost_redirect variable is %i", set.boost_redirect));
-
-	/* set option for determining if boost is enabled */
-	set.boost_enabled = getboolsetting(&mysql, LOCAL, "boost_rrd_update_enable", FALSE);
-
-	/* log the boost_rrd_update_enable variable */
-	SPINE_LOG_DEBUG(("DEBUG: The boost_rrd_update_enable variable is %i", set.boost_enabled));
-
-	/* set logging option for statistics */
-	set.log_pstats = getboolsetting(&mysql, LOCAL, "log_pstats", FALSE);
-
-	/* log the log_pstats variable */
-	SPINE_LOG_DEBUG(("DEBUG: The log_pstats variable is %i", set.log_pstats));
-
+static void read_process_options(MYSQL *mysql, int mode) {
+	char *res;
 	/* get Cacti defined max threads override spine.conf */
-	if (set.threads_set == FALSE) {
-		if ((res = getpsetting(&mysql, mode, "threads")) != 0) {
-			set.threads = atoi(res);
-			free((char *)res);
-			if (set.threads > MAX_THREADS) {
-				set.threads = MAX_THREADS;
-			}
+	res = set.poller.threads_set == FALSE ? getpsetting(mysql, mode, "threads") : NULL;
+	if (res != NULL) {
+		set.poller.threads = atoi(res);
+		free(res);
+		if (set.poller.threads > MAX_THREADS) {
+			set.poller.threads = MAX_THREADS;
 		}
 	}
 
 	/* log the threads variable */
-	SPINE_LOG_DEBUG(("DEBUG: The threads variable is %i", set.threads));
+	SPINE_LOG_DEBUG(("DEBUG: The threads variable is %i", set.poller.threads));
 
 	/* get the poller_interval for those who have elected to go with a 1 minute polling interval */
-	if ((res = getsetting(&mysql, LOCAL, "poller_interval")) != 0) {
-		set.poller_interval = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "poller_interval")) != 0) {
+		set.poller.poller_interval = atoi(res);
+		free(res);
 	} else {
-		set.poller_interval = 0;
+		set.poller.poller_interval = 0;
 	}
 
 	/* log the poller_interval variable */
-	if (set.poller_interval == 0) {
+	if (set.poller.poller_interval == 0) {
 		SPINE_LOG_DEBUG(("DEBUG: The polling interval is the system default"));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: The polling interval is %i seconds", set.poller_interval));
+		SPINE_LOG_DEBUG(("DEBUG: The polling interval is %i seconds", set.poller.poller_interval));
 	}
 
 	/* get the concurrent_processes variable to determine thread sleep values */
-	if ((res = getsetting(&mysql, LOCAL, "concurrent_processes")) != 0) {
-		set.num_parent_processes = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "concurrent_processes")) != 0) {
+		set.poller.num_parent_processes = atoi(res);
+		free(res);
 	} else {
-		set.num_parent_processes = 1;
+		set.poller.num_parent_processes = 1;
 	}
 
 	/* log the concurrent processes variable */
-	SPINE_LOG_DEBUG(("DEBUG: The number of concurrent processes is %i", set.num_parent_processes));
+	SPINE_LOG_DEBUG(("DEBUG: The number of concurrent processes is %i", set.poller.num_parent_processes));
 
 	/* get the script timeout to establish timeouts */
-	if ((res = getsetting(&mysql, LOCAL, "script_timeout")) != 0) {
-		set.script_timeout = atoi(res);
-		free((char *)res);
-		if (set.script_timeout < 5) {
-			set.script_timeout = 5;
+	if ((res = getsetting(mysql, LOCAL, "script_timeout")) != 0) {
+		set.php.script_timeout = atoi(res);
+		free(res);
+		if (set.php.script_timeout < 5) {
+			set.php.script_timeout = 5;
 		}
 	} else {
-		set.script_timeout = 25;
+		set.php.script_timeout = 25;
 	}
 
 	/* log the script timeout value */
-	SPINE_LOG_DEBUG(("DEBUG: The script timeout is %i", set.script_timeout));
+	SPINE_LOG_DEBUG(("DEBUG: The script timeout is %i", set.php.script_timeout));
 
+}
+
+static void read_script_options(MYSQL *mysql) {
+	char *res;
 	/* get selective_device_debug string */
-	if ((res = getsetting(&mysql, LOCAL, "selective_device_debug")) != 0) {
-		STRNCOPY(set.selective_device_debug, res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "selective_device_debug")) != 0) {
+		STRNCOPY(set.logging.selective_device_debug, res);
+		free(res);
 	}
 
 	/* log the selective_device_debug variable */
-	SPINE_LOG_DEBUG(("DEBUG: The selective_device_debug variable is %s", set.selective_device_debug));
+	SPINE_LOG_DEBUG(("DEBUG: The selective_device_debug variable is %s", set.logging.selective_device_debug));
 
 	/* get spine_log_level */
-	if ((res = getsetting(&mysql, LOCAL, "spine_log_level")) != 0) {
-		set.spine_log_level = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "spine_log_level")) != 0) {
+		set.logging.spine_log_level = atoi(res);
+		free(res);
 	}
 
 	/* log the spine_log_level variable */
-	SPINE_LOG_DEBUG(("DEBUG: The spine_log_level variable is %i", set.spine_log_level));
+	SPINE_LOG_DEBUG(("DEBUG: The spine_log_level variable is %i", set.logging.spine_log_level));
 
 	/* get the number of script server processes to run */
-	if ((res = getsetting(&mysql, LOCAL, "php_servers")) != 0) {
-		set.php_servers = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "php_servers")) != 0) {
+		set.php.php_servers = atoi(res);
+		free(res);
 
-		if (set.php_servers > MAX_PHP_SERVERS) {
-			set.php_servers = MAX_PHP_SERVERS;
+		if (set.php.php_servers > MAX_PHP_SERVERS) {
+			set.php.php_servers = MAX_PHP_SERVERS;
 		}
 
-		if (set.php_servers <= 0) {
-			set.php_servers = 1;
+		if (set.php.php_servers <= 0) {
+			set.php.php_servers = 1;
 		}
 	} else {
-		set.php_servers = 2;
+		set.php.php_servers = 2;
 	}
 
 	/* log the script timeout value */
-	SPINE_LOG_DEBUG(("DEBUG: The number of php script servers to run is %i", set.php_servers));
+	SPINE_LOG_DEBUG(("DEBUG: The number of php script servers to run is %i", set.php.php_servers));
 
 	/* get the number of active profiles on the system run */
-	if ((res = getsetting(&mysql, LOCAL, "active_profiles")) != 0) {
-		set.active_profiles = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "active_profiles")) != 0) {
+		set.poller.active_profiles = atoi(res);
+		free(res);
 
-		if (set.active_profiles <= 0) {
-			set.active_profiles = 0;
+		if (set.poller.active_profiles <= 0) {
+			set.poller.active_profiles = 0;
 		}
 	} else {
-		set.active_profiles = 0;
+		set.poller.active_profiles = 0;
 	}
 
 	/* log the script timeout value */
-	SPINE_LOG_DEBUG(("DEBUG: The number of active data source profiles is %i", set.active_profiles));
+	SPINE_LOG_DEBUG(("DEBUG: The number of active data source profiles is %i", set.poller.active_profiles));
 
 	/* get the number of snmp_ports in use */
-	if ((res = getsetting(&mysql, LOCAL, "total_snmp_ports")) != 0) {
-		set.total_snmp_ports = atoi(res);
-		free((char *)res);
+	if ((res = getsetting(mysql, LOCAL, "total_snmp_ports")) != 0) {
+		set.snmp.total_snmp_ports = atoi(res);
+		free(res);
 
-		if (set.total_snmp_ports <= 0) {
-			set.total_snmp_ports = 0;
+		if (set.snmp.total_snmp_ports <= 0) {
+			set.snmp.total_snmp_ports = 0;
 		}
 	} else {
-		set.total_snmp_ports = 0;
+		set.snmp.total_snmp_ports = 0;
 	}
 
 	/* log the script timeout value */
-	SPINE_LOG_DEBUG(("DEBUG: The number of snmp ports on the system is %i", set.total_snmp_ports));
+	SPINE_LOG_DEBUG(("DEBUG: The number of snmp ports on the system is %i", set.snmp.total_snmp_ports));
 
+}
+
+static void read_php_requirement(MYSQL *mysql) {
+	MYSQL_RES *result;
+	int num_rows;
+	char sqlbuf[HUGE_BUFSIZE];
+	char *sqlp;
 	/*----------------------------------------------------------------
 	 * determine if the php script server is required by searching for
 	 * all the host records for an action of POLLER_ACTION_PHP_SCRIPT_SERVER.
@@ -684,66 +735,74 @@ void read_config_options() {
 	 * server.
 	 *
 	 */
-	set.php_required = FALSE;		/* assume no */
+	set.php.php_required = FALSE;		/* assume no */
 
 	/* log the requirement for the script server */
-	if (!strlen(set.host_id_list)) {
+	if (!strlen(set.hosts.host_id_list)) {
 		sqlp = sqlbuf;
-		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
-		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
-		sqlp += append_hostrange(sqlp, "host_id");
-		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
-		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "SELECT SQL_NO_CACHE action FROM poller_item");
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		sqlp += append_hostrange(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "host_id");
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " AND poller_id=%i", set.poller.poller_id);
+		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
-		result = db_query(&mysql, LOCAL, sqlbuf);
-		num_rows = mysql_num_rows(result);
+		result = db_query(mysql, LOCAL, sqlbuf);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
-		if (num_rows > 0) set.php_required = TRUE;
+		if (num_rows > 0) set.php.php_required = TRUE;
 
 		SPINE_LOG_DEBUG(("DEBUG: StartDevice='%i', EndDevice='%i', TotalPHPScripts='%i'",
-			set.start_host_id,
-			set.end_host_id,
+			set.hosts.start_host_id,
+			set.hosts.end_host_id,
 			num_rows));
 	} else {
 		sqlp = sqlbuf;
-		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
-		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
-		sqlp += snprintf(sqlp, BUFSIZE, " AND host_id IN(%s)", set.host_id_list);
-		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
-		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), "SELECT SQL_NO_CACHE action FROM poller_item");
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " AND host_id IN(%s)", set.hosts.host_id_list);
+		sqlp += spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " AND poller_id=%i", set.poller.poller_id);
+		spine_snprintf(sqlp, sizeof(sqlbuf) - (size_t)(sqlp - sqlbuf), " LIMIT 1");
 
-		result = db_query(&mysql, LOCAL, sqlbuf);
-		num_rows = mysql_num_rows(result);
+		result = db_query(mysql, LOCAL, sqlbuf);
+		num_rows = spine_count_to_int(mysql_num_rows(result));
 		db_free_result(result);
 
-		if (num_rows > 0) set.php_required = TRUE;
+		if (num_rows > 0) set.php.php_required = TRUE;
 
 		SPINE_LOG_DEBUG(("DEBUG: Device List to be polled='%s', TotalPHPScripts='%i'",
-			set.host_id_list,
+			set.hosts.host_id_list,
 			num_rows));
 	}
 
 	SPINE_LOG_DEBUG(("DEBUG: The PHP Script Server is %sRequired",
-		set.php_required
+		set.php.php_required
 		? ""
 		: "Not "));
 
-	/* determine the maximum oid's to obtain in a single get request */
-	if ((res = getsetting(&mysql, LOCAL, "max_get_size")) != 0) {
-		set.snmp_max_get_size = atoi(res);
-		free((char *)res);
+}
 
-		if (set.snmp_max_get_size > 128) {
-			set.snmp_max_get_size = 128;
+static void read_snmp_batch_size(MYSQL *mysql) {
+	char *res;
+	/* determine the maximum oid's to obtain in a single get request */
+	if ((res = getsetting(mysql, LOCAL, "max_get_size")) != 0) {
+		set.snmp.snmp_max_get_size = atoi(res);
+		free(res);
+
+		if (set.snmp.snmp_max_get_size > 128) {
+			set.snmp.snmp_max_get_size = 128;
 		}
 	} else {
-		set.snmp_max_get_size = 25;
+		set.snmp.snmp_max_get_size = 25;
 	}
 
 	/* log the snmp_max_get_size variable */
-	SPINE_LOG_DEBUG(("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp_max_get_size));
+	SPINE_LOG_DEBUG(("DEBUG: The Maximum SNMP OID Get Size is %i", set.snmp.snmp_max_get_size));
 
+}
+
+static void publish_snmp_capabilities(MYSQL *mysql) {
+	char spine_capabilities[BUFSIZE] = {0};
 	int authCount = 0;
 
 	strcat(spine_capabilities, "{ authProtocols: \"");
@@ -791,335 +850,321 @@ void read_config_options() {
 	#endif
 	strcat(spine_capabilities, "\" }");
 
-	if (set.poller_id == 1) {
-		putsetting(&mysql, LOCAL, "spine_capabilities", spine_capabilities);
+	if (set.poller.poller_id == 1) {
+		putsetting(mysql, LOCAL, "spine_capabilities", spine_capabilities);
 	}
+
+}
+
+/*! \fn void read_config_options(void)
+ *  \brief Reads the default Spine runtime parameters from the database and set's the global array
+ *
+ *  load default values from the database for poller processing
+ *
+ */
+void read_config_options() {
+	MYSQL mysql;
+	MYSQL mysqlr;
+	int mode;
+	char *res;
+
+	db_connect(LOCAL, &mysql);
+
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
+		db_connect(REMOTE, &mysqlr);
+		mode = REMOTE;
+	} else {
+		mode = LOCAL;
+	}
+
+	/* get the mysql server version */
+	if ((res = getglobalvariable(&mysql, LOCAL, "version")) != 0) {
+		snprintf(set.database.version, BUFSIZE, "%s", res);
+		free(res);
+	}
+
+	if (STRIMATCH(set.database.version, "mariadb")) {
+		set.database.onupdate = 0;
+	} else if (strpos(set.database.version, "8.") == 0) {
+		set.database.onupdate = 1;
+	} else {
+		set.database.onupdate = 0;
+	}
+
+	/* get the cacti version from the database */
+	set.cacti_version = get_cacti_version(&mysql, LOCAL);
+
+	/* log the path_webroot variable */
+	SPINE_LOG_DEBUG(("DEBUG: The binary Cacti version is %d", set.cacti_version));
+
+	read_logging_options(&mysql);
+
+	/* get PHP Path Information for Scripting */
+	if ((res = getsetting(&mysql, LOCAL, "path_php_binary")) != 0) {
+		STRNCOPY(set.php.path_php, res);
+		free(res);
+	}
+
+	/* log the path_php variable */
+	SPINE_LOG_DEBUG(("DEBUG: The path_php variable is %s", set.php.path_php));
+
+	read_ping_options(&mysql);
+
+	/* set logging option for errors */
+	set.logging.log_perror = getboolsetting(&mysql, LOCAL, "log_perror", FALSE);
+
+	/* log the log_perror variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_perror variable is %i", set.logging.log_perror));
+
+	/* set logging option for errors */
+	set.logging.log_pwarn = getboolsetting(&mysql, LOCAL, "log_pwarn", FALSE);
+
+	/* log the log_pwarn variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_pwarn variable is %i", set.logging.log_pwarn));
+
+	/* set option to increase insert performance */
+	set.boost.boost_redirect = getboolsetting(&mysql, LOCAL, "boost_redirect", FALSE);
+
+	/* log the boost_redirect variable */
+	SPINE_LOG_DEBUG(("DEBUG: The boost_redirect variable is %i", set.boost.boost_redirect));
+
+	/* set option for determining if boost is enabled */
+	set.boost.boost_enabled = getboolsetting(&mysql, LOCAL, "boost_rrd_update_enable", FALSE);
+
+	/* log the boost_rrd_update_enable variable */
+	SPINE_LOG_DEBUG(("DEBUG: The boost_rrd_update_enable variable is %i", set.boost.boost_enabled));
+
+	/* set logging option for statistics */
+	set.logging.log_pstats = getboolsetting(&mysql, LOCAL, "log_pstats", FALSE);
+
+	/* log the log_pstats variable */
+	SPINE_LOG_DEBUG(("DEBUG: The log_pstats variable is %i", set.logging.log_pstats));
+
+	read_process_options(&mysql, mode);
+
+	read_script_options(&mysql);
+
+	read_php_requirement(&mysql);
+
+	read_snmp_batch_size(&mysql);
+
+	publish_snmp_capabilities(&mysql);
 
 	db_disconnect(&mysql);
 
-	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
+	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
 		db_disconnect(&mysqlr);
 	}
 }
 
-void poller_push_data_to_main() {
-	MYSQL      mysql;
-	MYSQL      mysqlr;
-	MYSQL_RES  *result;
-	MYSQL_ROW  row;
-	int        num_rows;
-	int        rows;
-	char       sqlbuf[HUGE_BUFSIZE];
-	char       *sqlp = sqlbuf;
-	char       query[MEGA_BUFSIZE];
-	char       prefix[BUFSIZE];
-	char       suffix[BUFSIZE];
-	// tmpstr needs to be greater than 2 * the maximum column size being processed below
-	char       tmpstr[DBL_BUFSIZE];
+typedef struct {
+	const char *table;
+	const char *columns;
+	const char *filter_column;
+	const char *order_column;
+	const char *const *updates;
+	size_t update_count;
+	size_t field_count;
+	size_t row_limit;
+} poller_transfer_t;
 
-	db_connect(LOCAL, &mysql);
-	db_connect(REMOTE, &mysqlr);
-
-	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(&mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-	db_insert(&mysqlr, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(&mysqlr, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-
-	SPINE_LOG_MEDIUM(("Pushing Host Status to Main Server"));
-
-	if (strlen(set.host_id_list)) {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE id, snmp_sysDescr, snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-			"status, status_event_count, status_fail_date, status_rec_date, "
-			"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-			"total_polls, failed_polls, availability, last_updated "
-			"FROM host "
-			"WHERE poller_id = %d "
-			"AND id IN (%s)", set.poller_id, set.host_id_list);
-	} else {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE id, snmp_sysDescr, snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-			"status, status_event_count, status_fail_date, status_rec_date, "
-			"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-			"total_polls, failed_polls, availability, last_updated "
-			"FROM host "
-			"WHERE poller_id = %d", set.poller_id);
+static void transfer_queries(const poller_transfer_t *plan, char *query, size_t query_capacity, char *prefix, size_t prefix_capacity, char *suffix, size_t suffix_capacity) {
+	size_t used = (size_t)spine_snprintf(query, query_capacity, "SELECT SQL_NO_CACHE %s FROM %s WHERE poller_id = %d", plan->columns, plan->table, set.poller.poller_id);
+	if (set.hosts.host_id_list[0] != '\0') used += (size_t)spine_snprintf(query + used, query_capacity - used, " AND %s IN (%s)", plan->filter_column, set.hosts.host_id_list);
+	spine_snprintf(query + used, query_capacity - used, " ORDER BY %s", plan->order_column);
+	spine_snprintf(prefix, prefix_capacity, "INSERT INTO %s (%s) VALUES ", plan->table, plan->columns);
+	used = (size_t)spine_snprintf(suffix, suffix_capacity, "%s ON DUPLICATE KEY UPDATE ", set.database.onupdate == 0 ? "" : " AS rs");
+	for (size_t index = 0; index < plan->update_count; index++) {
+		const char *column = plan->updates[index];
+		if (set.database.onupdate == 0) used += (size_t)spine_snprintf(suffix + used, suffix_capacity - used, "%s%s=VALUES(%s)", index == 0 ? "" : ", ", column, column);
+		else used += (size_t)spine_snprintf(suffix + used, suffix_capacity - used, "%s%s=rs.%s", index == 0 ? "" : ", ", column, column);
 	}
-
-	snprintf(prefix, BUFSIZE, "INSERT INTO host (id, snmp_sysDescr, snmp_sysObjectID, "
-		"snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, "
-		"status, status_event_count, status_fail_date, status_rec_date, "
-		"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
-		"total_polls, failed_polls, availability, last_updated) VALUES ");
-
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=VALUES(snmp_sysDescr), "
-			"snmp_sysObjectID=VALUES(snmp_sysObjectID), "
-			"snmp_sysUpTimeInstance=VALUES(snmp_sysUpTimeInstance), "
-			"snmp_sysContact=VALUES(snmp_sysContact), "
-			"snmp_sysName=VALUES(snmp_sysName), "
-			"snmp_sysLocation=VALUES(snmp_sysLocation), "
-			"status=VALUES(status), "
-			"status_event_count=VALUES(status_event_count), "
-			"status_fail_date=VALUES(status_fail_date), "
-			"status_rec_date=VALUES(status_rec_date), "
-			"status_last_error=VALUES(status_last_error), "
-			"min_time=VALUES(min_time), "
-			"max_time=VALUES(max_time), "
-			"cur_time=VALUES(cur_time), "
-			"avg_time=VALUES(avg_time), "
-			"polling_time=VALUES(polling_time), "
-			"total_polls=VALUES(total_polls), "
-			"failed_polls=VALUES(failed_polls), "
-			"availability=VALUES(availability), "
-			"last_updated=VALUES(last_updated)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=rs.snmp_sysDescr, "
-			"snmp_sysObjectID=rs.snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance=rs.snmp_sysUpTimeInstance, "
-			"snmp_sysContact=rs.snmp_sysContact, "
-			"snmp_sysName=rs.snmp_sysName, "
-			"snmp_sysLocation=rs.snmp_sysLocation, "
-			"status=rs.status, "
-			"status_event_count=rs.status_event_count, "
-			"status_fail_date=rs.status_fail_date, "
-			"status_rec_date=rs.status_rec_date, "
-			"status_last_error=rs.status_last_error, "
-			"min_time=rs.min_time, "
-			"max_time=rs.max_time, "
-			"cur_time=rs.cur_time, "
-			"avg_time=rs.avg_time, "
-			"polling_time=rs.polling_time, "
-			"total_polls=rs.total_polls, "
-			"failed_polls=rs.failed_polls, "
-			"availability=rs.availability, "
-			"last_updated=rs.last_updated");
-	}
-
-	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = mysql_num_rows(result);
-		rows = 0;
-
-		if (num_rows > 0) {
-			while ((row = mysql_fetch_row(result))) {
-				if (rows < 500) {
-					if (rows == 0) {
-						sqlp  = sqlbuf;
-						sqlp += sprintf(sqlp, "%s", prefix);
-						sqlp += sprintf(sqlp, " (");
-					} else {
-						sqlp += sprintf(sqlp, ", (");
-					}
-
-					sqlp += sprintf(sqlp, "%s, ", row[0]); // id mediumint
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[1]); // snmp_sysDescr varchar(300)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // snmp_sysObjectID varchar(128)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[3]); // snmp_sysUpTimeInstance bigint
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[4]); // snmp_sysContact varchar(300)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[5]); // snmp_sysName varchar(300)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[6]); // snmp_sysLocation varchar(300)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[7]); // status tinyint
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-
-					sqlp += sprintf(sqlp, "%s, ", row[8]); // status_event_count mediumint
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[9]);  // status_fail_date timestamp
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[10]); // status_rec_date timestamp
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[11]); // status_last_error varchar(255)
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-
-					sqlp += sprintf(sqlp, "%s, ", row[12]); // min_time decimal(10,5)
-					sqlp += sprintf(sqlp, "%s, ", row[13]); // max_time decimal(10,5)
-					sqlp += sprintf(sqlp, "%s, ", row[14]); // cur_time decimal(10,5)
-					sqlp += sprintf(sqlp, "%s, ", row[15]); // avg_time decimal(10,5)
-					sqlp += sprintf(sqlp, "%s, ", row[16]); // polling_time double
-					sqlp += sprintf(sqlp, "%s, ", row[17]); // total_polls int
-					sqlp += sprintf(sqlp, "%s, ", row[18]); // failed_polls int
-					sqlp += sprintf(sqlp, "%s, ", row[19]); // availability decimal(8,5)
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[20]); // last_updated timestamp
-					sqlp += sprintf(sqlp, "'%s'", tmpstr);
-
-					sqlp += sprintf(sqlp, ")");
-
-					rows++;
-				} else {
-					sqlp += sprintf(sqlp, "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
-				}
-			}
-		}
-
-		if (rows > 0) {
-			sqlp += sprintf(sqlp, "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
-		}
-	}
-
-	db_free_result(result);
-
-	SPINE_LOG_MEDIUM(("Pushing Poller Item RRD Next Step to Main Server"));
-
-	if (strlen(set.host_id_list)) {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE local_data_id, host_id, rrd_name, rrd_step, rrd_next_step "
-			"FROM poller_item "
-			"WHERE poller_id = %d "
-			"AND host_id IN (%s)", set.poller_id, set.host_id_list);
-	} else {
-		snprintf(query, MEGA_BUFSIZE, "SELECT SQL_NO_CACHE local_data_id, host_id, rrd_name, rrd_step, rrd_next_step "
-			"FROM poller_item "
-			"WHERE poller_id = %d ",
-			set.poller_id);
-	}
-
-	snprintf(prefix, BUFSIZE, "INSERT INTO poller_item (local_data_id, host_id, rrd_name, rrd_step, rrd_next_step) VALUES ");
-
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=VALUES(rrd_next_step)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=rs.rrd_next_step");
-	}
-
-	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
-		num_rows = mysql_num_rows(result);
-		rows = 0;
-
-		if (num_rows > 0) {
-			while ((row = mysql_fetch_row(result))) {
-				if (rows < 10000) {
-					if (rows == 0) {
-						sqlp = sqlbuf;
-						sqlp += sprintf(sqlp, "%s", prefix);
-						sqlp += sprintf(sqlp, " (");
-					} else {
-						sqlp += sprintf(sqlp, ", (");
-					}
-
-					sqlp += sprintf(sqlp, "%s, ", row[0]); // local_data_id
-					sqlp += sprintf(sqlp, "%s, ", row[1]); // host_id
-
-					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // rrd_name
-					sqlp += sprintf(sqlp, "'%s', ", tmpstr);
-
-					sqlp += sprintf(sqlp, "%s, ", row[3]); // rrd_step
-					sqlp += sprintf(sqlp, "%s",   row[4]); // rrd_next_step
-
-					sqlp += sprintf(sqlp, ")");
-
-					rows++;
-				} else {
-					sqlp += sprintf(sqlp, "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
-				}
-			}
-		}
-
-		if (rows > 0) {
-			sqlp += sprintf(sqlp, "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
-
-			rows = 0;
-		}
-	}
-
-	db_free_result(result);
-
-	db_disconnect(&mysql);
-	db_disconnect(&mysqlr);
 }
 
-/*! \fn int read_spine_config(char *file)
+static size_t transfer_row(MYSQL *destination, MYSQL_ROW row, size_t field_count, char *output, size_t capacity) {
+	/* The selected columns are at most 300 UTF-8 characters: allow 4 bytes per
+	 * character and doubling for SQL escaping. Preserve SQL NULL explicitly. */
+	char escaped[DBL_BUFSIZE * 2];
+	size_t used = (size_t)spine_snprintf(output, capacity, "(");
+	for (size_t index = 0; index < field_count; index++) {
+		if (row[index] == NULL) {
+			used += (size_t)spine_snprintf(output + used, capacity - used, "%sNULL", index == 0 ? "" : ", ");
+		} else {
+			db_escape(destination, escaped, sizeof(escaped), row[index]);
+			used += (size_t)spine_snprintf(output + used, capacity - used, "%s'%s'", index == 0 ? "" : ", ", escaped);
+		}
+	}
+	used += (size_t)spine_snprintf(output + used, capacity - used, ")");
+	return used;
+}
+
+static bool transfer_batch(MYSQL *destination, char *buffer, size_t used, const char *suffix) {
+	spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", suffix);
+	return db_insert(destination, REMOTE, buffer);
+}
+
+static bool transfer_table(MYSQL *source, MYSQL *destination, const poller_transfer_t *plan) {
+	char query[MEGA_BUFSIZE];
+	char prefix[BUFSIZE];
+	char suffix[BUFSIZE];
+	char row_sql[BUFSIZE * 8];
+	transfer_queries(plan, query, sizeof(query), prefix, sizeof(prefix), suffix, sizeof(suffix));
+	MYSQL_RES *result = db_query(source, LOCAL, query);
+	if (result == NULL) return FALSE;
+	if (mysql_num_fields(result) != plan->field_count) {
+		db_free_result(result);
+		return FALSE;
+	}
+	char *buffer = malloc(HUGE_BUFSIZE);
+	if (buffer == NULL) { db_free_result(result); return FALSE; }
+	size_t used = 0;
+	size_t rows = 0;
+	size_t suffix_length = strlen(suffix);
+	MYSQL_ROW row;
+	bool success = TRUE;
+	while (success) {
+		row = mysql_fetch_row(result);
+		if (row == NULL) break;
+		size_t length = transfer_row(destination, row, plan->field_count, row_sql, sizeof(row_sql));
+		if (rows > 0 && (rows == plan->row_limit || length + suffix_length + 3 > HUGE_BUFSIZE - used)) {
+			success = transfer_batch(destination, buffer, used, suffix);
+			rows = 0;
+		}
+		if (success) {
+			if (rows == 0) used = (size_t)spine_snprintf(buffer, HUGE_BUFSIZE, "%s", prefix);
+			else used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, ", ");
+			used += (size_t)spine_snprintf(buffer + used, HUGE_BUFSIZE - used, "%s", row_sql);
+			rows++;
+		}
+	}
+	if (mysql_errno(source) != 0) success = FALSE;
+	if (success && rows > 0) success = transfer_batch(destination, buffer, used, suffix);
+	free(buffer);
+	db_free_result(result);
+	return success;
+}
+
+bool poller_transfer_status(MYSQL *source, MYSQL *destination) {
+	static const char *const host_updates[] = {
+		"snmp_sysDescr", "snmp_sysObjectID", "snmp_sysUpTimeInstance", "snmp_sysContact", "snmp_sysName", "snmp_sysLocation",
+		"status", "status_event_count", "status_fail_date", "status_rec_date", "status_last_error", "min_time", "max_time",
+		"cur_time", "avg_time", "polling_time", "total_polls", "failed_polls", "availability", "last_updated"
+	};
+	static const char *const item_updates[] = {"rrd_next_step"};
+	static const poller_transfer_t host_plan = {
+		"host", "id, snmp_sysDescr, snmp_sysObjectID, snmp_sysUpTimeInstance, snmp_sysContact, snmp_sysName, snmp_sysLocation, status, status_event_count, status_fail_date, status_rec_date, status_last_error, min_time, max_time, cur_time, avg_time, polling_time, total_polls, failed_polls, availability, last_updated",
+		"id", "id", host_updates, sizeof(host_updates) / sizeof(host_updates[0]), 21, 500
+	};
+	static const poller_transfer_t item_plan = {
+		"poller_item", "local_data_id, host_id, rrd_name, rrd_step, rrd_next_step",
+		"host_id", "local_data_id, rrd_name", item_updates, sizeof(item_updates) / sizeof(item_updates[0]), 5, 10000
+	};
+	SPINE_LOG_MEDIUM(("Pushing Host Status to Main Server"));
+	if (!transfer_table(source, destination, &host_plan)) return FALSE;
+	SPINE_LOG_MEDIUM(("Pushing Poller Item RRD Next Step to Main Server"));
+	return transfer_table(source, destination, &item_plan);
+}
+
+void poller_push_data_to_main(void) {
+	MYSQL source;
+	MYSQL destination;
+	db_connect(LOCAL, &source);
+	db_connect(REMOTE, &destination);
+	/* Preserve the supported zero-date and GROUP BY session policies. */
+	bool configured = db_insert(&source, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))") &&
+		db_insert(&source, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))") &&
+		db_insert(&destination, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))") &&
+		db_insert(&destination, REMOTE, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+	if (!configured || !poller_transfer_status(&source, &destination)) {
+		SPINE_LOG(("ERROR: Collector synchronization incomplete; earlier batches may have reached the main server. Local rows are retained for retry."));
+		set.exit.exit_code = EXIT_FAILURE;
+	}
+	db_disconnect(&source);
+	db_disconnect(&destination);
+}
+
+/*! \fn int read_spine_config(const char *file)
  *  \brief obtain default startup variables from the spine.conf file.
  *  \param file the spine config file
  *
  *  \return 0 if successful or -1 if the file could not be opened
  */
-int read_spine_config(char *file) {
-	FILE *fp;
-	char buff[BUFSIZE];
-	char p1[BUFSIZE];
-	char p2[BUFSIZE];
-	char *chars;
+static int apply_config_directive(const char *name, const char *value) {
+	/* Immutable metadata cannot be changed by configuration values written
+	 * into set. Offsets and capacities describe the actual destination fields. */
+	static const struct {
+		const char *name;
+		size_t offset;
+		size_t capacity;
+	} strings[] = {
+		{"RDB_Host", offsetof(config_t, remote_database.host), sizeof(set.remote_database.host)},
+		{"RDB_Database", offsetof(config_t, remote_database.database), sizeof(set.remote_database.database)},
+		{"RDB_User", offsetof(config_t, remote_database.user), sizeof(set.remote_database.user)},
+		{"RDB_Pass", offsetof(config_t, remote_database.password), sizeof(set.remote_database.password)},
+		{"RDB_SSL_Key", offsetof(config_t, remote_database.ssl_key), sizeof(set.remote_database.ssl_key)},
+		{"RDB_SSL_Cert", offsetof(config_t, remote_database.ssl_cert), sizeof(set.remote_database.ssl_cert)},
+		{"RDB_SSL_CA", offsetof(config_t, remote_database.ssl_ca), sizeof(set.remote_database.ssl_ca)},
+		{"DB_Host", offsetof(config_t, database.host), sizeof(set.database.host)},
+		{"DB_Database", offsetof(config_t, database.database), sizeof(set.database.database)},
+		{"DB_User", offsetof(config_t, database.user), sizeof(set.database.user)},
+		{"DB_Pass", offsetof(config_t, database.password), sizeof(set.database.password)},
+		{"DB_SSL_Key", offsetof(config_t, database.ssl_key), sizeof(set.database.ssl_key)},
+		{"DB_SSL_Cert", offsetof(config_t, database.ssl_cert), sizeof(set.database.ssl_cert)},
+		{"DB_SSL_CA", offsetof(config_t, database.ssl_ca), sizeof(set.database.ssl_ca)},
+		{"SNMP_Clientaddr", offsetof(config_t, snmp.snmp_clientaddr), sizeof(set.snmp.snmp_clientaddr)},
+	};
+	for (size_t i = 0; i < sizeof(strings) / sizeof(strings[0]); i++) {
+		if (STRIMATCH(name, strings[i].name)) {
+			strncopy((char *)&set + strings[i].offset, value, strings[i].capacity);
+			return TRUE;
+		}
+	}
+	if (STRIMATCH(name, "RDB_Port")) set.remote_database.port = atoi(value);
+	else if (STRIMATCH(name, "RDB_UseSSL")) set.remote_database.ssl = atoi(value);
+	else if (STRIMATCH(name, "DB_Port")) set.database.port = atoi(value);
+	else if (STRIMATCH(name, "DB_UseSSL")) set.database.ssl = atoi(value);
+	else if (STRIMATCH(name, "Poller")) set.poller.poller_id = atoi(value);
+	else if (STRIMATCH(name, "DB_PreG")) {
+		if (!set.console.stderr_notty) fprintf(stderr, "WARNING: DB_PreG is no longer supported\n");
+	} else if (STRIMATCH(name, "Cacti_Log")) {
+		STRNCOPY(set.logging.path_logfile, value);
+		set.logging.logfile_processed = 1;
+		set.logging.log_destination = LOGDEST_BOTH;
+	} else {
+		return FALSE;
+	}
+	return TRUE;
+}
 
-	if ((fp = fopen(file, "rb")) == NULL) {
-		if (set.log_level == POLLER_VERBOSITY_DEBUG) {
-			if (!set.stderr_notty) {
-				fprintf(stderr, "ERROR: Could not open config file [%s]\n", file);
-			}
+int read_spine_config(const char *file) {
+	FILE *fp = fopen(file, "rb");
+	char buff[BUFSIZE];
+	char name[BUFSIZE];
+	char value[BUFSIZE];
+	char display_file[BUFSIZE];
+	strncopy(display_file, file, sizeof(display_file));
+	spine_sanitize_log_message(display_file);
+
+	if (fp == NULL) {
+		if (set.logging.log_level == POLLER_VERBOSITY_DEBUG && !set.console.stderr_notty) {
+			fprintf(stderr, "ERROR: Could not open config file [%s]\n", display_file);
 		}
 		return -1;
-	} else {
-		if (!set.stdout_notty) {
-			fprintf(stdout, "SPINE: Using spine config file [%s]\n", file);
-		}
-
-		while (!feof(fp)) {
-			chars = fgets(buff, BUFSIZE, fp);
-
-			if (chars != NULL && !feof(fp) && *buff != '#' && *buff != ' ' && *buff != '\n') {
-				sscanf(buff, "%15s %255s", p1, p2);
-
-				if (STRIMATCH(p1, "RDB_Host"))              STRNCOPY(set.rdb_host, p2);
-				else if (STRIMATCH(p1, "RDB_Database"))     STRNCOPY(set.rdb_db, p2);
-				else if (STRIMATCH(p1, "RDB_User"))         STRNCOPY(set.rdb_user, p2);
-				else if (STRIMATCH(p1, "RDB_Pass"))         STRNCOPY(set.rdb_pass, p2);
-				else if (STRIMATCH(p1, "RDB_Port"))         set.rdb_port    = atoi(p2);
-				else if (STRIMATCH(p1, "RDB_UseSSL"))       set.rdb_ssl     = atoi(p2);
-				else if (STRIMATCH(p1, "RDB_SSL_Key"))      STRNCOPY(set.rdb_ssl_key, p2);
-				else if (STRIMATCH(p1, "RDB_SSL_Cert"))     STRNCOPY(set.rdb_ssl_cert, p2);
-				else if (STRIMATCH(p1, "RDB_SSL_CA"))       STRNCOPY(set.rdb_ssl_ca, p2);
-				else if (STRIMATCH(p1, "DB_Host"))          STRNCOPY(set.db_host, p2);
-				else if (STRIMATCH(p1, "DB_Database"))      STRNCOPY(set.db_db, p2);
-				else if (STRIMATCH(p1, "DB_User"))          STRNCOPY(set.db_user, p2);
-				else if (STRIMATCH(p1, "DB_Pass"))          STRNCOPY(set.db_pass, p2);
-				else if (STRIMATCH(p1, "DB_Port"))          set.db_port    = atoi(p2);
-				else if (STRIMATCH(p1, "DB_UseSSL"))        set.db_ssl     = atoi(p2);
-				else if (STRIMATCH(p1, "DB_SSL_Key"))       STRNCOPY(set.db_ssl_key, p2);
-				else if (STRIMATCH(p1, "DB_SSL_Cert"))      STRNCOPY(set.db_ssl_cert, p2);
-				else if (STRIMATCH(p1, "DB_SSL_CA"))        STRNCOPY(set.db_ssl_ca, p2);
-				else if (STRIMATCH(p1, "Poller"))           set.poller_id = atoi(p2);
-				else if (STRIMATCH(p1, "DB_PreG")) {
-					if (!set.stderr_notty) {
-						fprintf(stderr,"WARNING: DB_PreG is no longer supported\n");
-					}
-				} else if (STRIMATCH(p1, "Cacti_Log")) {
-					STRNCOPY(set.path_logfile, p2);
-					set.logfile_processed = 1;
-					set.log_destination = LOGDEST_BOTH;
-				} else if (STRIMATCH(p1, "SNMP_Clientaddr"))  STRNCOPY(set.snmp_clientaddr, p2);
-				else if (!set.stderr_notty) {
-					fprintf(stderr,"WARNING: Unrecognized directive: %s=%s in %s\n", p1, p2, file);
-				}
-
-				*p1 = '\0';
-				*p2 = '\0';
-			}
-		}
-
-		if (strlen(set.db_pass) == 0) *set.db_pass = '\0';
-
-		fclose(fp);
-
-		return 0;
 	}
+	if (!set.console.stdout_notty) {
+		fprintf(stdout, "SPINE: Using spine config file [%s]\n", display_file);
+	}
+	while (fgets(buff, sizeof(buff), fp) != NULL) {
+		if (buff[0] == '#' || buff[0] == ' ' || buff[0] == '\n') continue;
+		if (sscanf(buff, "%15s %255s", name, value) != 2) continue;
+		if (!apply_config_directive(name, value) && !set.console.stderr_notty) {
+			spine_sanitize_log_message(name);
+			fprintf(stderr, "WARNING: Unrecognized directive: %s in %s\n", name, display_file);
+		}
+	}
+	int failed = ferror(fp);
+	if (fclose(fp) != 0) failed = TRUE;
+	return failed ? -1 : 0;
 }
 
 /*! \fn void config_defaults(void)
@@ -1128,30 +1173,30 @@ int read_spine_config(char *file) {
  *
  */
 void config_defaults() {
-	set.threads = DEFAULT_THREADS;
+	set.poller.threads = DEFAULT_THREADS;
 
 	/* default server */
-	set.db_port  = DEFAULT_DB_PORT;
+	set.database.port  = DEFAULT_DB_PORT;
 
-	STRNCOPY(set.db_host, DEFAULT_DB_HOST);
-	STRNCOPY(set.db_db,   DEFAULT_DB_DB  );
-	STRNCOPY(set.db_user, DEFAULT_DB_USER);
-	STRNCOPY(set.db_pass, DEFAULT_DB_PASS);
+	STRNCOPY(set.database.host, DEFAULT_DB_HOST);
+	STRNCOPY(set.database.database,   DEFAULT_DB_DB  );
+	STRNCOPY(set.database.user, DEFAULT_DB_USER);
+	STRNCOPY(set.database.password, DEFAULT_DB_PASS);
 
 	/* remote default server */
-	set.rdb_port  = DEFAULT_DB_PORT;
+	set.remote_database.port  = DEFAULT_DB_PORT;
 
-	STRNCOPY(set.rdb_host, DEFAULT_DB_HOST);
-	STRNCOPY(set.rdb_db,   DEFAULT_DB_DB  );
-	STRNCOPY(set.rdb_user, DEFAULT_DB_USER);
-	STRNCOPY(set.rdb_pass, DEFAULT_DB_PASS);
+	STRNCOPY(set.remote_database.host, DEFAULT_DB_HOST);
+	STRNCOPY(set.remote_database.database,   DEFAULT_DB_DB  );
+	STRNCOPY(set.remote_database.user, DEFAULT_DB_USER);
+	STRNCOPY(set.remote_database.password, DEFAULT_DB_PASS);
 
 	STRNCOPY(config_paths[0], CONFIG_PATH_1);
 	STRNCOPY(config_paths[1], CONFIG_PATH_2);
 	STRNCOPY(config_paths[2], CONFIG_PATH_3);
 	STRNCOPY(config_paths[3], CONFIG_PATH_4);
 
-	set.log_destination = LOGDEST_FILE;
+	set.logging.log_destination = LOGDEST_FILE;
 }
 
 /*! \fn void die(const char *format, ...)
@@ -1168,17 +1213,19 @@ void die(const char *format, ...) {
 	int old_errno = errno;
 
 	va_start(args, format);
-	vsprintf(logmessage, format, args);
+	vsnprintf(logmessage, sizeof(logmessage), format, args);
 	va_end(args);
 
-	if (set.log_perror) {
+	if (set.logging.log_perror) {
 		char perr[BUFSIZE];
 		snprintf(perr, BUFSIZE, " [%d, %s]", old_errno, strerror(old_errno));
-		strcat(logmessage,perr);
+		size_t used = strlen(logmessage);
+		snprintf(logmessage + used, sizeof(logmessage) - used, "%s", perr);
 	}
+	spine_sanitize_log_message(logmessage);
 
-	if (set.logfile_processed) {
-		if (set.parent_fork == SPINE_PARENT) {
+	if (set.logging.logfile_processed) {
+		if (set.poller.parent_fork == SPINE_PARENT) {
 			snprintf(flogmessage, DBL_BUFSIZE, "%s (Spine parent)", logmessage);
 		} else {
 			snprintf(flogmessage, DBL_BUFSIZE, "%s (Spine thread)", logmessage);
@@ -1189,60 +1236,33 @@ void die(const char *format, ...) {
 
 	fprintf(stderr, "%s", flogmessage);
 
-	if (set.parent_fork == SPINE_PARENT) {
-		if (set.php_initialized) {
-			php_close(PHP_INIT);
-		}
+	if ((set.poller.parent_fork == SPINE_PARENT) && (set.php.php_initialized)) {
+		php_close(PHP_INIT);
 	}
 
-	exit(set.exit_code);
+	exit(set.exit.exit_code == EXIT_SUCCESS ? EXIT_FAILURE : set.exit.exit_code);
 }
 
-char * get_date_format() {
-	char *log_fmt;
-	if (!(log_fmt = (char *) malloc(GD_FMT_SIZE))) {
-		die("ERROR: Fatal malloc error: util.c get_date_format!");
+char *get_date_format(void) {
+	static const char separators[] = {'-', '/', '.'};
+	static const char *const formats[][3] = {
+		{"%m", "%d", "%Y"}, {"%b", "%d", "%Y"},
+		{"%d", "%m", "%Y"}, {"%d", "%b", "%Y"},
+		{"%Y", "%m", "%d"}, {"%Y", "%b", "%d"}
+	};
+	char *log_fmt = malloc(GD_FMT_SIZE);
+	if (log_fmt == NULL) die("ERROR: Fatal malloc error: util.c get_date_format!");
+	if (set.logging.log_datetime_separator < GDC_MIN || set.logging.log_datetime_separator > GDC_MAX) {
+		set.logging.log_datetime_separator = GDC_DEFAULT;
 	}
-
-	char log_sep = '/';
-	if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
-		set.log_datetime_separator = GDC_DEFAULT;
+	if (set.logging.log_datetime_format < GD_MIN || set.logging.log_datetime_format > GD_MAX) {
+		set.logging.log_datetime_format = GD_DEFAULT;
 	}
-
-	if (set.log_datetime_format < GD_MIN || set.log_datetime_format > GD_MAX) {
-		set.log_datetime_format = GD_DEFAULT;
-	}
-
-	switch (set.log_datetime_separator) {
-		case GDC_DOT:
-			log_sep = '.';
-			break;
-		case GDC_HYPHEN:
-			log_sep = '-';
-			break;
-		default:
-			log_sep = '/';
-			break;
-	}
-
-	switch (set.log_datetime_format) {
-		case GD_MO_D_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%m%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
-		case GD_MN_D_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%b%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
-		case GD_D_MO_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%m%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
-		case GD_D_MN_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%b%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
-		case GD_Y_MO_D:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
-		case GD_Y_MN_D:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%b%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
-		default:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
-	}
-
-	return (log_fmt);
+	char separator = separators[set.logging.log_datetime_separator];
+	const char *const *parts = formats[set.logging.log_datetime_format];
+	spine_snprintf(log_fmt, GD_FMT_SIZE, "%s%c%s%c%s %%H:%%M:%%S - ",
+		parts[0], separator, parts[1], separator, parts[2]);
+	return log_fmt;
 }
 
 /*! \fn void spine_log(const char *format, ...)
@@ -1250,171 +1270,105 @@ char * get_date_format() {
  *  \param *logmessage a pointer to the pre-formatted log message.
  *
  */
+bool spine_should_log_device(int host_id, int verbosity) {
+	return is_debug_device(host_id) || set.logging.log_level >= verbosity;
+}
+
+static FILE *log_error_stream(void) {
+	#ifdef DISABLE_STDERR
+	return stdout;
+	#else
+	return stderr;
+	#endif
+}
+
+static bool log_stream_available(const FILE *stream) {
+	return (stream == stdout && !set.console.stdout_notty) || (stream == stderr && !set.console.stderr_notty);
+}
+
+static void log_format_error(const char *message) {
+	FILE *stream = log_error_stream();
+	if (log_stream_available(stream)) fprintf(stream, "%s\n", message);
+}
+
+static bool log_format_message(char *output, const char *message) {
+	char prefix[LOGSIZE];
+	snprintf(prefix, sizeof(prefix), "SPINE: Poller[%i] PID[%i] PT[%ld] ", set.poller.poller_id, getpid(), (unsigned long int)pthread_self());
+	time_t now = time(NULL);
+	struct tm local;
+	char *date_format = get_date_format();
+	size_t date_length = 0;
+	if (localtime_r(&now, &local) != NULL) date_length = strftime(output, 50, date_format, &local);
+	free(date_format);
+	if (date_length == 0) {
+		output[0] = '\0';
+		log_format_error("ERROR: Could not get string from strftime()");
+	}
+	int prefix_length = spine_count_to_int(strlen(prefix));
+	int message_length = spine_count_to_int(strlen(message));
+	int available = LOGSIZE - spine_count_to_int(date_length) - 2;
+	if (prefix_length > available) prefix_length = available;
+	if (message_length > available - prefix_length) message_length = available - prefix_length;
+	snprintf(output + date_length, LOGSIZE - date_length, "%.*s%.*s", prefix_length, prefix, message_length, message);
+	return date_length != 0;
+}
+
+static void log_to_syslog(const char *message) {
+	if (!IS_LOGGING_TO_SYSLOG()) return;
+	openlog("Cacti", LOG_NDELAY | LOG_PID, LOG_SYSLOG);
+	if ((strstr(message, "ERROR") || strstr(message, "FATAL")) && set.logging.log_perror) syslog(LOG_CRIT, "%s\n", message);
+	if (strstr(message, "WARNING") && set.logging.log_pwarn) syslog(LOG_WARNING, "%s\n", message);
+	if (strstr(message, "STATS") && set.logging.log_pstats) syslog(LOG_NOTICE, "%s\n", message);
+	closelog();
+}
+
+static bool log_to_file(const char *message) {
+	if (!IS_LOGGING_TO_FILE() || set.logging.log_level == POLLER_VERBOSITY_NONE || !set.logging.path_logfile[0] || !set.logging.logfile_processed) return TRUE;
+	/* Serialize complete records and the once-only diagnostic. Append mode
+	 * creates missing files without a stat/open race that can truncate them. */
+	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+	static bool reported_error = FALSE;
+	if (pthread_mutex_lock(&mutex) != 0) return FALSE;
+	FILE *file = fopen(set.logging.path_logfile, "a");
+	bool success = FALSE;
+	if (file != NULL) {
+		success = fputs(message, file) != EOF;
+		if (fclose(file) != 0) success = FALSE;
+	}
+	if (!success && !reported_error) {
+		printf("ERROR: Spine Log File Could Not Be Opened/Created or Written\n");
+		reported_error = TRUE;
+	}
+	if (pthread_mutex_unlock(&mutex) != 0) return FALSE;
+	return success;
+}
+
 int spine_log(const char *format, ...) {
-	va_list	args;
-
-	FILE *log_file = NULL;
-	FILE *fp = NULL;
-
-	/* variables for time display */
-	time_t nowbin;
-	struct tm now_time;
-	struct tm *now_ptr;
-
-	/* keep track of an errored log file */
-	static int log_error = FALSE;
-
-	int  of = 20;
-	char logprefix[LOGSIZE];        /* Formatted Log Prefix */
-	char ulogmessage[LOGSIZE];      /* Un-Formatted Log Message */
-	char flogmessage[LOGSIZE];      /* Formatted Log Message */
-	char stdoutmessage[LOGSIZE+of]; /* Message for stdout */
-
-	double cur_time;
-
+	char message[LOGSIZE];
+	va_list args;
 	va_start(args, format);
-	vsnprintf(ulogmessage, LOGSIZE - 1, format, args);
+	vsnprintf(message, LOGSIZE - 1, format, args);
 	va_end(args);
-
-	/* default for "console" messages to go to stdout */
-	fp = stdout;
-
-	/* log message prefix */
-
-	snprintf(logprefix, LOGSIZE, "SPINE: Poller[%i] PID[%i] PT[%ld] ", set.poller_id, getpid(), (unsigned long int)pthread_self());
-
-	/* get time for poller_output table */
-	nowbin = time(&nowbin);
-
-	localtime_r(&nowbin,&now_time);
-	now_ptr = &now_time;
-
+	spine_sanitize_log_message(message);
 	if (IS_LOGGING_TO_STDOUT()) {
-		cur_time = get_time_as_double();
-		snprintf(stdoutmessage, LOGSIZE + of, "Total[%3.4f] %s", cur_time - start_time, ulogmessage);
-		puts(stdoutmessage);
-		return TRUE;
+		char console[LOGSIZE + 20];
+		snprintf(console, sizeof(console), "Total[%3.4f] %s", get_time_as_double() - start_time, message);
+		return puts(console) == EOF ? FALSE : TRUE;
 	}
-
-	char * log_fmt = get_date_format();
-
-	if (strlen(log_fmt) == 0) {
-		#ifdef DISABLE_STDERR
-		fp = stdout;
-		#else
-		fp = stderr;
-		#endif
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "ERROR: Could not get format from get_date_format()\n");
-		}
+	char formatted[LOGSIZE];
+	bool date_valid = log_format_message(formatted, message);
+	log_to_syslog(formatted);
+	if (strchr(formatted, '\n') == NULL) {
+		size_t used = strlen(formatted);
+		snprintf(formatted + used, sizeof(formatted) - used, "\n");
 	}
-
-	int prefix_len = strlen(logprefix);
-	int ulog_len   = strlen(ulogmessage);
-	int flog_len   = 0;
-
-	if ((flog_len = strftime(flogmessage, 50, log_fmt, now_ptr)) == (int) 0) {
-		#ifdef DISABLE_STDERR
-		fp = stdout;
-		#else
-		fp = stderr;
-		#endif
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "ERROR: Could not get string from strftime()\n");
-		}
+	bool success = log_to_file(formatted);
+	if (set.logging.log_level >= POLLER_VERBOSITY_NONE) {
+		FILE *stream = stdout;
+		if (!date_valid || strstr(formatted, "ERROR") || strstr(formatted, "WARNING") || strstr(formatted, "FATAL")) stream = log_error_stream();
+		if (log_stream_available(stream) && fprintf(stream, "%s", formatted) < 0) success = FALSE;
 	}
-
-	/* determine how many characters to append */
-	if (prefix_len > LOGSIZE - flog_len - 1) {
-		prefix_len = LOGSIZE - flog_len - 1;
-	}
-
-	if (ulog_len + prefix_len > LOGSIZE - flog_len - 1) {
-		ulog_len = LOGSIZE - flog_len - prefix_len - 1;
-	}
-
-	strncat(flogmessage, logprefix,   prefix_len);
-	strncat(flogmessage, ulogmessage, ulog_len);
-
-	/* output to syslog/eventlog */
-	if (IS_LOGGING_TO_SYSLOG()) {
-		openlog("Cacti", LOG_NDELAY | LOG_PID, LOG_SYSLOG);
-
-		if ((strstr(flogmessage,"ERROR") || (strstr(flogmessage, "FATAL"))) && (set.log_perror)) {
-			syslog(LOG_CRIT,"%s\n", flogmessage);
-		}
-
-		if ((strstr(flogmessage,"WARNING")) && (set.log_pwarn)){
-			syslog(LOG_WARNING,"%s\n", flogmessage);
-		}
-
-		if ((strstr(flogmessage,"STATS")) && (set.log_pstats)){
-			syslog(LOG_NOTICE,"%s\n", flogmessage);
-		}
-
-		closelog();
-	}
-
-	/* append a line feed to the log message if needed */
-	if (!strstr(flogmessage, "\n")) {
-		strcat(flogmessage, "\n");
-	}
-
-	if ((IS_LOGGING_TO_FILE() &&
-		(set.log_level != POLLER_VERBOSITY_NONE) &&
-		(strlen(set.path_logfile) != 0))) {
-		if (set.logfile_processed) {
-			if (!file_exists(set.path_logfile)) {
-				log_file = fopen(set.path_logfile, "w");
-			} else {
-				log_file = fopen(set.path_logfile, "a");
-			}
-
-			if (log_file) {
-				fputs(flogmessage, log_file);
-				fclose(log_file);
-			} else {
-				if (!log_error) {
-					printf("ERROR: Spine Log File Could Not Be Opened/Created\n");
-					log_error = TRUE;
-				}
-			}
-		}
-	}
-
-	if (set.log_level >= POLLER_VERBOSITY_NONE) {
-		if ((strstr(flogmessage,"ERROR"))   ||
-			(strstr(flogmessage,"WARNING")) ||
-			(strstr(flogmessage,"FATAL"))) {
-			#ifdef DISABLE_STDERR
-			fp = stdout;
-			#else
-			fp = stderr;
-			#endif
-		}
-
-		if ((set.stderr_notty) && (fp == stderr)) {
-			/* do nothing stderr does not exist */
-		} else if ((set.stdout_notty) && (fp == stdout)) {
-			/* do nothing stdout does not exist */
-		} else {
-			fprintf(fp, "%s", flogmessage);
-		}
-	}
-
-	free(log_fmt);
-
-	return TRUE;
+	return success;
 }
 
 /*! \fn int file_exists(const char *filename)
@@ -1489,9 +1443,10 @@ int is_ipaddress(const char *string) {
  *
  */
 int is_numeric(char *string) {
-	char *end_ptr_long, *end_ptr_double;
+	char *end_ptr_long;
+	char *end_ptr_double;
 	int conv_base=10;
-	int length;
+	size_t length;
 
 	length = strlen(trim(string));
 
@@ -1506,13 +1461,11 @@ int is_numeric(char *string) {
 	if (errno != ERANGE) {
 		if (end_ptr_long == string + length) { /* integer string */
 			return TRUE;
-		} else if (end_ptr_long == string) {
-			if (*end_ptr_long != '\0' &&
+		} else if ((end_ptr_long == string) && (*end_ptr_long != '\0' &&
 				*end_ptr_long != '.' &&
 				*end_ptr_long != '-' &&
-				*end_ptr_long != '+') { /* ignore partial string matches but doubles can begin with '+', '-', '.' */
-				return FALSE;
-			}
+				*end_ptr_long != '+')) { /* ignore partial string matches but doubles can begin with '+', '-', '.' */
+			return FALSE;
 		}
 	} else {
 		end_ptr_long = NULL;
@@ -1563,9 +1516,8 @@ int is_hexadecimal(const char * str, const short ignore_special) {
 				delim_found = TRUE;
 				break;
 			case '\t':
-				if (ignore_special) {
-					break;
-				}
+				if (!ignore_special) return FALSE;
+				break;
 			default:
 				return FALSE;
 		}
@@ -1589,82 +1541,35 @@ int is_hexadecimal(const char * str, const short ignore_special) {
  *
  */
 char *strip_alpha(char *string) {
-	int i;
-	int j;
-
-	i = strlen(string);
-	j = 0;
-
-	/* trim trailing characters */
-	while (i >= 0) {
-		if (isdigit((int)string[i])) {
-			break;
-		} else {
-			string[i] = '\0';
-		}
-		i--;
-	}
-
-	/* trim leading characters */
-	while (j < i) {
-		if (isdigit((int)string[j])) {
-			break;
-		} else if (string[j] == '-') {
-			break;
-		} else if (string[j] == '+') {
-			j++;
-		} else {
-			j++;
-		}
-	}
-
-	string = &string[j];
-
-	return string;
+	size_t end = strlen(string);
+	while (end > 0 && !isdigit((unsigned char)string[end - 1])) string[--end] = '\0';
+	size_t start = 0;
+	while (start < end && !isdigit((unsigned char)string[start]) && string[start] != '-') start++;
+	return string + start;
 }
 
-/*! \fn char *add_slashes(char *string)
+/*! \fn char *add_slashes(const char *string)
  *  \brief add escaping to back slashes on for Windows type commands.
  *  \param string the string to replace slashes
  *
  *  \return a pointer to the modified string. Variable must be freed by parent.
  *
  */
-char *add_slashes(char *string) {
-	int length;
-	int position;
-	int new_position;
-	char *return_str;
-
-	if (!(return_str = (char *) malloc(BUFSIZE))) {
-		die("ERROR: Fatal malloc error: util.c add_slashes!");
+char *add_slashes(const char *string) {
+	size_t length = strlen(string);
+	if (length > (SIZE_MAX - 1) / 2) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Escaped command exceeds addressable memory");
 	}
-	return_str[0] = '\0';
-
-	length       = strlen(string);
-	position     = 0;
-	new_position = 0;
-
-	/* simply return on blank string */
-	if (!length) {
-		return return_str;
+	char *result = malloc(length * 2 + 1);
+	if (result == NULL) die("ERROR: Fatal malloc error: util.c add_slashes!");
+	size_t used = 0;
+	for (size_t i = 0; i < length; i++) {
+		if (string[i] == '\\') result[used++] = '\\';
+		result[used++] = string[i];
 	}
-
-	while (position < length) {
-		/* backslash detected, change to forward slash */
-		if (string[position] == '\\') {
-			return_str[new_position] = '\\';
-			new_position++;
-			return_str[new_position] = '\\';
-		} else {
-			return_str[new_position] = string[position];
-		}
-		new_position++;
-		position++;
-	}
-	return_str[new_position] = '\0';
-
-	return(return_str);
+	result[used] = '\0';
+	return result;
 }
 
 /*! \fn char *strncopy(char *dst, const char *src, size_t obuf)
@@ -1684,25 +1589,22 @@ char *add_slashes(char *string) {
  *  \return pointer to destination string
  *
 */
-#pragma GCC diagnostic push
-#if (defined(__GNUC__) && (__GNUC__ > 7)) || (__GNUC__ == 7 && defined(__GNUC_MINOR__) && __GNUC_MINOR__ > 1)
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-#endif
 char *strncopy(char *dst, const char *src, size_t obuf) {
 	assert(dst != 0);
 	assert(src != 0);
 
 	size_t len;
 
-	len = (strlen(src) < obuf) ? strlen(src) : obuf;
+	if (obuf == 0) return dst;
+	len = strlen(src);
+	if (len >= obuf) len = obuf - 1;
 	if (len) {
-		strncpy(dst, src, len);
+		memcpy(dst, src, len);
 	}
 
 	dst[len] = '\0';
 	return dst;
 }
-#pragma GCC diagnostic pop
 
 /*! \fn double get_time_as_double()
  *  \brief fetches system time as a double-precision value
@@ -1714,7 +1616,7 @@ double get_time_as_double(void) {
 
 	gettimeofday(&now, NULL);
 
-	return (now).tv_sec + ((double) (now).tv_usec / 1000000);
+	return (double)now.tv_sec + (double)now.tv_usec / 1000000;
 }
 
 /*! \fn trim()
@@ -1735,7 +1637,7 @@ char *trim(char *str) {
  */
 char *rtrim(char *str) {
 	char    *end;
-	char    *trim = " \"\'\\\t\n\r";
+	const char *trim = " \"\'\\\t\n\r";
 
 	if (!str) return NULL;
 
@@ -1757,7 +1659,7 @@ char *rtrim(char *str) {
  *  \return the trimmed string.
  */
 char *ltrim(char *str) {
-	char    *trim = " \"\'\\\t\n\r";
+	const char *trim = " \"\'\\\t\n\r";
 
 	if (!str) return NULL;
 
@@ -1776,18 +1678,15 @@ char *ltrim(char *str) {
  *  \return the reversed string.
  */
 char *reverse(char* str) {
-	int end   = strlen(str)-1;
-	int start = 0;
-
+	size_t start = 0;
+	size_t end = strlen(str);
 	while (start < end) {
-		str[start] ^= str[end];
-		str[end]   ^= str[start];
-		str[start] ^= str[end];
-
-		++start;
-		--end;
+		end--;
+		if (start >= end) break;
+		char byte = str[start];
+		str[start++] = str[end];
+		str[end] = byte;
 	}
-
 	return str;
 }
 
@@ -1796,11 +1695,11 @@ char *reverse(char* str) {
  *
  *  \return the position of -1 if not found
  */
-int strpos(char *haystack, char *needle) {
-	char *p = strstr(haystack, needle);
+int strpos(const char *haystack, const char *needle) {
+	const char *p = strstr(haystack, needle);
 
 	if (p) {
-		return p - haystack;
+		return p - haystack <= INT_MAX ? (int)(p - haystack) : -1;
 	}
 
 	return -1;
@@ -1813,7 +1712,7 @@ int strpos(char *haystack, char *needle) {
  */
 int char_count(const char *str, int chr) {
 	const unsigned char *my_str = (const unsigned char *) str;
-	const unsigned char my_chr = chr;
+	const unsigned char my_chr = (unsigned char)chr;
 	int count = 0;
 
 	if (!my_chr) return 1;
@@ -1827,88 +1726,22 @@ int char_count(const char *str, int chr) {
 }
 
 unsigned long long hex2dec(char *str) {
-	int i = 0;
 	unsigned long long number = 0;
-
-	if (!str) return 0;
-
-	/* first revers the string */
+	if (str == NULL) return 0;
+	/* Retain the historical in-place reversal, but avoid floating-point
+	 * rounding and undefined conversion when a sample exceeds 64 bits. */
 	reverse(str);
-
-	while (*str) {
-		switch (*str) {
-		case '0':
-			i++;
-			break;
-		case '1':
-			number += pow(16, i) * 1;
-			i++;
-			break;
-		case '2':
-			number += pow(16, i) * 2;
-			i++;
-			break;
-		case '3':
-			number += pow(16, i) * 3;
-			i++;
-			break;
-		case '4':
-			number += pow(16, i) * 4;
-			i++;
-			break;
-		case '5':
-			number += pow(16, i) * 5;
-			i++;
-			break;
-		case '6':
-			number += pow(16, i) * 6;
-			i++;
-			break;
-		case '7':
-			number += pow(16, i) * 7;
-			i++;
-			break;
-		case '8':
-			number += pow(16, i) * 8;
-			i++;
-			break;
-		case '9':
-			number += pow(16, i) * 9;
-			i++;
-			break;
-		case 'a': case 'A':
-			number += pow(16, i) * 10;
-			i++;
-			break;
-		case 'b': case 'B':
-			number += pow(16, i) * 11;
-			i++;
-			break;
-		case 'c': case 'C':
-			number += pow(16, i) * 12;
-			i++;
-			break;
-		case 'd': case 'D':
-			number += pow(16, i) * 13;
-			i++;
-			break;
-		case 'e': case 'E':
-			number += pow(16, i) * 14;
-			i++;
-			break;
-		case 'f': case 'F':
-			number += pow(16, i) * 15;
-			i++;
-			break;
-		case '"': case ' ': case '\t':
-			break;
-		default:
-			return 0;
-		}
-
-		str++;
+	for (size_t i = strlen(str); i > 0; i--) {
+		unsigned char c = (unsigned char)str[i - 1];
+		unsigned int digit;
+		if (c == '"' || c == ' ' || c == '\t') continue;
+		if (c >= '0' && c <= '9') digit = c - '0';
+		else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+		else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+		else return 0;
+		if (number > (ULLONG_MAX - digit) / 16) return 0;
+		number = number * 16 + digit;
 	}
-
 	return number;
 }
 
@@ -1982,7 +1815,7 @@ void checkAsRoot() {
 	boolean_t pe = priv_ineffect(PRIV_NET_ICMPACCESS);
 	SPINE_LOG_DEBUG(("DEBUG: Privilege PRIV_NET_ICMPACCESS is: '%s'.", pe != 0 ? "Enabled" : "Disabled"));
 
-	set.icmp_avail = pe;
+	set.availability.icmp_avail = pe;
 
 	/* Free the privset */
 	priv_freeset(privset);
@@ -1997,10 +1830,10 @@ void checkAsRoot() {
 
 		if (geteuid() != 0) {
 			SPINE_LOG_DEBUG(("WARNING: Spine NOT running as root.  This is required if using ICMP.  Please run \"chown root:root spine;chmod u+s spine\" to resolve."));
-			set.icmp_avail = FALSE;
+			set.availability.icmp_avail = FALSE;
 		} else {
 			SPINE_LOG_DEBUG(("DEBUG: Spine is running as root."));
-			set.icmp_avail = TRUE;
+			set.availability.icmp_avail = TRUE;
 
 			if (seteuid(getuid()) == -1) {
 				SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
@@ -2008,9 +1841,9 @@ void checkAsRoot() {
 		}
 	} else {
 		SPINE_LOG_DEBUG(("DEBUG: Spine has cap_net_raw capability."));
-		set.icmp_avail = TRUE;
+		set.availability.icmp_avail = TRUE;
 	}
-	SPINE_LOG_DEBUG(("DEBUG: Spine has %sgot ICMP", set.icmp_avail?"":"not "));
+	SPINE_LOG_DEBUG(("DEBUG: Spine has %sgot ICMP", set.availability.icmp_avail?"":"not "));
 	#endif
 	#endif
 }
@@ -2024,56 +1857,67 @@ void checkAsRoot() {
  *  \return the cacti version
  *
  */
+static int parse_cacti_version(const char *value) {
+	const unsigned long weights[] = {1000, 100, 1};
+	unsigned long version = 0;
+	for (size_t index = 0; index < sizeof(weights) / sizeof(weights[0]); index++) {
+		if (*value < '0' || *value > '9') return 0;
+		errno = 0;
+		char *end;
+		unsigned long component = strtoul(value, &end, 10);
+		if (errno == ERANGE || component > ((unsigned long)INT_MAX - version) / weights[index]) return 0;
+		version += component * weights[index];
+		if (index < 2 && *end != '.') return 0;
+		value = end + (index < 2 ? 1 : 0);
+	}
+	/* Preserve suffixes such as develop/beta accepted by the previous three-component scan. */
+	return (int)version;
+}
+
 int get_cacti_version(MYSQL *psql, int mode) {
-	char      qstring[BUFSIZE];
-	char      *retval;
-	MYSQL_RES *result;
-	MYSQL_ROW mysql_row;
-	int       major, minor, point;
-	int       cacti_version;
+	assert(psql != NULL);
+	MYSQL_RES *result = db_query(psql, mode, "SELECT cacti FROM version LIMIT 1");
+	if (result == NULL) return 0;
+	MYSQL_ROW row = mysql_fetch_row(result);
+	int version = row != NULL && row[0] != NULL ? parse_cacti_version(row[0]) : 0;
+	db_free_result(result);
+	return version;
+}
 
-	assert(psql != 0);
+/* pthread storage keeps the borrowed match valid without requiring C11 TLS.
+ * Each polling thread owns its buffer, which is freed when the thread exits. */
+static pthread_key_t regex_result_key;
+static pthread_once_t regex_result_once = PTHREAD_ONCE_INIT;
 
-	sprintf(qstring, "SELECT cacti FROM version LIMIT 1");
-
-	result = db_query(psql, mode, qstring);
-
-	if (result != 0) {
-		if (mysql_num_rows(result) > 0) {
-			mysql_row = mysql_fetch_row(result);
-
-			if (mysql_row != NULL) {
-				retval = strdup(mysql_row[0]);
-				db_free_result(result);
-
-				if (STRIMATCH(retval, "new_install")) {
-					SPINE_FREE(retval);
-
-					return 0;
-				} else {
-					sscanf(retval, "%d.%d.%d", &major, &minor, &point);
-					cacti_version = (major * 1000) + (minor * 100) + (point * 1);
-
-					SPINE_FREE(retval);
-
-					return cacti_version;
-				}
-			}else{
-				return 0;
-			}
-		}else{
-			db_free_result(result);
-			return 0;
-		}
-	}else{
-		return 0;
+static void initialize_regex_result_key(void) {
+	if (pthread_key_create(&regex_result_key, free) != 0) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to create thread-local regex storage");
 	}
 }
 
-char *regex_replace(char *exp, char *value) {
+static char *regex_result_buffer(void) {
+	if (pthread_once(&regex_result_once, initialize_regex_result_key) != 0) {
+		set.exit.exit_code = EXIT_FAILURE;
+		die("ERROR: Unable to initialize thread-local regex storage");
+	}
+	char *buffer = pthread_getspecific(regex_result_key);
+	if (buffer == NULL) {
+		buffer = malloc(RESULTS_BUFFER);
+		if (buffer == NULL) die("ERROR: Fatal malloc error: regex result buffer!");
+		if (pthread_setspecific(regex_result_key, buffer) != 0) {
+			free(buffer);
+			set.exit.exit_code = EXIT_FAILURE;
+			die("ERROR: Unable to retain thread-local regex storage");
+		}
+	}
+	return buffer;
+}
+
+char *regex_replace(const char *exp, char *value) {
 	regex_t regex;
 	int reti;
-	char msgbuf[100];
+	char *msgbuf = NULL;
 
 	/* Compile regular expression */
 	reti = regcomp(&regex, exp, 0);
@@ -2087,11 +1931,18 @@ char *regex_replace(char *exp, char *value) {
 	reti = regexec(&regex, value, MAX_MATCHES, matches, 0);
 	if (!reti) {
 		// regex matched
-		memcpy(msgbuf, value + matches[0].rm_so, matches[0].rm_eo - matches[0].rm_so);
+		size_t length = (size_t) (matches[0].rm_eo - matches[0].rm_so);
+		if (length >= RESULTS_BUFFER) {
+			regfree(&regex);
+			return value;
+		}
+		msgbuf = regex_result_buffer();
+		memcpy(msgbuf, value + matches[0].rm_so, length);
+		msgbuf[length] = '\0';
 	}
 
 	/* Free memory allocated to the pattern buffer by regcomp() */
 	regfree(&regex);
 
-	return (reti) ? value : msgbuf;
+	return reti ? value : msgbuf;
 }

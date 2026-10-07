@@ -34,6 +34,22 @@ AC_PROG_CC
 AM_INIT_AUTOMAKE([foreign])
 AC_CONFIG_HEADERS(config/config.h)
 
+# These generic package macros belong to the generated configuration header.
+# Leave them available for Net-SNMP to define; snmp_spine_init uses its
+# PACKAGE_VERSION when header/library version verification is enabled.
+# Continue each directive so config.status preserves the literal cleanup
+# instead of substituting another package definition into the header footer.
+AH_BOTTOM([#undef \
+PACKAGE_NAME
+#undef \
+PACKAGE_VERSION
+#undef \
+PACKAGE_BUGREPORT
+#undef \
+PACKAGE_STRING
+#undef \
+PACKAGE_TARNAME])
+
 # static libraries
 AC_ARG_WITH(static,
   AS_HELP_STRING([--with-static],[Build using static libraries
@@ -488,6 +504,24 @@ AC_LINK_IFELSE([AC_LANG_PROGRAM([[
      AC_DEFINE(HAS_MYSQL_OPT_SSL_KEY,1,[Do we have mysql/mariadb ssl keys capabilities?])
   ],[AC_MSG_RESULT(no)
 ])
+
+spine_saved_ldflags=$LDFLAGS
+spine_linker_wrap=no
+case "$host_os" in
+  linux*)
+    LDFLAGS="$LDFLAGS -Wl,--wrap=strftime"
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#include <time.h>
+extern size_t __real_strftime(char *, size_t, const char *, const struct tm *);
+size_t __wrap_strftime(char *out, size_t size, const char *format, const struct tm *time) {
+  return __real_strftime(out, size, format, time);
+}
+]], [[return 0;]])], [spine_linker_wrap=yes], [])
+    ;;
+  *) ;;
+esac
+LDFLAGS=$spine_saved_ldflags
+AM_CONDITIONAL([HAVE_LINKER_WRAP], [test "$spine_linker_wrap" = yes])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
