@@ -20,9 +20,8 @@
 from collections import Counter
 from pathlib import Path
 import re
-import sys
 
-DIAGNOSTIC = re.compile(r"^([^:]+):[0-9]+:[0-9]+: (.*)$")
+DIAGNOSTIC = re.compile(r"^([^:]+):\d+:\d+: (.*)$")
 
 
 def diagnostics(text: str) -> Counter:
@@ -44,12 +43,13 @@ def regressions(report: str, baseline: str) -> Counter:
 
 
 def main() -> int:
-    report = Path(sys.argv[1]).read_text()
-    baseline = Path(sys.argv[2]).read_text()
+    root = Path(__file__).resolve().parents[2]
+    report = (root / "cppcheck-report.txt").read_text()
+    baseline = (root / ".github/cppcheck-baseline.txt").read_text()
     findings = regressions(report, baseline)
     lines = [f"{path}: {message}" for (path, message), count in sorted(findings.items())
              for _ in range(count)]
-    Path(sys.argv[3]).write_text("\n".join(lines) + ("\n" if lines else ""))
+    (root / "cppcheck-regressions.txt").write_text("\n".join(lines) + ("\n" if lines else ""))
     if findings:
         print("New cppcheck findings not in baseline:")
         print("\n".join(lines))

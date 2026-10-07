@@ -224,20 +224,9 @@ void snmp_spine_close(void) {
 	snmp_shutdown("spine");
 }
 
-/*! \fn void *snmp_host_init(int host_id, char *hostname, int snmp_version,
- * char *snmp_community, char *snmp_username, const char *snmp_password,
- * char *snmp_auth_protocol, const char *snmp_priv_passphrase, char *snmp_priv_protocol,
- * char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout)
- *  \brief initializes an snmp_session object for a Spine host
- *
- *	This function will initialize NET-SNMP for the Spine host
- *  in question.
- *
- */
-void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community,
-	char *snmp_username, const char *snmp_password, char *snmp_auth_protocol,
-	const char *snmp_priv_passphrase, char *snmp_priv_protocol,
-	char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout) {
+/* Initialize Net-SNMP from one complete, caller-owned credential profile. */
+void *snmp_host_init(const spine_snmp_profile_t *profile) {
+	if (profile == NULL) return NULL;
 
 	void   *sessp = NULL;
 	struct snmp_session session;
@@ -300,51 +289,51 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	session.contextEngineIDLen = 0;
 
 	/* verify snmp version is accurate */
-	if (snmp_version == 2) {
+	if (profile->snmp_version == 2) {
 		session.version       = SNMP_VERSION_2c;
 		session.securityModel = SNMP_SEC_MODEL_SNMPv2c;
-	} else if (snmp_version == 1) {
+	} else if (profile->snmp_version == 1) {
 		session.version       = SNMP_VERSION_1;
 		session.securityModel = SNMP_SEC_MODEL_SNMPv1;
-	} else if (snmp_version == 3) {
+	} else if (profile->snmp_version == 3) {
 		session.version       = SNMP_VERSION_3;
 		session.securityModel = USM_SEC_MODEL_NUMBER;
 	} else {
-		SPINE_LOG(("Device[%i] ERROR: SNMP Version Error for Device '%s'", host_id, hostname));
+		SPINE_LOG(("Device[%i] ERROR: SNMP Version Error for Device '%s'", profile->host_id, profile->hostname));
 		free(session.localname);
 		return 0;
 	}
 
-	snprintf(hostnameport, BUFSIZE, "%s:%i", hostname, snmp_port);
+	snprintf(hostnameport, BUFSIZE, "%s:%i", profile->hostname, profile->snmp_port);
 	session.peername    = strdup(hostnameport);
 	if (!session.peername) {
-		SPINE_LOG(("Device[%i] ERROR: Failed to allocate peername for '%s'", host_id, hostname));
+		SPINE_LOG(("Device[%i] ERROR: Failed to allocate peername for '%s'", profile->host_id, profile->hostname));
 		free(session.localname);
 		return 0;
 	}
 	session.retries     = set.snmp_retries;
-	session.timeout     = (snmp_timeout * 1000); /* net-snmp likes microseconds */
+	session.timeout     = (profile->snmp_timeout * 1000); /* net-snmp likes microseconds */
 
-	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", host_id, hostnameport, session.timeout, snmp_timeout, session.retries));
+	SPINE_LOG_HIGH(("Device[%i] INFO: SNMP Device '%s' has a timeout of %ld (%d), with %d retries", profile->host_id, hostnameport, session.timeout, profile->snmp_timeout, session.retries));
 
-	if ((snmp_version == 2) || (snmp_version == 1)) {
-		session.community     = (unsigned char*) snmp_community;
-		session.community_len = strlen(snmp_community);
+	if ((profile->snmp_version == 2) || (profile->snmp_version == 1)) {
+		session.community     = (unsigned char*) profile->snmp_community;
+		session.community_len = strlen(profile->snmp_community);
 	} else {
 		session.community       = (unsigned char *) Cpsz;
 		session.community_len   = 0;
 
-		session.securityName    = snmp_username;
+		session.securityName    = profile->snmp_username;
 		session.securityNameLen = strlen(session.securityName);
 
-		if (snmp_context && strlen(snmp_context)) {
-			session.contextName    = snmp_context;
+		if (profile->snmp_context && strlen(profile->snmp_context)) {
+			session.contextName    = profile->snmp_context;
 			session.contextNameLen = strlen(session.contextName);
 		}
 
-		if (snmp_engine_id && strlen(snmp_engine_id)) {
-			session.contextEngineID    = (unsigned char*) snmp_engine_id;
-			session.contextEngineIDLen = strlen(snmp_engine_id);
+		if (profile->snmp_engine_id && strlen(profile->snmp_engine_id)) {
+			session.contextEngineID    = (unsigned char*) profile->snmp_engine_id;
+			session.contextEngineIDLen = strlen(profile->snmp_engine_id);
 		}
 
 		/* set the authentication protocol */
@@ -356,22 +345,22 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		/* Cacti stores "[None]" when no protocol is selected. Match cmd.php's
 		 * effective-level rules for incomplete pairs, but report the downgrade
 		 * explicitly so an operator does not mistake it for auth or privacy. */
-		security_level = spine_snmpv3_security_level(snmp_auth_protocol, snmp_password,
-			snmp_priv_protocol, snmp_priv_passphrase);
+		security_level = spine_snmpv3_security_level(profile->snmp_auth_protocol, profile->snmp_password,
+			profile->snmp_priv_protocol, profile->snmp_priv_passphrase);
 
 		/* Refusals precede downgrade warnings so the log never promises that a
 		 * device will be polled when this function is about to reject it. */
-		if (spine_snmpv3_passphrase_is_set(snmp_password) &&
-			(snmp_auth_protocol == NULL || snmp_auth_protocol[0] == '\0')) {
-			SPINE_LOG(("SNMP: Device[%i] Error authentication password is set but the authentication protocol is empty.", host_id));
+		if (spine_snmpv3_passphrase_is_set(profile->snmp_password) &&
+			(profile->snmp_auth_protocol == NULL || profile->snmp_auth_protocol[0] == '\0')) {
+			SPINE_LOG(("SNMP: Device[%i] Error authentication password is set but the authentication protocol is empty.", profile->host_id));
 			free(session.peername);
 			free(session.localname);
 			return 0;
 		}
 
-		if (spine_snmpv3_passphrase_is_set(snmp_priv_passphrase) &&
-			(snmp_priv_protocol == NULL || snmp_priv_protocol[0] == '\0')) {
-			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is set but the privacy protocol is empty.", host_id));
+		if (spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase) &&
+			(profile->snmp_priv_protocol == NULL || profile->snmp_priv_protocol[0] == '\0')) {
+			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is set but the privacy protocol is empty.", profile->host_id));
 			free(session.peername);
 			free(session.localname);
 			return 0;
@@ -380,33 +369,33 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		/* Complete privacy credentials with no usable authentication cannot be
 		 * honoured by USM. Refuse that case before describing any downgrade. */
 		if (security_level == SNMP_SEC_LEVEL_NOAUTH &&
-			spine_snmpv3_protocol_is_set(snmp_priv_protocol) &&
-			spine_snmpv3_passphrase_is_set(snmp_priv_passphrase)) {
-			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is configured but authentication is unavailable; set an auth protocol and password, or clear the privacy passphrase.", host_id));
+			spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) &&
+			spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
+			SPINE_LOG(("SNMP: Device[%i] Error privacy passphrase is configured but authentication is unavailable; set an auth protocol and password, or clear the privacy passphrase.", profile->host_id));
 			free(session.peername);
 			free(session.localname);
 			return 0;
 		}
 
-		if (spine_snmpv3_protocol_is_set(snmp_auth_protocol) !=
-			spine_snmpv3_passphrase_is_set(snmp_password)) {
-			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete authentication settings; Cacti's effective security level is noAuthNoPriv.", host_id));
+		if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol) !=
+			spine_snmpv3_passphrase_is_set(profile->snmp_password)) {
+			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete authentication settings; Cacti's effective security level is noAuthNoPriv.", profile->host_id));
 		}
 
-		if (spine_snmpv3_protocol_is_set(snmp_priv_protocol) !=
-			spine_snmpv3_passphrase_is_set(snmp_priv_passphrase)) {
-			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete privacy settings; Cacti's effective security level does not include encryption.", host_id));
+		if (spine_snmpv3_protocol_is_set(profile->snmp_priv_protocol) !=
+			spine_snmpv3_passphrase_is_set(profile->snmp_priv_passphrase)) {
+			SPINE_LOG_LOW(("SNMP: Device[%i] WARNING incomplete privacy settings; Cacti's effective security level does not include encryption.", profile->host_id));
 		}
 
 		/* A protocol that is set but unrecognised is a configuration error at
 		 * any security level. Deciding the level first and only validating on
 		 * the authenticated path would let a typo through as noAuthNoPriv,
 		 * because a device with no passphrase never reaches the check. */
-		if (spine_snmpv3_protocol_is_set(snmp_auth_protocol)) {
-			auth_type = usm_lookup_auth_type(snmp_auth_protocol);
+		if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol)) {
+			auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
 
 			if (auth_type <= 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", host_id, snmp_auth_protocol));
+				SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", profile->host_id, profile->snmp_auth_protocol));
 				free(session.peername);
 				free(session.localname);
 				return 0;
@@ -422,7 +411,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			session.securityAuthProto = auth_proto == NULL ? NULL :
 				snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
 			if (session.securityAuthProto == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error installing auth protocol %s.", host_id, snmp_auth_protocol));
+				SPINE_LOG(("SNMP: Device[%i] Error installing auth protocol %s.", profile->host_id, profile->snmp_auth_protocol));
 				free(session.peername);
 				free(session.localname);
 				return 0;
@@ -443,7 +432,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 
 			if (session.securityPrivProto == NULL) {
 				session.securityPrivProtoLen = 0;
-				SPINE_LOG(("SNMP: Device[%i] Error installing the no-privacy protocol.", host_id));
+				SPINE_LOG(("SNMP: Device[%i] Error installing the no-privacy protocol.", profile->host_id));
 				free(session.peername);
 				free(session.securityAuthProto);
 				free(session.localname);
@@ -455,7 +444,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			 * such device failed with a USM authentication error. */
 			if (security_level == SNMP_SEC_LEVEL_AUTHNOPRIV) {
 				free_passphrase(&Apsz);
-				Apsz = strdup(snmp_password);
+				Apsz = strdup(profile->snmp_password);
 
 				session.securityAuthKeyLen = USM_AUTH_KU_LEN;
 				if (Apsz == NULL || session.securityAuthProto == NULL ||
@@ -464,7 +453,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					(u_char *) Apsz, strlen(Apsz),
 					session.securityAuthKey,
 					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
+					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
 					free(session.peername);
 					free(session.securityAuthProto);
 					free(session.securityPrivProto);
@@ -483,10 +472,10 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 		} else {
 			const oid *priv_proto;
 
-			priv_type = usm_lookup_priv_type(snmp_priv_protocol);
+			priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
 
 			if (priv_type < 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", host_id, snmp_priv_protocol));
+				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", profile->host_id, profile->snmp_priv_protocol));
 				free(session.peername);
 				free(session.securityAuthProto);
 				free(session.localname);
@@ -498,7 +487,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			session.securityPrivProto = priv_proto == NULL ? NULL :
 				snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
 			if (session.securityPrivProto == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error installing privacy protocol %s.", host_id, snmp_priv_protocol));
+				SPINE_LOG(("SNMP: Device[%i] Error installing privacy protocol %s.", profile->host_id, profile->snmp_priv_protocol));
 				free(session.peername);
 				free(session.securityAuthProto);
 				free(session.localname);
@@ -511,17 +500,17 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 
 			// Auth Protocol Setup
 			free_passphrase(&Apsz);
-			Apsz = strdup(snmp_password);
+			Apsz = strdup(profile->snmp_password);
 
 			// Privacy Protocol Setup
 			free_passphrase(&Xpsz);
-			Xpsz = strdup(snmp_priv_passphrase);
+			Xpsz = strdup(profile->snmp_priv_passphrase);
 
 			/* authPriv cannot be constructed safely without both local copies.
 			 * Treat allocator failure like key-derivation failure instead of
 			 * handing net-snmp an authPriv session with an empty key. */
 			if (Apsz == NULL || Xpsz == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error allocating SNMPv3 passphrase storage.", host_id));
+				SPINE_LOG(("SNMP: Device[%i] Error allocating SNMPv3 passphrase storage.", profile->host_id));
 				free(session.peername);
 				free(session.securityAuthProto);
 				free(session.securityPrivProto);
@@ -539,7 +528,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					(u_char *) Apsz, strlen(Apsz),
 					session.securityAuthKey,
 					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", host_id));
+					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
 					free(session.peername);
 					free(session.securityAuthProto);
 					free(session.securityPrivProto);
@@ -564,7 +553,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 					(u_char *) Xpsz, strlen(Xpsz),
 					session.securityPrivKey,
 					&session.securityPrivKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", host_id));
+					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", profile->host_id));
 					free(session.peername);
 					free(session.securityAuthProto);
 					free(session.securityPrivProto);
@@ -581,7 +570,7 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 			}
 		}
 
-		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", host_id, snmp_auth_protocol, snmp_priv_protocol));
+		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", profile->host_id, profile->snmp_auth_protocol, profile->snmp_priv_protocol));
 		} /* end auth/priv block */
 	}
 
@@ -597,10 +586,10 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	free(session.localname);
 
 	if (!sessp) {
-		if (is_debug_device(host_id)) {
-			SPINE_LOG(("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
+		if (is_debug_device(profile->host_id)) {
+			SPINE_LOG(("ERROR: Device[%i] Problem initializing SNMP session '%s'", profile->host_id, profile->hostname));
 		} else {
-			SPINE_LOG_MEDIUM(("ERROR: Device[%i] Problem initializing SNMP session '%s'", host_id, hostname));
+			SPINE_LOG_MEDIUM(("ERROR: Device[%i] Problem initializing SNMP session '%s'", profile->host_id, profile->hostname));
 		}
 	}
 
