@@ -51,6 +51,43 @@ an in-progress publication. Feature pushes and PRs can still produce two
 runs; their different refs intentionally do not cancel each other. No
 required merge check has been removed to eliminate that duplication.
 
+## Build-system conventions
+
+CMake is the source of truth for the C17 build; Ninja is the default backend
+in the shared presets. CTest runs registered tests and CPack produces release
+packages. Keep Makefile generation available for distro packagers and local
+compatibility. Do not hand-edit or commit generated build files.
+
+The presets retain their declared CMake 3.23 minimum; direct non-preset builds
+retain the minimum declared in CMakeLists.txt. Select local tool versions
+through `mise`. From the repository root, use the same configure/build
+presets as CI, followed by the matching test preset:
+
+```sh
+cmake --preset ci-main
+cmake --build --preset ci-main --parallel
+ctest --preset ci-main
+```
+
+The `ci-smoke` configure/build/test presets provide the existing platform
+suite without the main executable. Both test presets print failure output
+and reject empty discovery. They do not replace the separate SQL/SNMP,
+security, sanitizer, or release-verification checks.
+
+For a Makefile build, use a separate build directory:
+
+```sh
+cmake -S . -B build-make -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build-make --parallel
+ctest --test-dir build-make --output-on-failure --no-tests=error
+```
+
+An existing build directory cannot change generators. Release packaging
+continues through CPack; the separate Release Verification workflow checks
+the staged installation and installed binary. Package creation alone is
+not installation verification. Keep that validation and existing checksum,
+SBOM, provenance, and signing controls.
+
 ## Selective analysis during modernization
 
 `Sonar` always evaluates the branch policy and publishes a summary.
