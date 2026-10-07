@@ -277,8 +277,6 @@ static int snmp_prepare_private_keys(const spine_snmp_profile_t *profile, struct
 }
 
 static int snmp_configure_v3(const spine_snmp_profile_t *profile, struct snmp_session *session) {
-	int auth_type;
-	int priv_type;
 	int security_level;
 	const oid *auth_proto;
 
@@ -342,6 +340,8 @@ static int snmp_configure_v3(const spine_snmp_profile_t *profile, struct snmp_se
 	 * the authenticated path would let a typo through as noAuthNoPriv,
 	 * because a device with no passphrase never reaches the check. */
 	if (spine_snmpv3_protocol_is_set(profile->snmp_auth_protocol)) {
+		int auth_type;
+
 		auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
 
 		if (auth_type <= 0) {
@@ -391,6 +391,7 @@ static int snmp_configure_v3(const spine_snmp_profile_t *profile, struct snmp_se
 		}
 	} else {
 		const oid *priv_proto;
+		int priv_type;
 
 		priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
 
