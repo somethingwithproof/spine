@@ -31,3 +31,6 @@ spine
 spine.1
 *.o
 *.m4
+
+# Local assistant state; not project source
+/.omc/
