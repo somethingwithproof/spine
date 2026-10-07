@@ -88,6 +88,8 @@ void spine_scheduler_purge(int error_code) {
             }
             task = next;
         }
+        /* Qualifiers and the fatal-allocation arm belong to uthash internals. */
+        // cppcheck-suppress constVariablePointer
         HASH_DEL(active_hosts, current);
         free(current);
     }
@@ -132,6 +134,8 @@ void spine_scheduler_enqueue(spine_task_t *task) {
     if (!hq) {
         hq = calloc(1, sizeof(host_queue_t));
         hq->host_id = task->host_id;
+        /* Qualifiers and the fatal-allocation arm belong to uthash internals. */
+        // cppcheck-suppress [constVariablePointer,unreachableCode]
         HASH_ADD_INT(active_hosts, host_id, hq);
     }
     
@@ -191,6 +195,8 @@ void spine_scheduler_tick(uv_loop_t *loop) {
                 start_host = hq;
             }
             
+            /* Qualifiers and the fatal-allocation arm belong to uthash internals. */
+            // cppcheck-suppress constVariablePointer
             HASH_DEL(active_hosts, empty_hq);
             free(empty_hq);
             

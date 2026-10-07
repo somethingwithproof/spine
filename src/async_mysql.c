@@ -136,7 +136,7 @@ static int async_mysql_mark_active(MYSQL *mysql) {
     return 0;
 }
 
-static void async_mysql_unmark_active(MYSQL *mysql) {
+static void async_mysql_unmark_active(const MYSQL *mysql) {
     async_mysql_active_t **cursor;
 
     async_mysql_assert_owner_thread();
@@ -154,7 +154,7 @@ static void async_mysql_unmark_active(MYSQL *mysql) {
 }
 
 static void on_mysql_close(uv_handle_t* handle) {
-    async_mysql_ctx_t *ctx = (async_mysql_ctx_t *)handle->data;
+    const async_mysql_ctx_t *ctx = (async_mysql_ctx_t *)handle->data;
     if (ctx != NULL) {
         async_mysql_unmark_active(ctx->mysql);
     }
@@ -265,6 +265,9 @@ int spine_async_mysql_query(uv_loop_t *runtime_loop, MYSQL *mysql, const char *q
 
 #else
 
+/* This fallback must retain the same mutable MYSQL contract as the enabled
+ * async implementation and public header; it performs no mutation itself. */
+// cppcheck-suppress constParameterPointer
 int spine_async_mysql_query(uv_loop_t *runtime_loop, MYSQL *mysql, const char *query, async_mysql_cb cb, void *data) {
     (void)runtime_loop;
     if (!mysql || !query || !cb) return -EINVAL;
