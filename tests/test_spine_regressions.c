@@ -966,9 +966,9 @@ static void test_php_partial_response_timeout(void) {
 }
 
 /* Script server arguments can carry SNMP communities and v3 passphrases, so
- * the failure lines logged at the default level must not repeat the command.
+ * no failure line may repeat the command arguments, at any verbosity.
  * Drives the timeout, partial-line and lost-server paths of the real code. */
-static void test_php_failure_logs_omit_command(void) {
+static void run_php_failure_logs(int level) {
 	static const char secret[] = "regression-community-7d1f";
 	config_t previous_config = set;
 	php_t *previous_processes = php_processes;
@@ -976,7 +976,7 @@ static void test_php_failure_logs_omit_command(void) {
 	int log_fd = mkstemp(path);
 	assert(log_fd >= 0 && close(log_fd) == 0);
 	set.logging.log_destination = LOGDEST_FILE;
-	set.logging.log_level = POLLER_VERBOSITY_LOW;
+	set.logging.log_level = level;
 	set.logging.logfile_processed = TRUE;
 	set.console.stdout_notty = TRUE;
 	set.console.stderr_notty = TRUE;
@@ -1032,11 +1032,18 @@ static void test_php_failure_logs_omit_command(void) {
 	assert(strstr(logged, "did not respond in time") != NULL);
 	assert(strstr(logged, "partial response") != NULL);
 	assert(strstr(logged, "communications lost") != NULL);
-	fprintf(stderr, "php failure logs contain command: %s\n", strstr(logged, secret) != NULL ? "yes" : "no");
+	fprintf(stderr, "php failure logs at level %d contain command arguments: %s\n", level, strstr(logged, secret) != NULL ? "yes" : "no");
 	assert(strstr(logged, secret) == NULL);
+	/* Debug output still names the script, which is enough to find it. */
+	if (level == POLLER_VERBOSITY_DEBUG) assert(strstr(logged, "ss_regression.php") != NULL);
 	assert(unlink(path) == 0);
 	php_processes = previous_processes;
 	set = previous_config;
+}
+
+static void test_php_failure_logs_omit_command(void) {
+	run_php_failure_logs(POLLER_VERBOSITY_LOW);
+	run_php_failure_logs(POLLER_VERBOSITY_DEBUG);
 }
 
 static void test_script_execution(void) {
