@@ -54,22 +54,22 @@ for distro in "${distros[@]}"; do
   cc_env=""
   case "$distro" in
     rockylinux* | almalinux*)
-      PKG='dnf install -y epel-release && dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel'
+      PKG='dnf install -y dnf-plugins-core epel-release && . /etc/os-release && case "$VERSION_ID" in 8*) dnf config-manager --set-enabled powertools ;; 9*) dnf config-manager --set-enabled crb ;; *) exit 1 ;; esac && dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel libseccomp-devel libuv-devel'
       ;;
     fedora*)
-      PKG='dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel'
+      PKG='dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel libseccomp-devel libuv-devel'
       ;;
     debian* | ubuntu*)
-      PKG='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y cmake gcc make libsnmp-dev libmariadb-dev-compat libssl-dev pkg-config libsystemd-dev'
+      PKG='apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y cmake gcc make libsnmp-dev libmariadb-dev-compat libssl-dev pkg-config libsystemd-dev libseccomp-dev libuv1-dev'
       ;;
     opensuse*)
       # Leap 15 ships GCC 7 by default, which rejects -std=c17. gcc13
       # is in the default repos and provides the C17 dialect spine needs.
-      PKG='zypper --non-interactive install cmake gcc13 make net-snmp-devel libmariadb-devel libopenssl-devel pkg-config systemd-devel'
+      PKG='zypper --non-interactive install cmake gcc13 make net-snmp-devel libmariadb-devel libopenssl-devel pkg-config systemd-devel libseccomp-devel libuv-devel'
       cc_env='CC=gcc-13'
       ;;
     alpine*)
-      PKG='apk add --no-cache bash cmake gcc make musl-dev net-snmp-dev mariadb-connector-c-dev openssl-dev pkgconfig linux-headers'
+      PKG='apk add --no-cache bash cmake gcc make musl-dev net-snmp-dev mariadb-connector-c-dev openssl-dev pkgconfig linux-headers libseccomp-dev libuv-dev'
       ;;
     *ubi9* | *ubi:9*)
       # Advisory: UBI 9 ships a restricted package set.
@@ -89,7 +89,7 @@ for distro in "${distros[@]}"; do
     -w /src \
     -e CMAKE_BUILD_PARALLEL_LEVEL="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" \
     "$distro" \
-    sh -c "$PKG && $cc_env cmake -B build-$safe -DCMAKE_BUILD_TYPE=Debug && cmake --build build-$safe -j && ./build-$safe/spine --help | head -3" 2>&1 | tee -a "$logfile"; then
+    sh -c "$PKG && $cc_env cmake -B build-$safe -DCMAKE_BUILD_TYPE=Debug && cmake --build build-$safe -j && ctest --test-dir build-$safe --output-on-failure --no-tests=error && ./build-$safe/spine --help | head -3" 2>&1 | tee -a "$logfile"; then
     RESULTS[$distro]=PASS
   else
     RESULTS[$distro]=FAIL
