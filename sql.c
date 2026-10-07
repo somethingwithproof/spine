@@ -264,7 +264,7 @@ int db_connect(int type, MYSQL *mysql) {
 
 	if (mysql_init(mysql) == NULL) {
 		db_address_release(&address);
-		printf("FATAL: Database unable to allocate memory and therefore can not connect\n");
+		printf("ERROR: Database unable to allocate memory and therefore can not connect\n");
 		return FALSE;
 	}
 
@@ -323,7 +323,7 @@ int db_connect(int type, MYSQL *mysql) {
 
 
 	if (!success){
-		printf("FATAL: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error(mysql));
+		printf("ERROR: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error(mysql));
 		return FALSE;
 	}
 
