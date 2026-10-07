@@ -33,3 +33,7 @@ libtool
 *.m4
 tests/unit/bin/
 test-artifacts/
+
+# Local assistant sessions and isolated worktrees
+.omc/
+.worktrees/
