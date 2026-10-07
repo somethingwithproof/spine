@@ -26,8 +26,6 @@ void spine_telemetry_get_metrics(void) {
 
 typedef struct {
     uint64_t total_polls;
-    double avg_latency_ms;
-    int queue_depth;
 } spine_metrics_t;
 
 static spine_metrics_t g_metrics = {0};

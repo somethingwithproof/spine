@@ -39,6 +39,7 @@ sonar = load("sonar-policy")
 gate = load("sonar-gate")
 coverage = load("validate-coverage")
 workflow = load("check-workflow-policy")
+cppcheck = load("compare-cppcheck")
 
 
 class SonarPolicy(unittest.TestCase):
@@ -124,6 +125,36 @@ class WorkflowPolicy(unittest.TestCase):
                 document = json.loads(json.dumps(good)); mutation(document)
                 path.write_text(yaml.safe_dump(document))
                 self.assertTrue(workflow.audit(root))
+
+
+class CppcheckEvidence(unittest.TestCase):
+    def test_locations_move_but_new_diagnostics_and_counts_fail(self):
+        baseline = "src/poller.c:10:2: warning: original [original]\n"
+        shifted = "src/poller.c:100:20: warning: original [original]\n"
+        self.assertFalse(cppcheck.regressions(shifted, baseline))
+        self.assertFalse(cppcheck.regressions(shifted + "src/sql.c:1:2: note: caller context\n", baseline))
+        self.assertFalse(cppcheck.regressions(shifted + shifted, baseline))
+        duplicate = shifted + "src/poller.c:101:20: warning: original [original]\n"
+        self.assertEqual(sum(cppcheck.regressions(duplicate, baseline).values()), 1)
+        for changed in ("src/sql.c:10:2: warning: original [original]",
+                        "src/poller.c:10:2: error: original [original]",
+                        "src/poller.c:10:2: warning: new failure [new]"):
+            self.assertTrue(cppcheck.regressions(changed, baseline))
+        with self.assertRaises(ValueError):
+            cppcheck.regressions(shifted, "")
+
+    def test_cli_fails_closed_on_missing_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report, baseline, output = (root / name for name in ("report", "baseline", "output"))
+            report.write_text("src/poller.c:10:2: error: failure [failure]\n")
+            baseline.write_text("src/poller.c:20:2: warning: original [original]\n")
+            command = [sys.executable, cppcheck.__file__, str(report), str(baseline), str(output)]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("error: failure", output.read_text())
+            baseline.unlink()
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
 
 class CoverageEvidence(unittest.TestCase):
