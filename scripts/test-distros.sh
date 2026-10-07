@@ -54,6 +54,8 @@ for distro in "${distros[@]}"; do
   cc_env=""
   case "$distro" in
     rockylinux* | almalinux*)
+      # VERSION_ID must expand inside the container after sourcing os-release.
+      # shellcheck disable=SC2016
       PKG='dnf install -y dnf-plugins-core epel-release && . /etc/os-release && case "$VERSION_ID" in 8*) dnf config-manager --set-enabled powertools ;; 9*) dnf config-manager --set-enabled crb ;; *) exit 1 ;; esac && dnf install -y cmake gcc make net-snmp-devel mariadb-connector-c-devel openssl-devel pkgconfig systemd-devel libseccomp-devel libuv-devel'
       ;;
     fedora*)
