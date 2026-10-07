@@ -18,6 +18,11 @@ Libtool, Net-SNMP, MySQL/MariaDB client development libraries and OpenSSL.
 Read `README.md` for platform-specific prerequisites. Select managed tool/runtime
 versions through `mise`; report native libraries that must be installed separately.
 
+Spine is written to C17 with GNU extensions; `configure` adds `-std=gnu17`.
+Declare variables at the top of each block in new code, use no VLAs, keep
+pthreads rather than `<threads.h>`, and use no C23 features. The reasons and
+the compiler floor are in `docs/adr/0001-c17-language-standard.md`.
+
 ## Offline build validation
 
 In an isolated source/build checkout with the native prerequisites installed:

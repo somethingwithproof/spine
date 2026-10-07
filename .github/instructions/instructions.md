@@ -1,12 +1,18 @@
 # GitHub Copilot Instructions for spine
 
 spine is the high-performance C poller for Cacti. It is a multi-threaded
-POSIX C99 program using pthreads, net-snmp, and libmariadb, built with
+POSIX C17 program using pthreads, net-snmp, and libmariadb, built with
 GNU autotools.
 
 ## Language and standard
 
-- C99. Mixed declarations and statements are allowed. No VLAs.
+- C17 with GNU extensions (`-std=gnu17`, set by `configure`). See
+  `docs/adr/0001-c17-language-standard.md`.
+- Declare variables at the top of each block in new code. Older code
+  mixes declarations and statements; leave it unless the code changes
+  for another reason. No VLAs.
+- `_Static_assert` and `_Noreturn` are fine. Keep pthreads; do not use
+  `<threads.h>` or C23 features.
 - POSIX.1-2008 is the baseline. Do not use glibc extensions unless they
   already appear in the codebase.
 - All new files must include the LGPL-2.1 header block found in `spine.c`.

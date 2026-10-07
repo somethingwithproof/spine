@@ -148,6 +148,7 @@ jobs:
           # Project data structures are consumed across translation units;
           # checking headers in isolation otherwise reports every member. A
           # few externally visible helpers are deliberate unit-test seams.
+          # cppcheck 2.13 accepts --std=c17 but still analyses as C11.
           cppcheck \
             --enable=all \
             --std=c11 \
@@ -168,6 +169,42 @@ jobs:
             --suppress=toomanyconfigs \
             --library=scripts/cppcheck/spine.cfg \
             ./*.c ./*.h
+
+  # GCC 15 and later default to gnu23. Build with the newest Fedora GCC to
+  # show that configure still selects gnu17 there.
+  newest-gcc:
+    name: Newest GCC (Fedora 44)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test with the newest GCC
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 \
+            bash -euo pipefail -c '
+              dnf -y install gcc make autoconf automake libtool help2man \
+                mariadb-connector-c-devel net-snmp-devel openssl-devel \
+                libcmocka-devel shadow-utils util-linux
+              gcc --version
+              echo | gcc -dM -E - | grep __STDC_VERSION__
+              # As root the ICMP tests get a raw socket; run them as the
+              # unprivileged user they expect, as on the hosted runner.
+              useradd --create-home builder
+              cp -a /src/. /home/builder/spine
+              chown -R builder: /home/builder/spine
+              cd /home/builder/spine
+              runuser -u builder -- ./bootstrap
+              runuser -u builder -- ./configure --enable-warnings
+              grep "^CFLAGS = .*-std=gnu17" Makefile
+              runuser -u builder -- make --jobs "$(nproc)"
+              runuser -u builder -- make check
+            '
 
   shellcheck:
     runs-on: ubuntu-24.04
@@ -366,6 +403,7 @@ jobs:
       - linux-capabilities
       - macos
       - cppcheck
+      - newest-gcc
       - shellcheck
       - coverage
       - flawfinder
