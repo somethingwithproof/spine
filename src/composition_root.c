@@ -12,8 +12,8 @@ typedef struct db_ops {
 
 typedef struct snmp_ops {
 	void *(*host_init)(int host_id, char *hostname, int snmp_version, char *snmp_community,
-		char *snmp_username, char *snmp_password, char *snmp_auth_protocol,
-		char *snmp_priv_passphrase, char *snmp_priv_protocol,
+		char *snmp_username, const char *snmp_password, char *snmp_auth_protocol,
+		const char *snmp_priv_passphrase, char *snmp_priv_protocol,
 		char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout);
 	void (*host_cleanup)(void *sessp);
 	char *(*get)(spine_spine_host_t *host, const char *oid);

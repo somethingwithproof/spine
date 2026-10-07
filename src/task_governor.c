@@ -36,6 +36,8 @@ void spine_governor_destroy(void) {
     uv_mutex_lock(&governor_lock);
     host_throttle_t *current, *tmp;
     HASH_ITER(hh, host_stats, current, tmp) {
+        /* Qualifiers and the fatal-allocation arm belong to uthash internals. */
+        // cppcheck-suppress constVariablePointer
         HASH_DEL(host_stats, current);
         free(current);
     }
@@ -55,6 +57,8 @@ static host_throttle_t* get_or_create_host(uint32_t host_id) {
         ht->host_id = host_id;
         ht->max_concurrency = 10; /* Conservative default */
         ht->last_halved_time_ms = 0;
+        /* Qualifiers and the fatal-allocation arm belong to uthash internals. */
+        // cppcheck-suppress [constVariablePointer,unreachableCode]
         HASH_ADD_INT(host_stats, host_id, ht);
     }
     return ht;
@@ -71,7 +75,7 @@ bool spine_governor_global_allow(void) {
 bool spine_governor_host_allow(uint32_t host_id) {
     if (!governor_initialized) return false;
     uv_mutex_lock(&governor_lock);
-    host_throttle_t *ht = get_or_create_host(host_id);
+    const host_throttle_t *ht = get_or_create_host(host_id);
     bool allow = ht->inflight < ht->max_concurrency;
     uv_mutex_unlock(&governor_lock);
     return allow;
@@ -82,7 +86,7 @@ bool spine_governor_subnet_allow(uint32_t subnet_id) {
     return true; /* Subnet limits not enforced in this phase */
 }
 
-void spine_governor_consume(spine_task_t *task) {
+void spine_governor_consume(const spine_task_t *task) {
     if (!governor_initialized) return;
     uv_mutex_lock(&governor_lock);
     g_global_inflight++;
@@ -91,7 +95,7 @@ void spine_governor_consume(spine_task_t *task) {
     uv_mutex_unlock(&governor_lock);
 }
 
-void spine_governor_release(spine_task_t *task, bool success) {
+void spine_governor_release(const spine_task_t *task, bool success) {
     if (!governor_initialized) return;
     uv_mutex_lock(&governor_lock);
     
@@ -141,7 +145,7 @@ uint32_t spine_governor_get_throttled_hosts(void) {
     if (!governor_initialized) return 0;
     uint32_t count = 0;
     uv_mutex_lock(&governor_lock);
-    host_throttle_t *current, *tmp;
+    const host_throttle_t *current, *tmp;
     HASH_ITER(hh, host_stats, current, tmp) {
         if (current->inflight >= current->max_concurrency) {
             count++;

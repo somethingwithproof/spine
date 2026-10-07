@@ -253,21 +253,8 @@ jobs:
             : > cppcheck-report.txt
           fi
 
-          grep -E '^[^:]+:[0-9]+:' cppcheck-report.txt | sort -u > cppcheck-report.normalized.txt || true
-
-          if [[ -f .github/cppcheck-baseline.txt ]]; then
-            sort -u .github/cppcheck-baseline.txt > cppcheck-baseline.sorted.txt
-          else
-            : > cppcheck-baseline.sorted.txt
-          fi
-
-          comm -23 cppcheck-report.normalized.txt cppcheck-baseline.sorted.txt > cppcheck-regressions.txt || true
-
-          if [[ -s cppcheck-regressions.txt ]]; then
-            echo "New cppcheck findings not in baseline:"
-            cat cppcheck-regressions.txt
-            exit 1
-          fi
+          python3 .github/scripts/compare-cppcheck.py \
+            cppcheck-report.txt .github/cppcheck-baseline.txt cppcheck-regressions.txt
 
       - name: Upload cppcheck report
         if: always()
