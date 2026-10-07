@@ -33,7 +33,26 @@
 
 extern void snmp_spine_init(void);
 extern void snmp_spine_close(void);
-extern void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_community, char *snmp_username, const char *snmp_password, char *snmp_auth_protocol, const char *snmp_priv_passphrase, char *snmp_priv_protocol, char *snmp_context, char *snmp_engine_id, int snmp_port, int snmp_timeout);
+#ifndef SPINE_SNMP_PROFILE_DEFINED
+#define SPINE_SNMP_PROFILE_DEFINED
+typedef struct {
+	int host_id;
+	char *hostname;
+	int snmp_version;
+	char *snmp_community;
+	char *snmp_username;
+	const char *snmp_password;
+	char *snmp_auth_protocol;
+	const char *snmp_priv_passphrase;
+	char *snmp_priv_protocol;
+	char *snmp_context;
+	char *snmp_engine_id;
+	int snmp_port;
+	int snmp_timeout;
+} spine_snmp_profile_t;
+#endif
+
+extern void *snmp_host_init(const spine_snmp_profile_t *profile);
 extern void snmp_host_cleanup(void *snmp_session);
 extern char *snmp_get_base(spine_spine_host_t *current_host, const char *snmp_oid, bool should_fail);
 extern char *snmp_get(spine_spine_host_t *current_host, const char *snmp_oid);

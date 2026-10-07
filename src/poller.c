@@ -1659,13 +1659,21 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 	if ((*state->k) == 0) {
 		capture_snmp_item_profile(state->profile, &poller_items[i]);
 
-		host->snmp_session = snmp_host_init(host->id, poller_items[i].hostname,
-			poller_items[i].snmp_version, poller_items[i].snmp_community,
-			poller_items[i].snmp_username, poller_items[i].snmp_password,
-			poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
-			poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
-			poller_items[i].snmp_engine_id,
-			poller_items[i].snmp_port, poller_items[i].snmp_timeout);
+		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = host->id,
+			.hostname = poller_items[i].hostname,
+			.snmp_version = poller_items[i].snmp_version,
+			.snmp_community = poller_items[i].snmp_community,
+			.snmp_username = poller_items[i].snmp_username,
+			.snmp_password = poller_items[i].snmp_password,
+			.snmp_auth_protocol = poller_items[i].snmp_auth_protocol,
+			.snmp_priv_passphrase = poller_items[i].snmp_priv_passphrase,
+			.snmp_priv_protocol = poller_items[i].snmp_priv_protocol,
+			.snmp_context = poller_items[i].snmp_context,
+			.snmp_engine_id = poller_items[i].snmp_engine_id,
+			.snmp_port = poller_items[i].snmp_port,
+			.snmp_timeout = poller_items[i].snmp_timeout,
+		});
 
 		(*state->k)++;
 	}
@@ -1706,13 +1714,21 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 
 		SNMP_FREE(host->snmp_session);
 
-		host->snmp_session = snmp_host_init(host->id, poller_items[i].hostname,
-			poller_items[i].snmp_version, poller_items[i].snmp_community,
-			poller_items[i].snmp_username, poller_items[i].snmp_password,
-			poller_items[i].snmp_auth_protocol, poller_items[i].snmp_priv_passphrase,
-			poller_items[i].snmp_priv_protocol, poller_items[i].snmp_context,
-			poller_items[i].snmp_engine_id,
-			poller_items[i].snmp_port, poller_items[i].snmp_timeout);
+		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = host->id,
+			.hostname = poller_items[i].hostname,
+			.snmp_version = poller_items[i].snmp_version,
+			.snmp_community = poller_items[i].snmp_community,
+			.snmp_username = poller_items[i].snmp_username,
+			.snmp_password = poller_items[i].snmp_password,
+			.snmp_auth_protocol = poller_items[i].snmp_auth_protocol,
+			.snmp_priv_passphrase = poller_items[i].snmp_priv_passphrase,
+			.snmp_priv_protocol = poller_items[i].snmp_priv_protocol,
+			.snmp_context = poller_items[i].snmp_context,
+			.snmp_engine_id = poller_items[i].snmp_engine_id,
+			.snmp_port = poller_items[i].snmp_port,
+			.snmp_timeout = poller_items[i].snmp_timeout,
+		});
 
 		capture_snmp_item_profile(state->profile, &poller_items[i]);
 	}
@@ -2117,19 +2133,21 @@ static void load_legacy_host_details(legacy_poll_t *poll, MYSQL_ROW row, MYSQL_R
 	if (((poll->resources.host->snmp_version >= 1) && (poll->resources.host->snmp_version <= 2) &&
 		(strlen(poll->resources.host->snmp_community) > 0)) ||
 		(poll->resources.host->snmp_version == 3)) {
-		poll->resources.host->snmp_session = snmp_host_init(poll->resources.host->id,
-			poll->resources.host->hostname,
-			poll->resources.host->snmp_version,
-			poll->resources.host->snmp_community,
-			poll->resources.host->snmp_username,
-			poll->resources.host->snmp_password,
-			poll->resources.host->snmp_auth_protocol,
-			poll->resources.host->snmp_priv_passphrase,
-			poll->resources.host->snmp_priv_protocol,
-			poll->resources.host->snmp_context,
-			poll->resources.host->snmp_engine_id,
-			poll->resources.host->snmp_port,
-			poll->resources.host->snmp_timeout);
+		poll->resources.host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = poll->resources.host->id,
+			.hostname = poll->resources.host->hostname,
+			.snmp_version = poll->resources.host->snmp_version,
+			.snmp_community = poll->resources.host->snmp_community,
+			.snmp_username = poll->resources.host->snmp_username,
+			.snmp_password = poll->resources.host->snmp_password,
+			.snmp_auth_protocol = poll->resources.host->snmp_auth_protocol,
+			.snmp_priv_passphrase = poll->resources.host->snmp_priv_passphrase,
+			.snmp_priv_protocol = poll->resources.host->snmp_priv_protocol,
+			.snmp_context = poll->resources.host->snmp_context,
+			.snmp_engine_id = poll->resources.host->snmp_engine_id,
+			.snmp_port = poll->resources.host->snmp_port,
+			.snmp_timeout = poll->resources.host->snmp_timeout,
+		});
 	} else {
 		poll->resources.host->snmp_session = NULL;
 	}
