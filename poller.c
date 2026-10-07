@@ -1034,18 +1034,11 @@ static poll_output_buffers_t write_poll_results(MYSQL *mysql, MYSQL *mysqlr,
 	return (poll_output_buffers_t){query3, query12, failed};
 }
 
+/* The key holds a whole profile. Narrower copies truncated long communities,
+ * which then never matched their own item and forced a session per OID. */
 typedef struct {
 	int initialized;
-	int version;
-	int port;
-	char community[50];
-	char username[50];
-	char password[50];
-	char auth_protocol[7];
-	char priv_passphrase[200];
-	char priv_protocol[8];
-	char context[65];
-	char engine_id[30];
+	snmp_profile_t profile;
 } snmp_item_key_t;
 
 typedef struct {
@@ -1057,17 +1050,7 @@ typedef struct {
 } snmp_poll_batch_t;
 
 static void remember_snmp_item(snmp_item_key_t *key, const target_t *item) {
-	key->port = item->snmp.port;
-	key->version = item->snmp.version;
-
-	STRNCOPY(key->community,       item->snmp.community);
-	STRNCOPY(key->username,        item->snmp.username);
-	STRNCOPY(key->password,        item->snmp.password);
-	STRNCOPY(key->auth_protocol,   item->snmp.auth_protocol);
-	STRNCOPY(key->priv_passphrase, item->snmp.priv_passphrase);
-	STRNCOPY(key->priv_protocol,   item->snmp.priv_protocol);
-	STRNCOPY(key->context,         item->snmp.context);
-	STRNCOPY(key->engine_id,       item->snmp.engine_id);
+	key->profile = item->snmp;
 }
 
 static void *open_snmp_item(const host_t *host, target_t *item) {
@@ -1089,18 +1072,18 @@ static void *open_snmp_item(const host_t *host, target_t *item) {
 }
 
 static bool snmp_item_changed(const snmp_item_key_t *key, const target_t *item) {
-	return (key->port != item->snmp.port) ||
-					(key->version != item->snmp.version) ||
+	return (key->profile.port != item->snmp.port) ||
+					(key->profile.version != item->snmp.version) ||
 					(item->snmp.version < 3 &&
-					(!STRMATCH(key->community, item->snmp.community))) ||
+					(!STRMATCH(key->profile.community, item->snmp.community))) ||
 					(item->snmp.version > 2 &&
-					((!STRMATCH(key->username, item->snmp.username)) ||
-					(!STRMATCH(key->password, item->snmp.password)) ||
-					(!STRMATCH(key->auth_protocol, item->snmp.auth_protocol)) ||
-					(!STRMATCH(key->priv_passphrase, item->snmp.priv_passphrase)) ||
-					(!STRMATCH(key->priv_protocol, item->snmp.priv_protocol)) ||
-					(!STRMATCH(key->context, item->snmp.context)) ||
-					(!STRMATCH(key->engine_id, item->snmp.engine_id))));
+					((!STRMATCH(key->profile.username, item->snmp.username)) ||
+					(!STRMATCH(key->profile.password, item->snmp.password)) ||
+					(!STRMATCH(key->profile.auth_protocol, item->snmp.auth_protocol)) ||
+					(!STRMATCH(key->profile.priv_passphrase, item->snmp.priv_passphrase)) ||
+					(!STRMATCH(key->profile.priv_protocol, item->snmp.priv_protocol)) ||
+					(!STRMATCH(key->profile.context, item->snmp.context)) ||
+					(!STRMATCH(key->profile.engine_id, item->snmp.engine_id))));
 }
 
 /* The batch-full, credential-change and final flushes all come through here,
