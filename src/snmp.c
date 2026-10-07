@@ -497,11 +497,11 @@ char *snmp_get_base(spine_spine_host_t *current_host, const char *snmp_oid, bool
 			int liberr = 0, syserr = 0;
 			char *errstr = NULL;
 
-			snmp_sess_error(current_host->snmp_session, &liberr, &syserr, &errstr);
+			snmp_sess_error(current_host->snmp_session, &syserr, &liberr, &errstr);
 			sess_liberr = liberr;
 			SPINE_LOG_DEBUG(("Device[%i] DEBUG: SNMP session error for oid '%s': %s (liberr=%d)",
 				current_host->id, snmp_oid, errstr ? errstr : "unknown", liberr));
-			SNMP_FREE(errstr);
+			SPINE_FREE(errstr);
 		}
 
 		/* liftoff, successful poll, process it!! */
@@ -731,11 +731,11 @@ char *snmp_getnext(spine_spine_host_t *current_host, const char *snmp_oid) {
 			int liberr = 0, syserr = 0;
 			char *errstr = NULL;
 
-			snmp_sess_error(current_host->snmp_session, &liberr, &syserr, &errstr);
+			snmp_sess_error(current_host->snmp_session, &syserr, &liberr, &errstr);
 			sess_liberr = liberr;
 			SPINE_LOG_DEBUG(("Device[%i] DEBUG: SNMP getnext session error for oid '%s': %s (liberr=%d)",
 				current_host->id, snmp_oid, errstr ? errstr : "unknown", liberr));
-			SNMP_FREE(errstr);
+			SPINE_FREE(errstr);
 		}
 
 		/* liftoff, successful poll, process it!! */
