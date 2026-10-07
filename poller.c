@@ -1427,6 +1427,9 @@ void poll_host(const poller_thread_t *work, int *host_errors) {
 	if (error_string == NULL || buf_size == NULL || buf_errors == NULL) {
 		die("ERROR: Fatal malloc error: poller error buffer!");
 	}
+	/* Reindex assertion failures count errors without naming a data source,
+	 * so the list can reach the host_errors INSERT before anything is added. */
+	error_string[0] = '\0';
 	*buf_size = 0;
 	*buf_errors = 0;
 	const poll_error_context_t error_context = {

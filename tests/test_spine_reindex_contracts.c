@@ -13,6 +13,9 @@
  */
 #include "common.h"
 #include "spine.h"
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 extern poller_thread_t **details;
 
@@ -246,6 +249,20 @@ void test_reindex_result_contracts(MYSQL *mysql) {
 	assert(poll_reindex_result(mysql, POLLER_ACTION_SCRIPT, "/usr/bin/printf '\"123\"\\n'", "=", "122") == 0);
 	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") == 1);
 	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='123'") == 1);
+
+	/* A failed assertion counts an error with no data source behind it. The
+	 * error list it reports must be empty, not uninitialized heap. */
+	set.logging.spine_log_level = 1;
+#if defined(__GLIBC__)
+	assert(mallopt(M_PERTURB, 0x5a) == 1);
+#endif
+	int errors = poll_reindex_result(mysql, POLLER_ACTION_SCRIPT, "/usr/bin/printf 123", "=", "122");
+#if defined(__GLIBC__)
+	assert(mallopt(M_PERTURB, 0) == 1);
+#endif
+	set.logging.spine_log_level = 0;
+	assert(errors == 1);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=46 AND errors=1 AND local_data_ids=''") == 1);
 
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);
