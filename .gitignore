@@ -46,5 +46,15 @@ __pycache__/
 # Machine-local permission/settings overrides are not repository inputs.
 settings.local.json
 
+# Generated CMake/Ninja files; source configuration stays tracked.
+CMakeCache.txt
+CMakeFiles/
+build.ninja
+.ninja_deps
+.ninja_log
+CPackConfig.cmake
+CPackSourceConfig.cmake
+CTestTestfile.cmake
+Testing/
 # Locally built locked security scanner
 .github/scorecard/bin/
