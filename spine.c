@@ -715,6 +715,15 @@ static void launch_poll_workers(MYSQL *mysql, MYSQL_RES *result, int num_rows,
 	while (canexit == FALSE && device_counter < num_rows) {
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
+			/* num_rows comes from this result, so a short read is not expected;
+			 * upstream guarded it and the dispatch refactor dropped the check. */
+			if (mysql_row == NULL || mysql_row[0] == NULL || mysql_row[1] == NULL) {
+				SPINE_LOG(("ERROR: Device list ended after %i of %i devices", device_counter, num_rows));
+				thread_mutex_lock(LOCK_THDET);
+				set.exit.exit_code = EXIT_FAILURE;
+				thread_mutex_unlock(LOCK_THDET);
+				break;
+			}
 			host_id         = atoi(mysql_row[0]);
 			partition.threads  = atoi(mysql_row[1]);
 			current_thread  = 1;
