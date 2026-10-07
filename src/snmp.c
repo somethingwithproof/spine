@@ -128,6 +128,126 @@ static void snmp_clear_session_keys(struct snmp_session *session) {
 	snmp_secret_zero(session->securityPrivKey, sizeof(session->securityPrivKey));
 }
 
+static int snmp_derive_auth_key(const spine_snmp_profile_t *profile, struct snmp_session *session, const char *secret) {
+	session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+	if (session->securityAuthProto == NULL) {
+		/*
+		 * get .conf set default
+		 */
+		const oid *def = get_default_authtype(&session->securityAuthProtoLen);
+		session->securityAuthProto = snmp_duplicate_objid(def, session->securityAuthProtoLen);
+	}
+
+	if (session->securityAuthProto == NULL) {
+		session->securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
+		session->securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
+	}
+
+	if (generate_Ku(session->securityAuthProto,
+		session->securityAuthProtoLen,
+		(u_char *) secret, strlen(secret),
+		session->securityAuthKey,
+		&session->securityAuthKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
+		return 0;
+	}
+	return 1;
+}
+
+static int snmp_derive_priv_key(const spine_snmp_profile_t *profile, struct snmp_session *session, const char *secret) {
+	session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+	if (session->securityPrivProto == NULL) {
+		/*
+		 * get .conf set default
+		 */
+		const oid *def = get_default_privtype(&session->securityPrivProtoLen);
+		session->securityPrivProto =
+		snmp_duplicate_objid(def, session->securityPrivProtoLen);
+	}
+
+	if (session->securityPrivProto == NULL) {
+		session->securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
+		session->securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
+	}
+
+	if (generate_Ku(session->securityAuthProto,
+		session->securityAuthProtoLen,
+		(u_char *) secret, strlen(secret),
+		session->securityPrivKey,
+		&session->securityPrivKeyLen) != SNMPERR_SUCCESS) {
+		SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", profile->host_id));
+		return 0;
+	}
+	return 1;
+}
+
+static int snmp_prepare_private_keys(const spine_snmp_profile_t *profile, struct snmp_session *session) {
+	char *authentication = strdup(profile->snmp_password);
+	char *privacy = strdup(profile->snmp_priv_passphrase);
+	int prepared = 0;
+	if (authentication == NULL || privacy == NULL) {
+		SPINE_LOG(("SNMP: Device[%i] Error allocating private passphrase copies.", profile->host_id));
+	} else {
+		prepared = snmp_derive_auth_key(profile, session, authentication);
+		/* Release the authentication copy before privacy derivation, as before. */
+		snmp_secret_free(&authentication);
+		if (prepared) prepared = snmp_derive_priv_key(profile, session, privacy);
+	}
+	snmp_secret_free(&authentication);
+	snmp_secret_free(&privacy);
+	return prepared;
+}
+
+static int snmp_configure_v3(const spine_snmp_profile_t *profile, struct snmp_session *session) {
+	session->community = NULL;
+	session->community_len = 0;
+	session->securityName = profile->snmp_username;
+	session->securityNameLen = strlen(session->securityName);
+	if (profile->snmp_context && strlen(profile->snmp_context)) {
+		session->contextName = profile->snmp_context;
+		session->contextNameLen = strlen(session->contextName);
+	}
+	if (profile->snmp_engine_id && strlen(profile->snmp_engine_id)) {
+		session->contextEngineID = (unsigned char *)profile->snmp_engine_id;
+		session->contextEngineIDLen = strlen(profile->snmp_engine_id);
+	}
+	int auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
+	if (auth_type <= 0) {
+		SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", profile->host_id, profile->snmp_auth_protocol));
+		return 0;
+	}
+	const oid *auth_proto = sc_get_auth_oid(auth_type, &session->securityAuthProtoLen);
+	free(session->securityAuthProto);
+	session->securityAuthProto = snmp_duplicate_objid(auth_proto, session->securityAuthProtoLen);
+	if (strcmp(profile->snmp_priv_protocol, "[None]") == 0 || strlen(profile->snmp_priv_passphrase) == 0) {
+		session->securityPrivProto = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
+		session->securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
+		session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+		session->securityLevel = strlen(profile->snmp_password) ? SNMP_SEC_LEVEL_AUTHNOPRIV : SNMP_SEC_LEVEL_NOAUTH;
+	} else {
+		int priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
+		if (priv_type < 0) {
+			SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", profile->host_id, profile->snmp_priv_protocol));
+			return 0;
+		}
+		const oid *priv_proto = sc_get_priv_oid(priv_type, &session->securityPrivProtoLen);
+		free(session->securityPrivProto);
+		session->securityPrivProto = snmp_duplicate_objid(priv_proto, session->securityPrivProtoLen);
+		session->securityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
+		if (!snmp_prepare_private_keys(profile, session)) return 0;
+	}
+	SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", profile->host_id, profile->snmp_auth_protocol, profile->snmp_priv_protocol));
+	return 1;
+}
+
+static void snmp_release_session_fields(struct snmp_session *session) {
+	snmp_clear_session_keys(session);
+	free(session->peername);
+	free(session->securityAuthProto);
+	free(session->securityPrivProto);
+	free(session->localname);
+}
+
 /* Initialize Net-SNMP from one complete, caller-owned credential profile. */
 void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	if (profile == NULL) return NULL;
@@ -136,11 +256,6 @@ void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	struct snmp_session session;
 	char   hostnameport[BUFSIZE];
 	size_t len;
-
-	char   *Apsz = NULL;
-	char   *Xpsz = NULL;
-	char   *Cpsz = NULL;
-	int    priv_type;
 
 	/* initialize SNMP */
 	snmp_sess_init(&session);
@@ -223,174 +338,16 @@ void *snmp_host_init(const spine_snmp_profile_t *profile) {
 	if ((profile->snmp_version == 2) || (profile->snmp_version == 1)) {
 		session.community     = (unsigned char*) profile->snmp_community;
 		session.community_len = strlen(profile->snmp_community);
-	} else {
-		session.community       = (unsigned char *) Cpsz;
-		session.community_len   = 0;
-
-		session.securityName    = profile->snmp_username;
-		session.securityNameLen = strlen(session.securityName);
-
-		if (profile->snmp_context && strlen(profile->snmp_context)) {
-			session.contextName    = profile->snmp_context;
-			session.contextNameLen = strlen(session.contextName);
-		}
-
-		if (profile->snmp_engine_id && strlen(profile->snmp_engine_id)) {
-			session.contextEngineID    = (unsigned char*) profile->snmp_engine_id;
-			session.contextEngineIDLen = strlen(profile->snmp_engine_id);
-		}
-
-		/* set the authentication protocol */
-		{
-		int auth_type;
-		const oid *auth_proto;
-
-		auth_type = usm_lookup_auth_type(profile->snmp_auth_protocol);
-		if (auth_type > 0) {
-            auth_proto = sc_get_auth_oid(auth_type, &session.securityAuthProtoLen);
-            free(session.securityAuthProto);
-            session.securityAuthProto = snmp_duplicate_objid(auth_proto, session.securityAuthProtoLen);
-		} else {
-			SPINE_LOG(("SNMP: Device[%i] Error auth protocol %s is invalid.", profile->host_id, profile->snmp_auth_protocol));
-			free(session.peername);
-			free(session.localname);
-			return 0;
-		}
-
-		/* set the privacy protocol to none */
-		if (strcmp(profile->snmp_priv_protocol, "[None]") == 0 || (strlen(profile->snmp_priv_passphrase) == 0)) {
-			session.securityPrivProto    = snmp_duplicate_objid(usmNoPrivProtocol, OID_LENGTH(usmNoPrivProtocol));
-			session.securityPrivProtoLen = OID_LENGTH(usmNoPrivProtocol);
-			session.securityPrivKeyLen   = USM_PRIV_KU_LEN;
-
-			/* set the security level to authenticate, but not encrypted */
-			if (strlen(profile->snmp_password)) {
-				session.securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
-			} else {
-				session.securityLevel = SNMP_SEC_LEVEL_NOAUTH;
-			}
-		} else {
-			const oid *priv_proto;
-
-			priv_type = usm_lookup_priv_type(profile->snmp_priv_protocol);
-
-			if (priv_type < 0) {
-				SPINE_LOG(("SNMP: Device[%i] Error privacy protocol %s is invalid.", profile->host_id, profile->snmp_priv_protocol));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.localname);
-				return 0;
-			}
-
-			priv_proto = sc_get_priv_oid(priv_type, &session.securityPrivProtoLen);
-			free(session.securityPrivProto);
-			session.securityPrivProto = snmp_duplicate_objid(priv_proto, session.securityPrivProtoLen);
-			session.securityLevel     = SNMP_SEC_LEVEL_AUTHPRIV;
-
-			/* Derive keys from private copies without consuming the caller's
-			 * profile: the poller compares/reuses it between item sessions. */
-			Apsz = strdup(profile->snmp_password);
-			Xpsz = strdup(profile->snmp_priv_passphrase);
-			if (Apsz == NULL || Xpsz == NULL) {
-				SPINE_LOG(("SNMP: Device[%i] Error allocating private passphrase copies.", profile->host_id));
-				free(session.peername);
-				free(session.securityAuthProto);
-				free(session.securityPrivProto);
-				free(session.localname);
-				snmp_secret_free(&Apsz);
-				snmp_secret_free(&Xpsz);
-				return 0;
-			}
-
-			if (Apsz) {
-				session.securityAuthKeyLen = USM_AUTH_KU_LEN;
-				if (session.securityAuthProto == NULL) {
-					/*
-					 * get .conf set default
-					 */
-					const oid *def = get_default_authtype(&session.securityAuthProtoLen);
-					session.securityAuthProto = snmp_duplicate_objid(def, session.securityAuthProtoLen);
-				}
-
-				if (session.securityAuthProto == NULL) {
-					session.securityAuthProto    = snmp_duplicate_objid(SNMP_DEFAULT_AUTH_PROTO, SNMP_DEFAULT_AUTH_PROTOLEN);
-					session.securityAuthProtoLen = SNMP_DEFAULT_AUTH_PROTOLEN;
-				}
-
-				if (generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Apsz, strlen(Apsz),
-					session.securityAuthKey,
-					&session.securityAuthKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from authentication passphrase.", profile->host_id));
-					free(session.peername);
-					free(session.securityAuthProto);
-					free(session.securityPrivProto);
-					snmp_secret_free(&Apsz);
-					snmp_secret_free(&Xpsz);
-					if (session.localname) {
-						free(session.localname);
-						session.localname = NULL;
-					}
-					snmp_clear_session_keys(&session);
-					return 0;
-				}
-
-				snmp_secret_free(&Apsz);
-			}
-
-			if (Xpsz) {
-				session.securityPrivKeyLen = USM_PRIV_KU_LEN;
-				if (session.securityPrivProto == NULL) {
-					/*
-					 * get .conf set default
-					 */
-					const oid *def = get_default_privtype(&session.securityPrivProtoLen);
-					session.securityPrivProto =
-					snmp_duplicate_objid(def, session.securityPrivProtoLen);
-				}
-
-				if (session.securityPrivProto == NULL) {
-					session.securityPrivProto = snmp_duplicate_objid(SNMP_DEFAULT_PRIV_PROTO, SNMP_DEFAULT_PRIV_PROTOLEN);
-					session.securityPrivProtoLen = SNMP_DEFAULT_PRIV_PROTOLEN;
-				}
-
-				if (generate_Ku(session.securityAuthProto,
-					session.securityAuthProtoLen,
-					(u_char *) Xpsz, strlen(Xpsz),
-					session.securityPrivKey,
-					&session.securityPrivKeyLen) != SNMPERR_SUCCESS) {
-					SPINE_LOG(("SNMP: Device[%i] Error generating SNMPv3 Ku from privacy pass phrase.", profile->host_id));
-					free(session.peername);
-					free(session.securityAuthProto);
-					free(session.securityPrivProto);
-					snmp_secret_free(&Xpsz);
-					if (session.localname) {
-						free(session.localname);
-						session.localname = NULL;
-					}
-					snmp_clear_session_keys(&session);
-					return 0;
-				}
-
-				snmp_secret_free(&Xpsz);
-			}
-		}
-
-		SPINE_LOG_MEDIUM(("Device[%i] SNMPv3 Using AuthProto: %s, PrivProto: %s", profile->host_id, profile->snmp_auth_protocol, profile->snmp_priv_protocol));
-		} /* end auth/priv block */
+	} else if (!snmp_configure_v3(profile, &session)) {
+		snmp_release_session_fields(&session);
+		return NULL;
 	}
 
 	/* open SNMP Session */
 	thread_mutex_lock(LOCK_SNMP);
 	sessp = snmp_sess_open(&session);
 	thread_mutex_unlock(LOCK_SNMP);
-	snmp_clear_session_keys(&session);
-
-	free(session.peername);
-	free(session.securityAuthProto);
-	free(session.securityPrivProto);
-	free(session.localname);
+	snmp_release_session_fields(&session);
 
 	if (!sessp) {
 		if (is_debug_device(profile->host_id)) {
