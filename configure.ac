@@ -93,7 +93,49 @@ esac
 
 # Checks for programs.
 AC_PROG_AWK
+spine_user_cc=$CC
 AC_PROG_CC
+
+# ****************** C language standard ***********************
+dnl Spine is written to C17 with GNU extensions (docs/adr/0001). Name it
+dnl explicitly: the compiler default drifts, and GCC 15 moved it to gnu23.
+dnl Autoconf 2.70 and later append their own -std to CC, overriding one the
+dnl caller put there, so drop it. A -std in the caller's CC or CFLAGS wins.
+if test -n "$spine_user_cc"; then
+  CC=$spine_user_cc
+else
+  CC=`echo "$CC" | sed 's/ -std=[[^ ]]*//g'`
+fi
+spine_user_std=
+for spine_flag in $spine_user_cc $CFLAGS; do
+  case $spine_flag in
+    -std=*) spine_user_std=$spine_flag ;;
+  esac
+done
+
+if test -z "$spine_user_std"; then
+  AC_MSG_CHECKING([whether $CC accepts -std=gnu17])
+  CFLAGS="$CFLAGS -std=gnu17"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [])],
+    [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no])
+     AC_MSG_ERROR([$CC does not accept -std=gnu17. Spine needs a C17 compiler: GCC 8, Clang 6 or newer.])])
+fi
+
+AC_MSG_CHECKING([whether the compiler is in C17 mode or later])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 201710L
+#error older than C17
+#endif
+]], [])],
+  [AC_MSG_RESULT([yes])],
+  [AC_MSG_RESULT([no])
+   if test -n "$spine_user_std"; then
+     AC_MSG_WARN([$spine_user_std selects a standard older than C17; Spine is developed and tested as gnu17])
+   else
+     AC_MSG_ERROR([__STDC_VERSION__ is below 201710L under -std=gnu17])
+   fi])
+
 AC_PROG_CPP
 AC_PROG_INSTALL
 AC_PROG_LN_S
