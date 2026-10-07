@@ -41,6 +41,10 @@
 #cmakedefine HAVE_SYS_TIME_H 1
 #cmakedefine HAVE_NETINET_IN_SYSTM_H 1
 #cmakedefine HAVE_NETINET_IN_H 1
+#cmakedefine HAVE_NET_IF_H 1
+#cmakedefine HAVE_IFADDRS_H 1
+#cmakedefine HAVE_GETIFADDRS 1
+#cmakedefine HAVE_IF_NAMETOINDEX 1
 #cmakedefine HAVE_NETINET_IP_H 1
 #cmakedefine HAVE_NETINET_IP_ICMP_H 1
 #cmakedefine HAVE_STDINT_H 1

@@ -1,0 +1,18 @@
+# Default review routing.
+*                              @Cacti/cacti-developers
+
+# CI, release and dependency policy changes need both implementation and
+# security review. These requirements take effect when the repository ruleset
+# enables code-owner approval.
+/.github/                      @Cacti/cacti-developers @Cacti/cacti-security
+/CMakeLists.txt                @Cacti/cacti-developers @Cacti/cacti-security
+/cmake/                        @Cacti/cacti-developers @Cacti/cacti-security
+/Dockerfile                    @Cacti/cacti-developers @Cacti/cacti-security
+
+# High-risk runtime boundaries.
+/src/sql.c                       @Cacti/cacti-developers @Cacti/cacti-security
+/src/php.c                       @Cacti/cacti-developers @Cacti/cacti-security
+/src/nft_popen.c                 @Cacti/cacti-developers @Cacti/cacti-security
+/src/snmp.c                      @Cacti/cacti-developers @Cacti/cacti-security
+/src/ping.c                      @Cacti/cacti-developers @Cacti/cacti-security
+/src/poller.c                    @Cacti/cacti-developers @Cacti/cacti-security

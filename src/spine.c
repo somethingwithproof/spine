@@ -594,15 +594,20 @@ int main(int argc, char *argv[]) {
 
 	/* establish php processes and initialize space */
 	php_processes = (php_t*) calloc(MAX_PHP_SERVERS, sizeof(php_t));
-	for (i = 0; i < MAX_PHP_SERVERS; i++) {
-		php_processes[i].php_state = PHP_BUSY;
+	if (php_processes == NULL) {
+		die("ERROR: Fatal calloc error: spine.c php_processes!");
 	}
+	php_processes_initialize(php_processes, MAX_PHP_SERVERS);
 
 	/* create the array of debug devices */
 	debug_devices = calloc(MAX_DEBUG_DEVICES, sizeof(int));
+	if (debug_devices == NULL) {
+		die("ERROR: Fatal calloc error: spine.c debug_devices!");
+	}
 
 	/* initialize icmp_avail */
 	set.icmp_avail = TRUE;
+	set.icmp_uses_caps = FALSE;
 
 	/* initialize number of threads */
 	set.threads = 1;
@@ -773,10 +778,10 @@ int main(int argc, char *argv[]) {
 			char *setting = getarg(opt, &argv);
 			char *value   = strchr(setting, ':');
 
-			if (value != NULL && *value) {
-				*value++ = '\0';
-			} else {
+			if (value == NULL) {
 				die("ERROR: -O requires setting:value");
+			} else {
+				*value++ = '\0';
 			}
 
 			set_option(setting, value);
@@ -871,7 +876,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		for (i=0; i<CONFIG_PATHS; i++) {
-			snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[i], DEFAULT_CONF_FILE);
+			snprintf(conf_file, DBL_BUFSIZE, "%.*s%s", (int) sizeof(config_paths[i]) - 1, config_paths[i], DEFAULT_CONF_FILE);
 
 			if (read_spine_config(conf_file) >= 0) {
 				valid_conf_file = TRUE;
@@ -879,7 +884,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			if (i == CONFIG_PATHS-1) {
-				snprintf(conf_file, DBL_BUFSIZE, "%s%s", config_paths[0], DEFAULT_CONF_FILE);
+				snprintf(conf_file, DBL_BUFSIZE, "%.*s%s", (int) sizeof(config_paths[0]) - 1, config_paths[0], DEFAULT_CONF_FILE);
 			}
 		}
 	}
@@ -959,7 +964,10 @@ int main(int argc, char *argv[]) {
 	db_connect(LOCAL, &mysql);
 
 	/* setup local connection pool for hosts */
-	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
+	if (!(db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t)))) {
+		die("ERROR: Fatal calloc error: spine.c db_pool_local!");
+	}
+
 	db_create_connection_pool(LOCAL);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
@@ -967,7 +975,10 @@ int main(int argc, char *argv[]) {
 		mode = REMOTE;
 
 		/* setup remote connection pool for hosts */
-		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
+		if (!(db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t)))) {
+			die("ERROR: Fatal calloc error: spine.c db_pool_remote!");
+		}
+
 		db_create_connection_pool(REMOTE);
 	} else {
 		mode = LOCAL;
@@ -1067,25 +1078,29 @@ int main(int argc, char *argv[]) {
 
 	/* obtain the list of hosts to poll */
 	{
-		int remaining = MEGA_BUFSIZE - (qp - querybuf);
-		qp += snprintf(qp, remaining, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+		size_t remaining = MEGA_BUFSIZE - (qp - querybuf);
+		int query_ok = spine_appendf(&qp, &remaining, "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
 		remaining = MEGA_BUFSIZE - (qp - querybuf);
-		qp += snprintf(qp, remaining, " WHERE disabled = ''");
+		query_ok &= spine_appendf(&qp, &remaining, " WHERE disabled = ''");
 
 		remaining = MEGA_BUFSIZE - (qp - querybuf);
-		qp += snprintf(qp, remaining, " AND availability_method != %d", AVAIL_STREAM);
+		query_ok &= spine_appendf(&qp, &remaining, " AND availability_method != %d", AVAIL_STREAM);
 
 		if (!strlen(set.host_id_list)) {
 			qp += append_hostrange(qp, "h.id");	/* AND id BETWEEN a AND b */
 		} else {
 			remaining = MEGA_BUFSIZE - (qp - querybuf);
-			qp += snprintf(qp, remaining, " AND h.id IN(%s)", set.host_id_list);
+			query_ok &= spine_appendf(&qp, &remaining, " AND h.id IN(%s)", set.host_id_list);
 		}
 
 		remaining = MEGA_BUFSIZE - (qp - querybuf);
-		qp += snprintf(qp, remaining, " AND h.poller_id = %i", set.poller_id);
+		query_ok &= spine_appendf(&qp, &remaining, " AND h.poller_id = %i", set.poller_id);
 		remaining = MEGA_BUFSIZE - (qp - querybuf);
-		qp += snprintf(qp, remaining, " ORDER BY picount DESC");
+		query_ok &= spine_appendf(&qp, &remaining, " ORDER BY picount DESC");
+
+		if (!query_ok) {
+			die("ERROR: Host selection query exceeded its buffer");
+		}
 	}
 
 	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
@@ -1106,8 +1121,11 @@ int main(int argc, char *argv[]) {
 			die("ERROR: Fatal malloc error: spine.c threads!");
 		}
 
-		if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
-			die("ERROR: Fatal malloc error: spine.c details!");
+		/* calloc, not malloc: the device loop can exit early on a poller
+		   overrun, and both the NULL test below and the free loop at the end
+		   walk every slot up to num_rows. */
+		if (!(details = (poller_thread_t **)calloc(num_rows, sizeof(poller_thread_t*)))) {
+			die("ERROR: Fatal calloc error: spine.c details!");
 		}
 
 		if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
@@ -1217,6 +1235,12 @@ int main(int argc, char *argv[]) {
 
 		if (change_host) {
 			mysql_row       = mysql_fetch_row(result);
+
+			if (mysql_row == NULL) {
+				/* fewer device rows than expected; stop processing */
+				break;
+			}
+
 			host_id         = atoi(mysql_row[0]);
 			device_threads  = atoi(mysql_row[1]);
 			current_thread  = 1;
@@ -1237,9 +1261,14 @@ int main(int argc, char *argv[]) {
 			}
 
 			tresult   = db_query(&mysql, LOCAL, querybuf);
-			mysql_row = mysql_fetch_row(tresult);
+			mysql_row = (tresult != NULL) ? mysql_fetch_row(tresult) : NULL;
 
-			total_items = atoi(mysql_row[0]);
+			if (mysql_row == NULL) {
+				total_items = 0;
+			} else {
+				total_items = atoi(mysql_row[0]);
+			}
+
 			db_free_result(tresult);
 
 			if (total_items && total_items < device_threads) {
@@ -1261,24 +1290,32 @@ int main(int argc, char *argv[]) {
 				}
 
 				tresult   = db_query(&mysql, LOCAL, querybuf);
-				mysql_row = mysql_fetch_row(tresult);
+				mysql_row = (tresult != NULL) ? mysql_fetch_row(tresult) : NULL;
 
-				items_per_thread = atoi(mysql_row[0]);
+				if (mysql_row == NULL) {
+					items_per_thread = 0;
+				} else {
+					items_per_thread = atoi(mysql_row[0]);
+				}
 
 				db_free_result(tresult);
 
 				snprintf(spine_host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				spine_host_time_double = get_time_as_double();
-			} else if (spine_host_time_double == 0 || spine_host_time == 0 || spine_host_time == NULL) {
+			} else if (spine_host_time_double == 0) {
 				snprintf(spine_host_time, SMALL_BUFSIZE, "%lu", (unsigned long) time(NULL));
 				spine_host_time_double = get_time_as_double();
 			}
 		} else {
 			snprintf(querybuf, BIG_BUFSIZE, "SELECT SQL_NO_CACHE COUNT(local_data_id) FROM poller_item WHERE host_id=%i AND rrd_next_step <=0", host_id);
 			tresult   = db_query(&mysql, LOCAL, querybuf);
-			mysql_row = mysql_fetch_row(tresult);
+			mysql_row = (tresult != NULL) ? mysql_fetch_row(tresult) : NULL;
 
-			items_per_thread = atoi(mysql_row[0]);
+			if (mysql_row == NULL) {
+				items_per_thread = 0;
+			} else {
+				items_per_thread = atoi(mysql_row[0]);
+			}
 
 			db_free_result(tresult);
 
@@ -1364,16 +1401,14 @@ int main(int argc, char *argv[]) {
 			sem_err = spine_sem_trywait(&thread_init_sem);
 
 			if (sem_err == 0) {
-				// Acquired a thread
+				/* acquired the thread init lock */
 				break;
-			} else if (sem_err == EINTR) {
-				// Interrupted by signal handler
-			} else if (sem_err == EDEADLK) {
-				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] would have deadlocked acquiring Thread Initialization Lock", host_id, current_thread));
-			} else if (sem_err == EAGAIN) {
-				// Keep trying
 			} else {
-				SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring Thread Initialization Lock", host_id, current_thread, sem_err));
+				int sem_errno = errno;
+
+				if (sem_errno != EAGAIN) {
+					SPINE_LOG_DEVDBG(("WARNING: Device[%i] HT[%i] errored with %d while acquiring Thread Initialization Lock", host_id, current_thread, sem_errno));
+				}
 			}
 
 			if (loop_count == 10) {
@@ -1418,16 +1453,21 @@ int main(int argc, char *argv[]) {
 #endif
 
 			if (thread_status == 0) {
-				SPINE_LOG_DEBUG(("DEBUG: Device[%i] Valid Thread to be Created (%ld)", poller_details->host_id, (unsigned long int)threads[device_counter]));
+				SPINE_LOG_DEBUG(("Device[%i] DEBUG: Valid Thread to be Created (%ld)", poller_details->host_id, (unsigned long int)threads[device_counter]));
 
 				if (change_host) {
 					device_counter++;
 				}
 
 				spine_sem_getvalue(&available_threads, &a_threads_value);
-				SPINE_LOG_HIGH(("DEBUG: Device[%i] Available Threads is %i (%i outstanding)", poller_details->host_id, a_threads_value, set.threads - a_threads_value));
+				SPINE_LOG_HIGH(("Device[%i] DEBUG: Available Threads is %i (%i outstanding)", poller_details->host_id, a_threads_value, set.threads - a_threads_value));
 
+				/* the child releases thread_init_sem once it has copied poller_details
+				 * and dropped LOCK_HOST_TIME; posting here too double-counts the semaphore.
+				 * The libuv path starts no child thread, so nothing else releases it. */
+#ifdef HAVE_LIBUV
 				spine_sem_post(&thread_init_sem);
+#endif
 
 				SPINE_LOG_DEVDBG(("DEBUG: DTS: device = %d, host_id = %d, spine_host_thread = %d,"
 					" spine_host_threads = %d, host_data_ids = %d, complete = %d",

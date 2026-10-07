@@ -31,6 +31,8 @@
  +-------------------------------------------------------------------------+
 */
 
+#ifndef SPINE_SQL_H
+#define SPINE_SQL_H
 extern int db_insert(MYSQL *mysql, int type, const char *query);
 extern MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query);
 extern void db_connect(int type, MYSQL *mysql);
@@ -53,3 +55,5 @@ extern int append_hostrange(char *obuf, const char *colname);
 		        die("FATAL: MySQL options unable to set %s option", desc);\
 	}\
 }
+
+#endif /* SPINE_SQL_H */

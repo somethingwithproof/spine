@@ -422,4 +422,77 @@ function(spine_add_tests)
   target_link_libraries(test_async_exec_shell PRIVATE spine_hardening)
   add_test(NAME async_exec_shell COMMAND test_async_exec_shell)
 
+  spine_add_cmocka_tests()
+
+  # Structural guards carried from upstream's `make check`. They read the
+  # sources, so point them at src/.
+  if(NOT WIN32)
+    foreach(guard IN ITEMS test_child_process_safety test_remote_push)
+      add_test(NAME ${guard}
+               COMMAND sh ${CMAKE_SOURCE_DIR}/tests/regression/${guard}.sh)
+      set_tests_properties(${guard} PROPERTIES
+          ENVIRONMENT "srcdir=${CMAKE_SOURCE_DIR}/src")
+    endforeach()
+  endif()
+
+endfunction()
+
+# cmocka suites carried from upstream Cacti spine. upstream runs these from
+# Automake's `make check`; here they are CTest targets. test_safety_fixes and
+# test_build_fixes are self-contained. test_util_paths and test_snmpv3_session
+# compile the shipped util.c / snmp.c into the test binary.
+function(spine_add_cmocka_tests)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(CMOCKA QUIET cmocka)
+  endif()
+  if(NOT CMOCKA_FOUND)
+    message(STATUS "cmocka not found; skipping upstream cmocka suites")
+    return()
+  endif()
+
+  foreach(test_name IN ITEMS test_safety_fixes test_build_fixes)
+    add_executable(${test_name} tests/unit/${test_name}.c)
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party
+        ${CMOCKA_INCLUDE_DIRS})
+    target_link_directories(${test_name} PRIVATE ${CMOCKA_LIBRARY_DIRS})
+    target_link_libraries(${test_name} PRIVATE ${CMOCKA_LIBRARIES})
+    add_test(NAME ${test_name} COMMAND ${test_name})
+  endforeach()
+
+  if(SPINE_BUILD_MAIN)
+    spine_require_mysql()
+    spine_require_netsnmp()
+    add_executable(test_util_paths tests/unit/test_util_paths.c
+                   src/config_repository.c src/config_builder.c src/config_apply.c
+                   src/log_formatter.c src/log_sink.c src/systemd_notify.c)
+    # snmp.c is compiled through the test's #include; spine.c is replaced by
+    # tests/fuzz/stubs.c, which supplies the globals main() would define.
+    set(_snmpv3_sources ${SPINE_CORE_SOURCES})
+    list(REMOVE_ITEM _snmpv3_sources src/spine.c src/snmp.c)
+    add_executable(test_snmpv3_session tests/unit/test_snmpv3_session.c tests/fuzz/stubs.c
+                   ${_snmpv3_sources})
+    foreach(test_name IN ITEMS test_util_paths test_snmpv3_session)
+      target_include_directories(${test_name} PRIVATE
+          ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party
+          ${LIBUV_INCLUDE_DIRS} ${CARES_INCLUDE_DIRS} ${CMOCKA_INCLUDE_DIRS})
+      target_link_directories(${test_name} PRIVATE ${CMOCKA_LIBRARY_DIRS})
+      target_link_libraries(${test_name} PRIVATE ${CMOCKA_LIBRARIES}
+          spine_platform_test_support spine_mysql spine_netsnmp Threads::Threads)
+      if(LIBUV_FOUND)
+        target_link_libraries(${test_name} PRIVATE ${LIBUV_LIBRARIES})
+      endif()
+      if(SPINE_HAVE_CARES)
+        target_link_libraries(${test_name} PRIVATE ${CARES_LIBRARIES})
+      endif()
+      if(HAVE_PCRE2)
+        target_link_libraries(${test_name} PRIVATE ${PCRE2_LIBRARIES})
+      endif()
+      if(OpenSSL_FOUND)
+        target_link_libraries(${test_name} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+      endif()
+      add_test(NAME ${test_name} COMMAND ${test_name})
+    endforeach()
+  endif()
 endfunction()

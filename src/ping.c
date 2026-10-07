@@ -809,7 +809,7 @@ int ping_snmp(spine_spine_host_t *host, ping_t *ping) {
 	if (is_debug_device(host->id)) {
 		SPINE_LOG(("Device[%i] DEBUG: Entering SNMP Ping", host->id));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering SNMP Ping", host->id));
+		SPINE_LOG_DEBUG(("Device[%i] DEBUG: Entering SNMP Ping", host->id));
 	}
 
 	if (host->snmp_session) {
@@ -938,7 +938,7 @@ int ping_icmp(spine_spine_host_t *host, ping_t *ping) {
 	if (is_debug_device(host->id)) {
 		SPINE_LOG(("Device[%i] DEBUG: Entering ICMP Ping", host->id));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering ICMP Ping", host->id));
+		SPINE_LOG_DEBUG(("Device[%i] DEBUG: Entering ICMP Ping", host->id));
 	}
 
 	/* get ICMP socket */
@@ -1038,7 +1038,7 @@ int ping_icmp(spine_spine_host_t *host, ping_t *ping) {
 				if (is_debug_device(host->id)) {
 					SPINE_LOG(("Device[%i] DEBUG: Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, (int) our_seq, retry_count, host->ping_retries));
 				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, (int) our_seq, retry_count, host->ping_retries));
+					SPINE_LOG_DEBUG(("Device[%i] DEBUG: Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, (int) our_seq, retry_count, host->ping_retries));
 				}
 
 				/* decrement the timeout value by the total time */
@@ -1080,7 +1080,7 @@ int ping_icmp(spine_spine_host_t *host, ping_t *ping) {
 							if (is_debug_device(host->id)) {
 								SPINE_LOG(("Device[%i] DEBUG: Received EINTR", host->id));
 							} else {
-								SPINE_LOG_DEBUG(("DEBUG: Device[%i] Received EINTR", host->id));
+								SPINE_LOG_DEBUG(("Device[%i] DEBUG: Received EINTR", host->id));
 							}
 
 							goto keep_listening;
@@ -1174,7 +1174,7 @@ int ping_icmp(spine_spine_host_t *host, ping_t *ping) {
 					if (is_debug_device(host->id)) {
 						SPINE_LOG(("Device[%i] DEBUG: Exceeded Device Timeout, Retrying", host->id));
 					} else {
-						SPINE_LOG_DEBUG(("DEBUG: Device[%i] Exceeded Device Timeout, Retrying", host->id));
+						SPINE_LOG_DEBUG(("Device[%i] DEBUG: Exceeded Device Timeout, Retrying", host->id));
 					}
 				}
 
@@ -1256,7 +1256,7 @@ int ping_udp(spine_spine_host_t *host, ping_t *ping) {
 	if (is_debug_device(host->id)) {
 		SPINE_LOG(("Device[%i] DEBUG: Entering UDP Ping", host->id));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering UDP Ping", host->id));
+		SPINE_LOG_DEBUG(("Device[%i] DEBUG: Entering UDP Ping", host->id));
 	}
 
 	/* set total time */
@@ -1372,7 +1372,7 @@ int ping_udp(spine_spine_host_t *host, ping_t *ping) {
 				if (is_debug_device(host->id)) {
 					SPINE_LOG(("Device[%i] DEBUG: UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
 				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
+					SPINE_LOG_DEBUG(("Device[%i] DEBUG: UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
 				}
 
 				retry_count++;
@@ -1423,7 +1423,7 @@ int ping_tcp(spine_spine_host_t *host, ping_t *ping) {
 	if (is_debug_device(host->id)) {
 		SPINE_LOG(("Device[%i] DEBUG: Entering TCP Ping", host->id));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering TCP Ping", host->id));
+		SPINE_LOG_DEBUG(("Device[%i] DEBUG: Entering TCP Ping", host->id));
 	}
 
 	/* convert the host timeout to a double precision number in seconds */
@@ -1643,7 +1643,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 		if (tokens == 1) {
 			if (strlen(token) && token[0] == '[') {
 				SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-				strncpy(name->hostname, hostname, sizeof(name->hostname));
+				strncopy(name->hostname, hostname, sizeof(name->hostname));
 				break;
 			} else if (strlen(token) == 3) {
 				if (strncasecmp(token, "TCP", 3) == 0) {
@@ -1680,7 +1680,7 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
 
 		if (tokens == 2) {
 			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s", hostname, token));
-			strncpy(name->hostname, token, sizeof(name->hostname));
+			strncopy(name->hostname, token, sizeof(name->hostname));
 			name->hostname[strlen(token)] = '\0';
 		}
 

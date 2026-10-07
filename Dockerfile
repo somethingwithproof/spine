@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libuv1 \
         libseccomp2 \
         libcares2 \
+        php-cli \
+        procps \
         zlib1g \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

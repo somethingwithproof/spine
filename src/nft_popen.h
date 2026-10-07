@@ -21,6 +21,12 @@
  +-------------------------------------------------------------------------+
 */
 
+#ifndef SPINE_NFT_POPEN_H
+#define SPINE_NFT_POPEN_H
+
+#ifndef _WIN32
+#include <spawn.h>
+#endif
 /******************************************************************************
  ex: set tabstop=4 shiftwidth=4 autoindent:
  *
@@ -46,6 +52,8 @@
  *
  ******************************************************************************
  */
+
+#include <spawn.h>
 
 /*!
  *  The nft_popen() function forks a command in a child process, and returns
@@ -82,13 +90,20 @@ extern int	nft_pchild(int fd);
 /*!
  *  nft_pclose
  *
- *  Close the pipe and wait for the status of the child process.
+ *  Close the pipe and check the child's status with a brief, bounded,
+ *  non-blocking waitpid(). A child still running past that point, or one
+ *  whose waitpid() call itself failed, is killed and parked for later,
+ *  asynchronous reaping rather than waited for here.
  *
  *  On success, the exit status of the child process is returned.
  *  On failure, nft_pclose() returns -1, with errno set to:
  *
- *	EBADF	The fd is not an active popen() file descriptor.
- *	ECHILD	waitpid() failed.
+ *     EBADF	The fd is not an active popen() file descriptor.
+ *     ETIMEDOUT	The child had not exited by the end of the bounded
+ *     		check; it has been killed and parked for later reaping.
+ *     (other)	The waitpid() call itself failed for a reason other than
+ *     		ECHILD, which is treated as a successful reap; may be EINTR
+ *     		if the bounded EINTR retry budget was exhausted.
  */
 extern int	nft_pclose(int fd);
 
@@ -104,3 +119,75 @@ extern int	nft_pclose(int fd);
  *  Returns NULL on allocation failure.
  */
 extern char **spine_build_child_env(void);
+
+/*!
+ *  spine_set_cloexec
+ *
+ *  Mark a descriptor close-on-exec.
+ *
+ *  Returns 0 on success, -1 on failure with errno set by fcntl().
+ */
+extern int	spine_set_cloexec(int fd);
+
+/* Duplicate a descriptor and mark the duplicate close-on-exec. On failure,
+ * no descriptor is returned and errno describes dup() or fcntl(). */
+extern int	spine_dup_cloexec(int fd);
+
+/*!
+ *  spine_open_pipe_cloexec
+ *
+ *  Open a pipe whose descriptors are not inherited across exec. Spine spawns
+ *  children from several threads, so a descriptor left inheritable is held by
+ *  an unrelated child and the reader never sees EOF.
+ *
+ *  Returns TRUE on success. On failure the descriptors are closed and FALSE is
+ *  returned, so the caller owns nothing.
+ */
+extern int	spine_open_pipe_cloexec(int pdes[2]);
+
+/* Restore SIGPIPE's default disposition in posix_spawned children while the
+ * Spine parent handles broken pipes itself. */
+#ifndef _WIN32
+extern int	spine_spawnattr_sigpipe_default(posix_spawnattr_t *attr);
+#endif
+
+/*!
+ *  spine_reap_child_bounded
+ *
+ *  Reap a child with WNOHANG, sleeping between attempts, so a wedged script
+ *  cannot pin a poller thread indefinitely.
+ *
+ *  Returns 0 when the child was reaped - including ECHILD, where another
+ *  waiter already collected it and pstat is set to 0 - and 1 when it is
+ *  still running after attempts. Returns -1 on a waitpid() error, leaving
+ *  errno as waitpid() set it; EINTR is retried within a bounded per-attempt
+ *  budget, so it too surfaces as -1 with errno == EINTR once that budget is
+ *  exhausted.
+ */
+extern int	spine_reap_child_bounded(pid_t pid, int *pstat, int attempts);
+
+/*!
+ *  The cap on parked pids. Past it a child is logged and dropped, because an
+ *  unbounded list would trade a pid leak for a memory leak.
+ */
+#define NFT_ABANDONED_MAX 64
+
+/*!
+ *  nft_abandon_child
+ *
+ *  Record a child that outlived nft_pclose()'s kill budget. Nothing else in
+ *  spine reaps, so a dropped child would stay a zombie for the daemon's
+ *  lifetime; parked pids are swept on the next script poll. The pid and the
+ *  reason are logged either way.
+ */
+extern void	nft_abandon_child(pid_t pid, const char *reason);
+
+/*!
+ *  nft_abandoned_pending
+ *
+ *  Sweep the parked pids with WNOHANG and return how many are still running.
+ *  Zero means nothing is leaking.
+ */
+extern int	nft_abandoned_pending(void);
+
+#endif /* SPINE_NFT_POPEN_H */

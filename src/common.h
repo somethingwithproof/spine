@@ -66,6 +66,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <mysql.h>
 #include <netdb.h>
@@ -90,16 +91,18 @@
 #  include <netinet/ip_icmp.h>
 #endif
 
-#if TIME_WITH_SYS_TIME
-#  include <sys/time.h>
-#  include <time.h>
-#else
-#  if HAVE_SYS_TIME_H
-#    include <sys/time.h>
-#  else
-#    include <time.h>
-#  endif
+#if HAVE_NET_IF_H
+#  include <net/if.h>
 #endif
+
+#if HAVE_IFADDRS_H
+#  include <ifaddrs.h>
+#endif
+
+#if HAVE_SYS_TIME_H
+#  include <sys/time.h>
+#endif
+#include <time.h>
 
 #ifndef HAVE_LIBPTHREAD
 #  define HAVE_LIBPTHREAD 0

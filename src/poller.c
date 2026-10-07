@@ -93,10 +93,48 @@ int spine_queue_poll(poller_thread_t *det) {
 }
 #endif
 
+int format_poller_output_row(char *output, size_t output_size,
+		int local_data_id, const char *escaped_rrd_name,
+		const char *host_time, const char *escaped_result) {
+	const char *timep;
+	int decimal_points = 0;
+	int digits = 0;
+	int written;
+
+	if (output == NULL || output_size == 0 || escaped_rrd_name == NULL ||
+	    host_time == NULL || host_time[0] == '\0' || escaped_result == NULL) {
+		return FALSE;
+	}
+
+	/* host_time is emitted outside SQL quotes. Accept the integer timestamps
+	 * Spine generates and a single fractional part, but no SQL syntax. */
+	for (timep = host_time; *timep != '\0'; timep++) {
+		if (*timep == '.') {
+			decimal_points++;
+			if (decimal_points > 1) {
+				return FALSE;
+			}
+		} else if (!isdigit((unsigned char)*timep)) {
+			return FALSE;
+		} else {
+			digits++;
+		}
+	}
+	if (digits == 0) {
+		return FALSE;
+	}
+
+	written = snprintf(output, output_size,
+		" (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+		local_data_id, escaped_rrd_name, host_time, escaped_result);
+
+	return written >= 0 && (size_t)written < output_size;
+}
+
 void child_cleanup(void *arg) {
 	poller_thread_t poller_details = *(poller_thread_t*) arg;
 
-	SPINE_LOG_DEVDBG(("DEBUG: Device[%i] HT[%i] The Device Thread has cleaned up.", poller_details.host_id, poller_details.spine_host_thread));
+	SPINE_LOG_DEVDBG(("Device[%i] HT[%i] DEBUG: The Device Thread has cleaned up.", poller_details.host_id, poller_details.spine_host_thread));
 
 	child_cleanup_thread(arg);
 }
@@ -167,9 +205,9 @@ void *child(void *arg) {
 	spine_sem_post(poller_details.thread_init_sem);
 
 	if (is_debug_device(host_id)) {
-		SPINE_LOG(("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", host_id, spine_host_thread));
+		SPINE_LOG(("Device[%i] HT[%i] DEBUG: In Poller, About to Start Polling", host_id, spine_host_thread));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] HT[%i] In Poller, About to Start Polling", host_id, spine_host_thread));
+		SPINE_LOG_DEBUG(("Device[%i] HT[%i] DEBUG: In Poller, About to Start Polling", host_id, spine_host_thread));
 	}
 
 	if (spine_cb_should_skip(host_id)) {
@@ -185,6 +223,47 @@ void *child(void *arg) {
 	pthread_exit(0);
 
 	exit(0);
+}
+
+/*! \fn int poller_store_hex_result(char *result, size_t result_size, const char *hex, int *errors)
+ *  \brief convert a hexadecimal poll result and account for rejected values
+ *
+ *  result must name at least two writable bytes so failures can be represented
+ *  by the normal undefined marker. Invalid output arguments are rejected
+ *  without modifying memory whose writable extent cannot be established.
+ */
+int poller_store_hex_result(char *result, size_t result_size, const char *hex, int *errors) {
+	unsigned long long value;
+	int written;
+
+	if (result == NULL || result_size < 2 || hex == NULL) {
+		if (errors != NULL) {
+			(*errors)++;
+		}
+		return FALSE;
+	}
+
+	if (!hex2dec(hex, &value)) {
+		/* An over-wide or malformed OctetString is unusable poll data. Count it
+		 * like every other undefined result so host_errors reflects the failed
+		 * collection; callers also retain the affected local_data_id. */
+		SET_UNDEFINED(result);
+		if (errors != NULL) {
+			(*errors)++;
+		}
+		return FALSE;
+	}
+
+	written = snprintf(result, result_size, "%llu", value);
+	if (written < 0 || (size_t) written >= result_size) {
+		SET_UNDEFINED(result);
+		if (errors != NULL) {
+			(*errors)++;
+		}
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 typedef struct HostPollPipelineData HostPollPipelineData;
@@ -275,7 +354,7 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	MYSQL mysqlt;
 	char *query3 = NULL;
 	char *query12 = NULL;
-	char result_string[(DBL_BUFSIZE * 2) + SMALL_BUFSIZE];
+	char result_string[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
 	size_t out_buffer;
 	int result_length;
 	int mode;
@@ -349,17 +428,24 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 		}
 
 		for (i = 0; i < pipeline_data->rows_processed; i++) {
-			char escaped_result[DBL_BUFSIZE];
+			/* Escaping can double each source byte, plus the terminator. */
+			char escaped_result[(RESULTS_BUFFER * 2) + 1];
 			char escaped_rrd_name[DBL_BUFSIZE];
 
 			db_escape(&mysqlt, escaped_result, sizeof(escaped_result), pipeline_data->poller_items[i].result);
 			db_escape(&mysqlt, escaped_rrd_name, sizeof(escaped_rrd_name), pipeline_data->poller_items[i].rrd_name);
 
-			snprintf(result_string, sizeof(result_string), " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+			if (!format_poller_output_row(result_string, sizeof(result_string),
 				pipeline_data->poller_items[i].local_data_id,
 				escaped_rrd_name,
 				request->spine_host_time,
-				escaped_result);
+				escaped_result)) {
+				SPINE_LOG(("Device[%i] HT[%i] ERROR: Poller output for DS[%i] "
+					"exceeds the configured result buffer and was skipped",
+					request->host_id, request->spine_host_thread,
+					pipeline_data->poller_items[i].local_data_id));
+				continue;
+			}
 			result_length = (int)strlen(result_string);
 
 			if ((out_buffer + (size_t)result_length) >= MAX_MYSQL_BUF_SIZE) {
@@ -494,23 +580,8 @@ static ResultCode host_poll_stage_update_host_state(const HostPollingRequest *re
  *  \brief core Spine function that polls a host
  *  \param host_id integer value for the host_id from the hosts table in Cacti
  *
- *	This function is core to Spine.  It will take a host_id and then poll it.
- *
- *  Prior to the poll, the system will ping the host to verify that it is up.
- *  In addition, the system will check to see if any reindexing of data query's
- *  is required.
- *
- *  If reindexing is required, the Cacti poller.php function will spawn that
- *  reindexing process.
- *
- *  In the case of hosts that require reindexing because of a sysUptime
- *  rollback, Spine will store an unknown (NaN) value for all objects to prevent
- *  spikes in the graphs.
- *
- *  With regard to snmp calls, if the host has multiple snmp agents running
- *  Spine will re-initialize the snmp session and poll under those new ports
- *  as the host poller_items table dictates.
- *
+ *  This function is core to Spine. It takes a host_id and polls it, first
+ *  checking reachability and any required data-query reindexing.
  */
 static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_ids, char *spine_host_time, int *host_errors, HostPollPipelineData *pipeline_data) {
 	SPINE_PROBE1(poll_start, host_id);
@@ -531,12 +602,10 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	int posuffix_len = 0;
 
 	char sysUptime[BUFSIZE];
-	/* result_string holds " (%i, '<escaped_result>', FROM_UNIXTIME(%s), '<escaped_rrd_name>')".
-	 * db_escape can double the length of the input on worst-case input (e.g. all quotes),
-	 * so a RESULTS_BUFFER-sized result can expand to 2*RESULTS_BUFFER = DBL_BUFSIZE*2.
-	 * SMALL_BUFSIZE covers the fixed SQL scaffolding and rrd_name. 4352 bytes on stack
-	 * is safe for spine's worker threads (default 2MB stack, worst case 256KB ulimit). */
-	char result_string[(DBL_BUFSIZE * 2) + SMALL_BUFSIZE];
+	int  uptime_use_engine_oid = FALSE; /* pins uptime-goes-backward checks to the seconds granularity engine OID once found */
+	/* Reserve the escaped result, escaped rrd_name, and fixed SQL scaffolding.
+	 * RESULTS_BUFFER is configurable and need not equal DBL_BUFSIZE. */
+	char result_string[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
 	int  result_length;
 	char temp_result[RESULTS_BUFFER];
 	int  errors = 0;
@@ -594,9 +663,15 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	target_t    *poller_items = NULL;
 	snmp_oids_t *snmp_oids = NULL;
 
-	error_string = malloc(DBL_BUFSIZE);
-	buf_size     = malloc(sizeof(int));
-	buf_errors   = malloc(sizeof(int));
+	if (!(error_string = malloc(DBL_BUFSIZE))) {
+		die("ERROR: Fatal malloc error: poller.c error_string!");
+	}
+	if (!(buf_size = malloc(sizeof(int)))) {
+		die("ERROR: Fatal malloc error: poller.c buf_size!");
+	}
+	if (!(buf_errors = malloc(sizeof(int)))) {
+		die("ERROR: Fatal malloc error: poller.c buf_errors!");
+	}
 
 	*buf_size     = 0;
 	*buf_errors   = 0;
@@ -791,15 +866,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 			"INSERT INTO poller_output"
 			" (local_data_id, rrd_name, time, output) VALUES");
 
-		/* query suffix to add rows to the poller output table */
-		if (set.dbonupdate == 0) {
-			snprintf(posuffix, BUFSIZE,
-				" ON DUPLICATE KEY UPDATE output=VALUES(output)");
-		} else {
-			snprintf(posuffix, BUFSIZE,
-				" AS rs ON DUPLICATE KEY UPDATE output=rs.output");
-		}
-
 		/* number of agent's count for single polling interval */
 		snprintf(query9, BUFSIZE,
 			"SELECT SQL_NO_CACHE snmp_port, count(snmp_port)"
@@ -929,10 +995,6 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 			"INSERT INTO poller_output"
 			" (local_data_id, rrd_name, time, output) VALUES");
 
-		/* query suffix to add rows to the poller output table */
-		snprintf(posuffix, BUFSIZE,
-			" ON DUPLICATE KEY UPDATE output=VALUES(output)");
-
 		/* number of agent's count for single polling interval */
 		snprintf(query9, BUFSIZE,
 			"SELECT SQL_NO_CACHE snmp_port, count(snmp_port)"
@@ -967,6 +1029,13 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 	query8_len   = strlen(query8);
 	query11_len  = strlen(query11);
+
+	/* set.dbonupdate describes the local connection, while results can be
+	 * written to the remote one. VALUES() is accepted by both MySQL and
+	 * MariaDB, so use it until the remote server has its own version
+	 * capability flag (#590). */
+	snprintf(posuffix, sizeof(posuffix),
+		" ON DUPLICATE KEY UPDATE output=VALUES(output)");
 	posuffix_len = strlen(posuffix);
 
 	/* initialize the ping structure variables */
@@ -1004,6 +1073,8 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				SPINE_FREE(error_string);
 				SPINE_FREE(buf_size);
 				SPINE_FREE(buf_errors);
+
+				mysql_thread_end();
 
 				return;
 			}
@@ -1304,9 +1375,9 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 			if (num_rows > 0) {
 				if (is_debug_device(host->id)) {
-					SPINE_LOG(("DEBUG: Device[%i] HT[%i] RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, spine_host_thread, num_rows, host->hostname));
+					SPINE_LOG(("Device[%i] HT[%i] DEBUG: RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, spine_host_thread, num_rows, host->hostname));
 				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] HT[%i] RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, spine_host_thread, num_rows, host->hostname));
+					SPINE_LOG_DEBUG(("Device[%i] HT[%i] DEBUG: RECACHE: Processing %i items in the auto reindex cache for '%s'", host->id, spine_host_thread, num_rows, host->hostname));
 				}
 
 				// Cache uptime in case we need it again
@@ -1365,33 +1436,50 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 									poll_result[0] = '\0';
 
 									snprintf(poll_result, BUFSIZE, "%s", sysUptime);
-								} else if (strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0")) {
+								} else if (strstr(reindex->arg1, ".1.3.6.1.2.1.1.3.0") ||
+									strstr(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")) {
 								     // Ensure uptime is empty to start with
 								     sysUptime[0] = '\0';
 
-									// Check the legacy poll result first
-									poll_result = snmp_get(host, reindex->arg1);
-
-									if (poll_result && is_numeric(poll_result)) {
-										snprintf(sysUptime, BUFSIZE, "%s", poll_result);
-									}
-
-									if (is_debug_device(host->id)) {
-										SPINE_LOG(("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, spine_host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
-									} else {
-										SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, spine_host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
-									}
-
-									SPINE_FREE(poll_result);
-
-									/* check the modern snmp engine uptime in seconds */
+									/* Pin the uptime-goes-backward calculation to a single OID for this poll.
+									   Previously the legacy (centisecond) and modern (second) OIDs could each
+									   supply the value on different reindex rows or different poll cycles,
+									   and a mismatch between the two caused false "uptime went backward"
+									   detections and constant reindexing. Prefer the modern engine OID, since
+									   it offers seconds granularity, and only fall back to the legacy OID
+									   when the engine OID isn't present with numeric data. */
 									poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
 
-									if (poll_result && is_numeric(poll_result)) {
+									uptime_use_engine_oid = (poll_result != NULL && is_numeric(poll_result));
+
+									if (uptime_use_engine_oid) {
 										snprintf(sysUptime, BUFSIZE, "%lld", atoll(poll_result) * 100);
 									}
 
 									SPINE_FREE(poll_result);
+
+									if (is_debug_device(host->id)) {
+										SPINE_LOG(("Device[%i] HT[%i] DQ[%i] Engine Uptime OID Present: %d", host->id, spine_host_thread, reindex->data_query_id, uptime_use_engine_oid));
+									} else {
+										SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DQ[%i] Engine Uptime OID Present: %d", host->id, spine_host_thread, reindex->data_query_id, uptime_use_engine_oid));
+									}
+
+									if (!uptime_use_engine_oid) {
+										// Engine OID unavailable, fall back to the legacy sysUpTime OID
+										poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
+
+										if (poll_result && is_numeric(poll_result)) {
+											snprintf(sysUptime, BUFSIZE, "%s", poll_result);
+										}
+
+										if (is_debug_device(host->id)) {
+											SPINE_LOG(("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, spine_host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
+										} else {
+											SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DQ[%i] Legacy Uptime Result: %s, Is Numeric: %d", host->id, spine_host_thread, reindex->data_query_id, poll_result, is_numeric(poll_result) ));
+										}
+
+										SPINE_FREE(poll_result);
+									}
 
 									/* allocate and populate with whichever uptime was valid */
 									if (!(poll_result = (char *) malloc(BUFSIZE))) {
@@ -1447,13 +1535,20 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 							}
 
 							break;
-						case POLLER_ACTION_SNMP_COUNT: /* snmp; count items */
+						case POLLER_ACTION_SNMP_COUNT: { /* snmp; count items */
+							int snmp_items;
+
 							if (!(poll_result = (char *) malloc(BUFSIZE))) {
 								die("ERROR: Fatal malloc error: poller.c poll_result");
 							}
 							poll_result[0] = '\0';
 
-							snprintf(poll_result, BUFSIZE, "%d", snmp_count(host, reindex->arg1));
+							snmp_items = snmp_count(host, reindex->arg1);
+							if (snmp_items < 0) {
+								SET_UNDEFINED(poll_result);
+							} else {
+								snprintf(poll_result, BUFSIZE, "%d", snmp_items);
+							}
 
 							if (is_debug_device(host->id)) {
 								SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE OID COUNT: %s, output: %s", host->id, spine_host_thread, reindex->data_query_id, reindex->arg1, poll_result));
@@ -1462,6 +1557,7 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 							}
 
 							break;
+						}
 						case POLLER_ACTION_SCRIPT_COUNT: /* script (popen); count items by counting line feeds */
 							if (!(poll_result = (char *) malloc(BUFSIZE))) {
 								die("ERROR: Fatal malloc error: poller.c poll_result");
@@ -1669,7 +1765,9 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 	if (num_rows > 0) {
 		/* retrieve each hosts polling items from poller cache and load into array */
-		poller_items = (target_t *) calloc(num_rows, sizeof(target_t));
+		if (!(poller_items = (target_t *) calloc(num_rows, sizeof(target_t)))) {
+			die("ERROR: Fatal calloc error: poller.c poller_items!");
+		}
 
 		i = 0;
 		while ((row = mysql_fetch_row(result))) {
@@ -1743,7 +1841,9 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 		db_free_result(result);
 
 		/* create an array for snmp oids */
-		snmp_oids = (snmp_oids_t *) calloc(host->max_oids, sizeof(snmp_oids_t));
+		if (!(snmp_oids = (snmp_oids_t *) calloc(host->max_oids, sizeof(snmp_oids_t)))) {
+			die("ERROR: Fatal calloc error: poller.c snmp_oids!");
+		}
 
 		/* initialize all the memory to insure we don't get issues */
 		memset(snmp_oids, 0, sizeof(snmp_oids_t)*host->max_oids);
@@ -1828,7 +1928,12 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 							} else if ((is_numeric(snmp_oids[j].result)) || (is_multipart_output(snmp_oids[j].result))) {
 								/* continue */
 							} else if (is_hexadecimal(snmp_oids[j].result, TRUE)) {
-								snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec(snmp_oids[j].result));
+								if (!poller_store_hex_result(snmp_oids[j].result, RESULTS_BUFFER, snmp_oids[j].result, &errors)) {
+									buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
+									if (set.spine_log_level == 2) {
+										SPINE_LOG(("WARNING: Hexadecimal Response Exceeds 64 Bits, Device[%i] HT[%i] DS[%i]", host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id));
+									}
+								}
 							} else if ((STRIMATCH(snmp_oids[j].result, "U")) ||
 								(STRIMATCH(snmp_oids[j].result, "Nan"))) {
 								buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
@@ -1843,8 +1948,8 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 								/* is valid output, continue */
 							} else {
-								/* remove double or single quotes from string */
-								snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(snmp_oids[j].result)));
+								/* trim a non-numeric prefix or suffix, then validate below */
+								snprintf(temp_result, RESULTS_BUFFER, "%s", strip_alpha(snmp_oids[j].result));
 								snprintf(snmp_oids[j].result , RESULTS_BUFFER, "%s", temp_result);
 
 								/* detect erroneous non-numeric result */
@@ -1926,7 +2031,12 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 						} else if ((is_numeric(snmp_oids[j].result)) || (is_multipart_output(snmp_oids[j].result))) {
 							/* continue */
 						} else if (is_hexadecimal(snmp_oids[j].result, TRUE)) {
-							snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec(snmp_oids[j].result));
+							if (!poller_store_hex_result(snmp_oids[j].result, RESULTS_BUFFER, snmp_oids[j].result, &errors)) {
+								buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
+								if (set.spine_log_level == 2) {
+									SPINE_LOG(("WARNING: Hexadecimal Response Exceeds 64 Bits, Device[%i] HT[%i] DS[%i]", host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id));
+								}
+							}
 						} else if ((STRIMATCH(snmp_oids[j].result, "U")) ||
 							(STRIMATCH(snmp_oids[j].result, "Nan"))) {
 							buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
@@ -1941,8 +2051,8 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 							/* is valid output, continue */
 						} else {
-							/* remove double or single quotes from string */
-							snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(snmp_oids[j].result)));
+							/* trim a non-numeric prefix or suffix, then validate below */
+							snprintf(temp_result, RESULTS_BUFFER, "%s", strip_alpha(snmp_oids[j].result));
 							snprintf(snmp_oids[j].result , RESULTS_BUFFER, "%s", temp_result);
 
 							/* detect erroneous non-numeric result */
@@ -2021,10 +2131,15 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				} else if ((is_numeric(poll_result)) || (is_multipart_output(trim(poll_result)))) {
 					snprintf(poller_items[i].result, RESULTS_BUFFER, "%s", poll_result);
 				} else if (is_hexadecimal(poll_result, TRUE)) {
-					snprintf(poller_items[i].result, RESULTS_BUFFER, "%llu", hex2dec(poll_result));
+					if (!poller_store_hex_result(poller_items[i].result, RESULTS_BUFFER, poll_result, &errors)) {
+						buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[i].local_data_id, false);
+						if (set.spine_log_level == 2) {
+							SPINE_LOG(("WARNING: Hexadecimal Response Exceeds 64 Bits, Device[%i] HT[%i] DS[%i] SCRIPT: %s", host_id, spine_host_thread, poller_items[i].local_data_id, poller_items[i].arg1));
+						}
+					}
 				} else {
-					/* remove double or single quotes from string */
-					snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(poll_result)));
+					/* trim a non-numeric prefix or suffix, then validate below */
+					snprintf(temp_result, RESULTS_BUFFER, "%s", strip_alpha(poll_result));
 					snprintf(poller_items[i].result , RESULTS_BUFFER, "%s", temp_result);
 
 					/* detect erroneous result. can be non-numeric */
@@ -2087,10 +2202,15 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				} else if ((is_numeric(poll_result)) || (is_multipart_output(trim(poll_result)))) {
 					snprintf(poller_items[i].result, RESULTS_BUFFER, "%s", poll_result);
 				} else if (is_hexadecimal(poll_result, TRUE)) {
-					snprintf(poller_items[i].result, RESULTS_BUFFER, "%llu", hex2dec(poll_result));
+					if (!poller_store_hex_result(poller_items[i].result, RESULTS_BUFFER, poll_result, &errors)) {
+						buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[i].local_data_id, false);
+						if (set.spine_log_level == 2) {
+							SPINE_LOG(("WARNING: Hexadecimal Response Exceeds 64 Bits, Device[%i] HT[%i] DS[%i] SCRIPT: %s", host_id, spine_host_thread, poller_items[i].local_data_id, poller_items[i].arg1));
+						}
+					}
 				} else {
-					/* remove double or single quotes from string */
-					snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(poll_result)));
+					/* trim a non-numeric prefix or suffix, then validate below */
+					snprintf(temp_result, RESULTS_BUFFER, "%s", strip_alpha(poll_result));
 					snprintf(poller_items[i].result , RESULTS_BUFFER, "%s", temp_result);
 
 					/* detect erroneous result. can be non-numeric */
@@ -2159,7 +2279,12 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 				} else if ((is_numeric(snmp_oids[j].result)) || (is_multipart_output(snmp_oids[j].result))) {
 					/* continue */
 				} else if (is_hexadecimal(snmp_oids[j].result, TRUE)) {
-					snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%llu", hex2dec(snmp_oids[j].result));
+					if (!poller_store_hex_result(snmp_oids[j].result, RESULTS_BUFFER, snmp_oids[j].result, &errors)) {
+						buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
+						if (set.spine_log_level == 2) {
+							SPINE_LOG(("WARNING: Hexadecimal Response Exceeds 64 Bits, Device[%i] HT[%i] DS[%i]", host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id));
+						}
+					}
 				} else if ((STRIMATCH(snmp_oids[j].result, "U")) ||
 					(STRIMATCH(snmp_oids[j].result, "Nan"))) {
 					buffer_output_errors(error_string, buf_size, buf_errors, host_id, spine_host_thread, poller_items[snmp_oids[j].array_position].local_data_id, false);
@@ -2174,8 +2299,8 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 					/* is valid output, continue */
 				} else {
-					/* remove double or single quotes from string */
-					snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(REGEX_NUMBER, strip_alpha(snmp_oids[j].result)));
+					/* trim a non-numeric prefix or suffix, then validate below */
+					snprintf(temp_result, RESULTS_BUFFER, "%s", strip_alpha(snmp_oids[j].result));
 					snprintf(snmp_oids[j].result , RESULTS_BUFFER, "%s", temp_result);
 
 					/* detect erroneous non-numeric result */
@@ -2192,6 +2317,11 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 						SET_UNDEFINED(snmp_oids[j].result);
 					}
+				}
+
+				if (strlen(poller_items[snmp_oids[j].array_position].output_regex)) {
+					snprintf(temp_result, RESULTS_BUFFER, "%s", regex_replace(poller_items[snmp_oids[j].array_position].output_regex, snmp_oids[j].result));
+					snprintf(snmp_oids[j].result, RESULTS_BUFFER, "%s", temp_result);
 				}
 
 				snprintf(poller_items[snmp_oids[j].array_position].result, RESULTS_BUFFER, "%s", snmp_oids[j].result);
@@ -2265,17 +2395,24 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 
 				i = 0;
 				while (i < rows_processed) {
-					char escaped_result[DBL_BUFSIZE];
+					/* Escaping can double each source byte, plus the terminator. */
+					char escaped_result[(RESULTS_BUFFER * 2) + 1];
 					char escaped_rrd_name[DBL_BUFSIZE];
 
 					db_escape(&mysqlt, escaped_result, sizeof(escaped_result), poller_items[i].result);
 					db_escape(&mysqlt, escaped_rrd_name, sizeof(escaped_rrd_name), poller_items[i].rrd_name);
 
-						snprintf(result_string, sizeof(result_string), " (%i, '%s', FROM_UNIXTIME(%s), '%s')",
+					if (!format_poller_output_row(result_string, sizeof(result_string),
 						poller_items[i].local_data_id,
 						escaped_rrd_name,
 						spine_host_time,
-						escaped_result);
+						escaped_result)) {
+						SPINE_LOG(("Device[%i] HT[%i] ERROR: Poller output for DS[%i] "
+							"exceeds the configured result buffer and was skipped",
+							host_id, spine_host_thread, poller_items[i].local_data_id));
+						i++;
+						continue;
+					}
 
 					result_length = strlen(result_string);
 
@@ -2400,9 +2537,9 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	mysql_thread_end();
 
 	if (is_debug_device(host_id)) {
-		SPINE_LOG(("DEBUG: Device[%i] HT[%i] DEBUG: HOST COMPLETE: About to Exit Device Polling Thread Function", host_id, spine_host_thread));
+		SPINE_LOG(("Device[%i] HT[%i] DEBUG: HOST COMPLETE: About to Exit Device Polling Thread Function", host_id, spine_host_thread));
 	} else {
-		SPINE_LOG_DEBUG(("DEBUG: Device[%i] HT[%i] DEBUG: HOST COMPLETE: About to Exit Device Polling Thread Function", host_id, spine_host_thread));
+		SPINE_LOG_DEBUG(("Device[%i] HT[%i] DEBUG: HOST COMPLETE: About to Exit Device Polling Thread Function", host_id, spine_host_thread));
 	}
 
 	if (set.spine_log_level == 1) {
@@ -2504,18 +2641,18 @@ void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system) 
 			SPINE_LOG_MEDIUM(("Device[%d] Updating Full System Information Table", host->id));
 		}
 
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.1.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.1.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.1.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.1.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.1.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.1.0'); [complete]", host->id));
 
 		if (poll_result) {
 			db_escape(mysql, host->snmp_sysDescr, sizeof(host->snmp_sysDescr), poll_result);
 			SPINE_FREE(poll_result);
 		}
 
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.2.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.2.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.2.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.2.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.2.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.2.0'); [complete]", host->id));
 
 		if (poll_result) {
 			db_escape(mysql, host->snmp_sysObjectID, sizeof(host->snmp_sysObjectID), poll_result);
@@ -2523,18 +2660,18 @@ void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system) 
 		}
 
 		// Get the legacy system uptime instance first
-		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.3.0");
-		SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.3.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.3.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.3.0'); [complete]", host->id));
 
 		if (poll_result && is_numeric(poll_result)) {
 			host->snmp_sysUpTimeInstance = atoll(poll_result);
 			SPINE_FREE(poll_result);
 
 			// Attempt to get the more modern version
-			SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0');", host->id));
-			poll_result = snmp_get_base(host, ".1.3.6.1.6.3.10.2.1.3.0", false);
-			SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
+			SPINE_LOG_DEVDBG(("DEVDBG: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.6.3.10.2.1.3.0');", host->id));
+			poll_result = snmp_get_allow_fail(host, ".1.3.6.1.6.3.10.2.1.3.0");
+			SPINE_LOG_DEVDBG(("DEVDGB: Device[%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.6.3.10.2.1.3.0'); [complete]", host->id));
 
 			if (poll_result && is_numeric(poll_result)) {
 				host->snmp_sysUpTimeInstance = atoll(poll_result) * 100;
@@ -2544,27 +2681,27 @@ void get_system_information(spine_spine_host_t *host, MYSQL *mysql, int system) 
 			SPINE_FREE(poll_result);
 		}
 
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.4.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.4.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.4.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.4.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.4.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.4.0'); [complete]", host->id));
 
 		if (poll_result) {
 			db_escape(mysql, host->snmp_sysContact, sizeof(host->snmp_sysContact), poll_result);
 			SPINE_FREE(poll_result);
 		}
 
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.5.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.5.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.5.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.5.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.5.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.5.0'); [complete]", host->id));
 
 		if (poll_result) {
 			db_escape(mysql, host->snmp_sysName, sizeof(host->snmp_sysName), poll_result);
 			SPINE_FREE(poll_result);
 		}
 
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.6.0');", host->id));
-		poll_result = snmp_get(host, ".1.3.6.1.2.1.1.6.0");
-		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get(host, '.1.3.6.1.2.1.1.6.0'); [complete]", host->id));
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.6.0');", host->id));
+		poll_result = snmp_get_allow_fail(host, ".1.3.6.1.2.1.1.6.0");
+		SPINE_LOG_DEVDBG(("DEVDBG: Device [%d] poll_result = snmp_get_allow_fail(host, '.1.3.6.1.2.1.1.6.0'); [complete]", host->id));
 
 		if (poll_result) {
 			db_escape(mysql, host->snmp_sysLocation, sizeof(host->snmp_sysLocation), poll_result);
@@ -2647,11 +2784,6 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 	int cmd_fd;
 	int pid;
 
-	#ifdef USING_TPOPEN
-	FILE *fd;
-	int close_fd = TRUE;
-	#endif
-
 	int bytes_read;
 	double begin_time = 0;
 	double end_time = 0;
@@ -2693,17 +2825,21 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 		sem_err = spine_sem_trywait(&available_scripts);
 		if (sem_err == 0) {
 			break;
-		} else if (sem_err == EAGAIN || sem_err == EWOULDBLOCK) {
-			if (is_debug_device(current_host->id)) {
-				SPINE_LOG(("DEBUG: Device[%i]: Pausing as unable to obtain a script execution lock", current_host->id));
-			} else {
-				SPINE_LOG_DEVDBG(("DEBUG: Device[%i]: Pausing as unable to obtain a script execution lock", current_host->id));
-			}
 		} else {
-			if (is_debug_device(current_host->id)) {
-				SPINE_LOG(("DEBUG: Device[%i]: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_err));
+			int sem_errno = errno;
+
+			if (sem_errno == EAGAIN || sem_errno == EWOULDBLOCK) {
+				if (is_debug_device(current_host->id)) {
+					SPINE_LOG(("Device[%i] DEBUG: Pausing as unable to obtain a script execution lock", current_host->id));
+				} else {
+					SPINE_LOG_DEVDBG(("Device[%i] DEBUG: Pausing as unable to obtain a script execution lock", current_host->id));
+				}
 			} else {
-				SPINE_LOG_DEVDBG(("DEBUG: Device[%i]: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_err));
+				if (is_debug_device(current_host->id)) {
+					SPINE_LOG(("Device[%i] DEBUG: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_errno));
+				} else {
+					SPINE_LOG_DEVDBG(("Device[%i] DEBUG: Pausing as error %d whilst obtaining a script execution lock", current_host->id, sem_errno));
+				}
 			}
 		}
 		spine_platform_sleep_us(10000);
@@ -2733,22 +2869,12 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 		SPINE_LOG_DEBUG(("The executable is '%s' in \'%s\'", executable, proc_command));
 
 		if (access(executable, X_OK | F_OK) != -1) {
-			#ifdef USING_TPOPEN
-			fd = popen((char *)proc_command, "r");
-			cmd_fd = fileno(fd);
-			if (is_debug_device(current_host->id)) {
-				SPINE_LOG(("DEBUG: Device[%i] DEBUG: The POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
-			} else {
-				SPINE_LOG_DEBUG(("DEBUG: Device[%i] DEBUG: The POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
-			}
-			#else
 			cmd_fd = nft_popen(proc_command, "r");
 			if (is_debug_device(current_host->id)) {
-				SPINE_LOG(("DEBUG: Device[%i] DEBUG: The NIFTY POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
+				SPINE_LOG(("Device[%i] DEBUG: The NIFTY POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
 			} else {
-				SPINE_LOG_DEBUG(("DEBUG: Device[%i] DEBUG: The NIFTY POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
+				SPINE_LOG_DEBUG(("Device[%i] DEBUG: The NIFTY POPEN returned the following File Descriptor %i", current_host->id, cmd_fd));
 			}
-			#endif
 
 			if (cmd_fd > 0) {
 				retry:
@@ -2760,10 +2886,6 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 							case EBADF:
 								SPINE_LOG(("Device[%i] ERROR: One or more of the file descriptor sets specified a file descriptor that is not a valid open file descriptor.", current_host->id));
 								SET_UNDEFINED(result_string);
-
-								#ifdef USING_TPOPEN
-								close_fd = FALSE;
-								#endif
 
 								break;
 							case EINTR:
@@ -2792,39 +2914,28 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 								} else {
 									SPINE_LOG(("WARNING: A script timed out while processing EINTR's."));
 									SET_UNDEFINED(result_string);
-									#ifdef USING_TPOPEN
-									close_fd = FALSE;
-									#endif
 								}
 								break;
 							case EINVAL:
 								SPINE_LOG(("Device[%i] ERROR: Possible invalid timeout specified in pipe wait statement.", current_host->id));
 								SET_UNDEFINED(result_string);
-							#ifdef USING_TPOPEN
-							close_fd = FALSE;
-							#endif
-							break;
-						default:
-							SPINE_LOG(("Device[%i] ERROR: The script/command wait failed", current_host->id));
-							SET_UNDEFINED(result_string);
-							#ifdef USING_TPOPEN
-							close_fd = FALSE;
-							#endif
-							break;
-					}
+								break;
+							default:
+								SPINE_LOG(("Device[%i] ERROR: The script/command wait failed", current_host->id));
+								SET_UNDEFINED(result_string);
+								break;
+						}
 
 					break;
 				case 0:
-					#ifdef USING_TPOPEN
-					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The POPEN timed out", current_host->id));
-
-					close_fd = FALSE;
-					#else
 					SPINE_LOG_MEDIUM(("Device[%i] ERROR: The NIFTY POPEN timed out", current_host->id));
 
 					pid = nft_pchild(cmd_fd);
-					kill(pid, SIGKILL);
-					#endif
+					if (pid > 0) {
+						kill(pid, SIGKILL);
+					} else {
+						SPINE_LOG(("Device[%i] ERROR: Unable to find the timed-out POPEN child", current_host->id));
+					}
 
 					SET_UNDEFINED(result_string);
 					break;
@@ -2846,14 +2957,7 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 				}
 
 				/* close pipe */
-				#ifdef USING_TPOPEN
-				/* we leave the old fd open if it timed out. It will have to exit on it's own */
-				if (close_fd) {
-					pclose(fd);
-				}
-				#else
 				nft_pclose(cmd_fd);
-				#endif
 			} else {
 				char redacted_cmd[BUFSIZE];
 				spine_redact_args(command, redacted_cmd, sizeof(redacted_cmd));

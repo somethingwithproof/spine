@@ -1,0 +1,1204 @@
+/* Unit tests that exercise the shipped objects.
+ *
+ * The other test binaries in this directory inline the function under test, or
+ * replicate its predicate, so they compile standalone.  That keeps them cheap
+ * but means a fix can land in util.c while the test still passes against the
+ * old copy.  This binary links the real translation units instead, with
+ * tests/fuzz/stubs.c supplying the globals that spine.c would otherwise define,
+ * so what runs here is what ships.
+ */
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <cmocka.h>
+
+#include <string.h>
+#include <stdlib.h>
+#include <limits.h>
+#include <errno.h>
+#include <pthread.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include "common.h"
+#include "spine.h"
+#include "util.h"
+#include "ping.h"
+#include "poller.h"
+
+#include "nft_popen.h"
+
+#include <fcntl.h>
+
+#if !defined(ICMP_DEST_UNREACH) && defined(ICMP_UNREACH)
+#define ICMP_DEST_UNREACH ICMP_UNREACH
+#endif
+
+/* provided by tests/fuzz/stubs.c, as spine.c would */
+extern int *debug_devices;
+
+#ifdef SPINE_TEST_WRAP_WAITPID
+/* Arms __wrap_waitpid() to fail every call for one pid; -1/unset disables it
+ * so every other test in this binary keeps hitting the real waitpid(). */
+static pid_t forced_waitpid_error_pid = -1;
+static int   forced_waitpid_error_errno = 0;
+
+extern pid_t __real_waitpid(pid_t pid, int *status, int options);
+
+pid_t __wrap_waitpid(pid_t pid, int *status, int options) {
+	if (pid == forced_waitpid_error_pid) {
+		errno = forced_waitpid_error_errno;
+		return -1;
+	}
+	return __real_waitpid(pid, status, options);
+}
+#endif
+
+/* --- strncopy(): issue#447, the off-by-one when src fills the destination -- */
+
+static void test_strncopy_truncates_within_the_buffer(void **state) {
+	struct { char dst[8]; unsigned char canary; } b;
+	(void) state;
+
+	memset(&b, 0xAA, sizeof b);
+	strncopy(b.dst, "ABCDEFGHIJK", sizeof b.dst);
+
+	assert_string_equal(b.dst, "ABCDEFG");
+	assert_int_equal(strlen(b.dst), sizeof b.dst - 1);
+	assert_int_equal(b.canary, 0xAA);
+}
+
+static void test_strncopy_copies_a_short_source_whole(void **state) {
+	char dst[16];
+	(void) state;
+
+	memset(dst, 0xAA, sizeof dst);
+	strncopy(dst, "abc", sizeof dst);
+	assert_string_equal(dst, "abc");
+}
+
+static void test_strncopy_handles_a_zero_size(void **state) {
+	char dst[4] = {'z', 'z', 'z', '\0'};
+	(void) state;
+
+	strncopy(dst, "abc", 0);
+	assert_string_equal(dst, "zzz");
+}
+
+static void test_strncopy_terminates_an_exact_fit(void **state) {
+	struct { char dst[4]; unsigned char canary; } b;
+	(void) state;
+
+	memset(&b, 0xAA, sizeof b);
+	strncopy(b.dst, "abc", sizeof b.dst);
+
+	assert_string_equal(b.dst, "abc");
+	assert_int_equal(b.canary, 0xAA);
+}
+
+/* --- regex_replace(): returns the match, or the input when it cannot ------- */
+
+static void test_regex_replace_returns_the_match(void **state) {
+	(void) state;
+	assert_string_equal(regex_replace("[0-9][0-9]*", "load 42 avg"), "42");
+	assert_string_equal(regex_replace("\\([0-9][0-9]*\\)", "value 42"), "42");
+}
+
+static void test_regex_replace_passes_through_on_no_match(void **state) {
+	(void) state;
+	assert_string_equal(regex_replace("[0-9][0-9]*", "no digits"), "no digits");
+}
+
+static void test_regex_replace_passes_through_on_bad_pattern(void **state) {
+	(void) state;
+	assert_string_equal(regex_replace("[unclosed", "value"), "value");
+	assert_string_equal(regex_replace("*", "value"), "value");
+}
+
+static void test_spine_appendf_reports_truncation_and_guards(void **state) {
+	char buffer[8] = "";
+	char success[8] = "";
+	char *cursor = buffer;
+	char *success_cursor = success;
+	char *null_cursor = NULL;
+	size_t remaining = sizeof(buffer);
+	size_t success_remaining = sizeof(success);
+	size_t zero = 0;
+	(void) state;
+
+	assert_true(spine_appendf(&success_cursor, &success_remaining, "%s", "abc"));
+	assert_int_equal(success_cursor - success, 3);
+	assert_int_equal(success_remaining, sizeof(success) - 3);
+	assert_string_equal(success, "abc");
+	assert_false(spine_appendf(&cursor, &remaining, "%s", "0123456789"));
+	assert_int_equal(cursor - buffer, 7);
+	assert_int_equal(remaining, 1);
+	assert_int_equal(buffer[7], '\0');
+	assert_false(spine_appendf(&cursor, &remaining, "%s", "x"));
+	assert_string_equal(buffer, "0123456");
+	assert_false(spine_appendf(NULL, &remaining, "%s", "x"));
+	assert_false(spine_appendf(&null_cursor, &remaining, "%s", "x"));
+	assert_false(spine_appendf(&cursor, NULL, "%s", "x"));
+	assert_false(spine_appendf(&cursor, &zero, "%s", "x"));
+}
+
+static void test_bounded_formatters(void **state) {
+	char capabilities[BUFSIZE];
+	char row[DBL_BUFSIZE + SMALL_BUFSIZE];
+	char small[32];
+	char long_value[DBL_BUFSIZE];
+	const char *auth_start;
+	const char *auth_end;
+	const char *priv_start;
+	const char *priv_end;
+	(void) state;
+
+	memset(long_value, '7', sizeof(long_value) - 1);
+	long_value[sizeof(long_value) - 1] = '\0';
+
+	assert_true(format_spine_capabilities(capabilities,
+		sizeof(capabilities), long_value, long_value));
+	assert_true(strlen(capabilities) < sizeof(capabilities));
+	auth_start = strstr(capabilities, "authProtocols: \"");
+	assert_non_null(auth_start);
+	auth_start += strlen("authProtocols: \"");
+	auth_end = strchr(auth_start, '"');
+	assert_non_null(auth_end);
+	priv_start = strstr(capabilities, "privProtocols: \"");
+	assert_non_null(priv_start);
+	priv_start += strlen("privProtocols: \"");
+	priv_end = strchr(priv_start, '"');
+	assert_non_null(priv_end);
+	assert_int_equal(auth_end - auth_start, CAPABILITY_PROTOCOL_LIST_MAX);
+	assert_int_equal(priv_end - priv_start, CAPABILITY_PROTOCOL_LIST_MAX);
+	assert_string_equal(priv_end, "\" }");
+	assert_false(format_spine_capabilities(small,
+		sizeof(small), long_value, long_value));
+	assert_false(format_spine_capabilities(NULL, 0, long_value, long_value));
+
+	assert_true(format_poller_output_row(row, sizeof(row), 17,
+		"traffic_in", "1700000000.25", long_value));
+	assert_non_null(strstr(row,
+		"(17, 'traffic_in', FROM_UNIXTIME(1700000000.25)"));
+	assert_false(format_poller_output_row(small, sizeof(small), 17,
+		"traffic_in", "1700000000.25", long_value));
+	assert_false(format_poller_output_row(row, sizeof(row), 17,
+		"traffic_in", "1700000000); DROP TABLE host", long_value));
+	assert_false(format_poller_output_row(NULL, 0, 17,
+		"traffic_in", "1700000000.25", long_value));
+}
+
+
+/* --- predicates ----------------------------------------------------------- */
+
+static void test_all_digits(void **state) {
+	(void) state;
+	assert_int_equal(all_digits("12345"), TRUE);
+	assert_int_equal(all_digits("0"), TRUE);
+	assert_int_equal(all_digits(""), FALSE);          /* empty is not all digits */
+	assert_int_equal(all_digits("12a45"), FALSE);
+	assert_int_equal(all_digits("-12"), FALSE);       /* sign is not a digit */
+	assert_int_equal(all_digits(" 12"), FALSE);
+}
+
+static void test_is_ipaddress(void **state) {
+	(void) state;
+	assert_int_equal(is_ipaddress("192.168.0.1"), TRUE);
+	assert_int_equal(is_ipaddress("::1"), TRUE);
+	assert_int_equal(is_ipaddress("2001:db8::1"), FALSE);  /* letters rejected */
+	assert_int_equal(is_ipaddress("host.example"), FALSE);
+	assert_int_equal(is_ipaddress(""), TRUE);              /* vacuously true */
+}
+
+static void test_is_numeric(void **state) {
+	char i[16], d[16], neg[16], txt[16], mixed[16], empty[16];
+	(void) state;
+
+	strcpy(i, "42");        assert_int_equal(is_numeric(i), TRUE);
+	strcpy(d, "3.14");      assert_int_equal(is_numeric(d), TRUE);
+	strcpy(neg, "-7");      assert_int_equal(is_numeric(neg), TRUE);
+	strcpy(txt, "abc");     assert_int_equal(is_numeric(txt), FALSE);
+	strcpy(mixed, "12abc"); assert_int_equal(is_numeric(mixed), FALSE);
+	strcpy(empty, "");      assert_int_equal(is_numeric(empty), FALSE);
+}
+
+static void test_is_hexadecimal(void **state) {
+	(void) state;
+	assert_int_equal(is_hexadecimal("AA BB CC", 0), TRUE);
+	assert_int_equal(is_hexadecimal("AA\tBB", 0), FALSE);
+	assert_int_equal(is_hexadecimal("AA\tBB", 1), FALSE);
+	assert_int_equal(is_hexadecimal("AA\tBB:CC", 1), TRUE);
+	assert_int_equal(is_hexadecimal("zz", 0), FALSE);
+	assert_int_equal(is_hexadecimal("", 0), FALSE);
+}
+
+/* --- string surgery ------------------------------------------------------- */
+
+static void test_trim_family(void **state) {
+	char a[32], b[32], c[32];
+	(void) state;
+
+	strcpy(a, "  padded  ");  assert_string_equal(trim(a), "padded");
+	strcpy(b, "  left");      assert_string_equal(ltrim(b), "left");
+	strcpy(c, "right  ");     assert_string_equal(rtrim(c), "right");
+}
+
+static void test_reverse(void **state) {
+	char s[16], one[2], empty[1];
+	(void) state;
+
+	strcpy(s, "abcdef");  assert_string_equal(reverse(s), "fedcba");
+	strcpy(one, "x");     assert_string_equal(reverse(one), "x");
+	empty[0] = '\0';      assert_string_equal(reverse(empty), "");
+}
+
+static void test_strpos(void **state) {
+	(void) state;
+	assert_int_equal(strpos("hello world", "world"), 6);
+	assert_int_equal(strpos("hello", "hello"), 0);
+	assert_int_equal(strpos("hello", "zzz"), -1);
+	assert_int_equal(strpos("hello", ""), 0);
+}
+
+static void test_char_count(void **state) {
+	(void) state;
+	assert_int_equal(char_count("a,b,c", ','), 2);
+	assert_int_equal(char_count("none", ','), 0);
+	assert_int_equal(char_count("", 'x'), 0);
+	assert_int_equal(char_count("anything", '\0'), 1);   /* documented shortcut */
+}
+
+static void test_strip_alpha(void **state) {
+	char a[32], b[32];
+	(void) state;
+
+	strcpy(a, "load42");    assert_string_equal(strip_alpha(a), "42");
+	strcpy(b, "abc123def"); assert_string_equal(strip_alpha(b), "123");
+}
+
+static void test_add_slashes_doubles_a_backslash(void **state) {
+	char in[32];
+	char *out;
+	(void) state;
+
+	strcpy(in, "a\\b");
+	out = add_slashes(in);
+
+	assert_non_null(out);
+	assert_string_equal(out, "a\\\\b");
+	free(out);                       /* add_slashes() returns owned memory */
+}
+
+static void test_add_slashes_passes_plain_text_through(void **state) {
+	char in[32];
+	char *out;
+	(void) state;
+
+	strcpy(in, "plain");
+	out = add_slashes(in);
+
+	assert_non_null(out);
+	assert_string_equal(out, "plain");
+	free(out);
+}
+
+static void test_hex2dec(void **state) {
+	char a[32], b[16], overflow[160];
+	unsigned long long value;
+	(void) state;
+
+	strcpy(a, "FF");  assert_true(hex2dec(a, &value)); assert_int_equal(value, 255);
+	strcpy(b, "00");  assert_true(hex2dec(b, &value)); assert_int_equal(value, 0);
+	strcpy(a, "00:1b:44:11:3a:b7");
+	assert_true(hex2dec(a, &value));
+	assert_int_equal(value, 0x001b44113ab7ULL);
+	strcpy(a, "- 0a:1B- 2c :3D ");
+	assert_true(hex2dec(a, &value));
+	assert_int_equal(value, 0x0a1b2c3dULL);
+	strcpy(a, "ff:ff:ff:ff:ff:ff:ff:ff");
+	assert_true(hex2dec(a, &value));
+	assert_int_equal(value, ULLONG_MAX);
+	strcpy(overflow, "10000000000000000");
+	assert_false(hex2dec(overflow, &value));
+	strcpy(overflow, "80:00:1f:88:80:00:1f:88:80:00:1f:88:80:00:1f:88:80:00:1f:88:80:00:1f:88:80:00:1f:88:80:00:1f:88");
+	assert_false(hex2dec(overflow, &value));
+	strcpy(overflow, "ffff ffff ffff ffff ffff ffff ffff ffff");
+	assert_false(hex2dec(overflow, &value));
+	assert_false(hex2dec(NULL, &value));
+	assert_false(hex2dec("ff", NULL));
+	assert_false(hex2dec("", &value));
+	assert_false(hex2dec(":::", &value));
+}
+
+static void test_poller_hex_overflow_is_undefined(void **state) {
+	char result[RESULTS_BUFFER];
+	char exact[4] = "ff";
+	char tiny[2] = "f";
+	char too_small[3] = "ff";
+	char empty[1] = "";
+	char long_hex[RESULTS_BUFFER + 16];
+	int errors = 0;
+
+	(void) state;
+	assert_true(poller_store_hex_result(exact, sizeof(exact), exact, &errors));
+	assert_string_equal(exact, "255");
+	strcpy(result, "ff:ff:ff:ff:ff:ff:ff:ff");
+	assert_true(poller_store_hex_result(result, sizeof(result), result, &errors));
+	assert_string_equal(result, "18446744073709551615");
+	assert_int_equal(errors, 0);
+
+	strcpy(result, "1:00:00:00:00:00:00:00:00");
+	assert_false(poller_store_hex_result(result, sizeof(result), result, &errors));
+	assert_true(IS_UNDEFINED(result));
+	assert_int_equal(errors, 1);
+	assert_false(poller_store_hex_result(NULL, 0, "ff", &errors));
+	assert_false(poller_store_hex_result(empty, 0, "ff", &errors));
+	assert_false(poller_store_hex_result(tiny, 1, "ff", &errors));
+	assert_false(poller_store_hex_result(too_small, sizeof(too_small), too_small, &errors));
+	assert_true(IS_UNDEFINED(too_small));
+	assert_int_equal(errors, 5);
+
+	memset(long_hex, ' ', sizeof(long_hex));
+	long_hex[sizeof(long_hex) - 3] = 'f';
+	long_hex[sizeof(long_hex) - 2] = 'f';
+	long_hex[sizeof(long_hex) - 1] = '\0';
+	assert_true(poller_store_hex_result(result, sizeof(result), long_hex, &errors));
+	assert_string_equal(result, "255");
+	assert_int_equal(errors, 5);
+}
+
+static void test_row_alias_upsert_version_gate(void **state) {
+	(void) state;
+	assert_false(db_row_alias_upsert_supported(NULL, 80020));
+	assert_false(db_row_alias_upsert_supported("8.0.19", 80019));
+	assert_true(db_row_alias_upsert_supported("8.0.20", 80020));
+	assert_true(db_row_alias_upsert_supported("8.4.0", 80400));
+	assert_true(db_row_alias_upsert_supported("9.1.0", 90100));
+	assert_false(db_row_alias_upsert_supported("10.11.6-MariaDB", 101106));
+	assert_false(db_row_alias_upsert_supported("5.5.5-10.11.6-MariaDB-log", 50505));
+}
+
+/* --- misc ----------------------------------------------------------------- */
+
+static void test_file_exists(void **state) {
+	(void) state;
+	assert_int_equal(file_exists("/etc/hostname") || file_exists("/etc/passwd"), TRUE);
+	assert_int_equal(file_exists("/no/such/path/at/all"), FALSE);
+}
+
+static void test_get_time_as_double_advances(void **state) {
+	double t1, t2;
+	(void) state;
+
+	t1 = get_time_as_double();
+	assert_true(t1 > 0.0);
+	t2 = get_time_as_double();
+	assert_true(t2 >= t1);
+}
+
+static void test_get_checksum_is_stable(void **state) {
+	unsigned char buf[16];
+	unsigned short a, b;
+	(void) state;
+
+	memset(buf, 0x5A, sizeof buf);
+	a = get_checksum(buf, sizeof buf);
+	b = get_checksum(buf, sizeof buf);
+	assert_int_equal(a, b);
+
+	buf[0] = 0x00;
+	assert_int_not_equal(get_checksum(buf, sizeof buf), a);
+}
+
+/* --- spine_icmp_classify_reply(): the real classifier --------------------- */
+
+#define ICMP_TEST_BUFSIZE 64
+
+static void build_ip_icmp(unsigned char *buf, size_t len, uint16_t id, uint16_t seq, int type) {
+	struct ip   *iph;
+	struct icmp *pkt;
+
+	memset(buf, 0, len);
+
+	iph = (struct ip *) buf;
+	iph->ip_hl = sizeof(struct ip) / 4;
+	iph->ip_v  = 4;
+
+	pkt = (struct icmp *) (buf + sizeof(struct ip));
+	pkt->icmp_type = type;
+	pkt->icmp_id   = id;
+	pkt->icmp_seq  = seq;
+}
+
+static void test_icmp_classify_accepts_our_reply(void **state) {
+	unsigned char buf[ICMP_TEST_BUFSIZE];
+	const struct icmp *out = NULL;
+	(void) state;
+
+	build_ip_icmp(buf, sizeof buf, 0x1234, 7, ICMP_ECHOREPLY);
+	assert_int_equal(spine_icmp_classify_reply(buf, sizeof buf, 0x1234, 7, &out), SPINE_ICMP_REPLY_OK);
+	assert_non_null(out);
+}
+
+static void test_icmp_classify_rejects_a_runt(void **state) {
+	unsigned char buf[ICMP_TEST_BUFSIZE];
+	const struct icmp *out = (const struct icmp *) 1;
+	(void) state;
+
+	build_ip_icmp(buf, sizeof buf, 1, 1, ICMP_ECHOREPLY);
+	assert_int_equal(spine_icmp_classify_reply(buf, 4, 1, 1, &out), SPINE_ICMP_REPLY_TOO_SHORT);
+	assert_null(out);
+}
+
+static void test_icmp_classify_rejects_a_bad_ihl(void **state) {
+	unsigned char buf[ICMP_TEST_BUFSIZE];
+	const struct icmp *out = NULL;
+	(void) state;
+
+	build_ip_icmp(buf, sizeof buf, 1, 1, ICMP_ECHOREPLY);
+	((struct ip *) buf)->ip_hl = 2;      /* below sizeof(struct ip) */
+	assert_int_equal(spine_icmp_classify_reply(buf, sizeof buf, 1, 1, &out), SPINE_ICMP_REPLY_BAD_HEADER);
+}
+
+static void test_icmp_classify_rejects_a_non_echo(void **state) {
+	unsigned char buf[ICMP_TEST_BUFSIZE];
+	const struct icmp *out = NULL;
+	(void) state;
+
+	/* Type 3 is Destination Unreachable in RFC 792.  BSD names the symbol
+	 * ICMP_UNREACH while Linux names it ICMP_DEST_UNREACH, so keep the wire
+	 * value explicit in this platform-independent parser test. */
+	build_ip_icmp(buf, sizeof buf, 1, 1, 3);
+	assert_int_equal(spine_icmp_classify_reply(buf, sizeof buf, 1, 1, &out), SPINE_ICMP_REPLY_NOT_ECHO);
+	assert_null(out);
+}
+
+static void test_icmp_classify_rejects_another_hosts_reply(void **state) {
+	unsigned char buf[ICMP_TEST_BUFSIZE];
+	const struct icmp *out = NULL;
+	(void) state;
+
+	build_ip_icmp(buf, sizeof buf, 0xBEEF, 9, ICMP_ECHOREPLY);
+	assert_int_equal(spine_icmp_classify_reply(buf, sizeof buf, 0x1234, 9, &out), SPINE_ICMP_REPLY_NOT_OURS);
+	assert_null(out);
+}
+
+static void test_icmp_classify_rejects_a_null_buffer(void **state) {
+	const struct icmp *out = NULL;
+	(void) state;
+	assert_int_equal(spine_icmp_classify_reply(NULL, ICMP_TEST_BUFSIZE, 1, 1, &out), SPINE_ICMP_REPLY_TOO_SHORT);
+}
+
+/* --- get_namebyhost(): the real parser ------------------------------------ */
+
+static void test_namebyhost_plain_hostname(void **state) {
+	char host[64];
+	name_t *n;
+	(void) state;
+
+	strcpy(host, "device.example.net");
+	n = get_namebyhost(host, NULL);
+	assert_non_null(n);
+	assert_string_equal(n->hostname, "device.example.net");
+	free(n);
+}
+
+static void test_namebyhost_is_reentrant_across_calls(void **state) {
+	char a[64], b[64];
+	name_t *na, *nb;
+	(void) state;
+
+	strcpy(a, "first.example.net");
+	strcpy(b, "second.example.net");
+
+	na = get_namebyhost(a, NULL);
+	nb = get_namebyhost(b, NULL);
+
+	assert_string_equal(na->hostname, "first.example.net");
+	assert_string_equal(nb->hostname, "second.example.net");
+	free(na);
+	free(nb);
+}
+
+static void test_namebyhost_tcpv6_method_keeps_the_full_hostname(void **state) {
+	char host[64];
+	name_t *n;
+	(void) state;
+
+	strcpy(host, "[fe80::1]:161");
+	n = get_namebyhost(host, NULL);
+	assert_non_null(n);
+	assert_string_equal(n->hostname, "[fe80::1]:161");
+	free(n);
+}
+
+
+/* --- configuration: defaults, the file parser, and set_option() ----------- */
+
+static void test_config_defaults_populates_the_set(void **state) {
+	(void) state;
+
+	memset(&set, 0, sizeof set);
+	config_defaults();
+
+	assert_int_equal(set.threads, DEFAULT_THREADS);
+	assert_int_equal(set.db_port, DEFAULT_DB_PORT);
+	assert_string_equal(set.db_host, DEFAULT_DB_HOST);
+	assert_string_equal(set.db_db,   DEFAULT_DB_DB);
+}
+
+static void test_read_spine_config_rejects_a_missing_file(void **state) {
+	(void) state;
+	assert_int_equal(read_spine_config("/no/such/spine.conf"), -1);
+}
+
+static void test_read_spine_config_reads_settings(void **state) {
+	const char *path = "/tmp/spine_test.conf";
+	FILE *fp;
+	(void) state;
+
+	fp = fopen(path, "wb");
+	assert_non_null(fp);
+	fputs("DB_Host           testhost\n", fp);
+	fputs("DB_Database       testdb\n", fp);
+	fputs("DB_User           testuser\n", fp);
+	fputs("DB_Port           3399\n", fp);
+	fputs("Poller_Threads    7\n", fp);
+	fputs("# a comment line\n", fp);
+	fputs("\n", fp);
+	fclose(fp);
+
+	config_defaults();
+	assert_int_equal(read_spine_config(path), 0);
+
+	assert_string_equal(set.db_host, "testhost");
+	assert_string_equal(set.db_db,   "testdb");
+	assert_string_equal(set.db_user, "testuser");
+	assert_int_equal(set.db_port, 3399);
+
+	remove(path);
+}
+
+/* --- get_date_format(): cached storage, rebuilt by set_date_format() ------ */
+
+static void test_get_date_format_returns_cached_storage(void **state) {
+	char *fmt;
+	(void) state;
+
+	config_defaults();
+	set_date_format();
+	fmt = get_date_format();
+
+	assert_non_null(fmt);
+	assert_true(strlen(fmt) > 0);
+
+	/* the buffer belongs to util.c and is handed out, not owned by us */
+	assert_ptr_equal(fmt, get_date_format());
+}
+
+static void test_set_date_format_clamps_an_out_of_range_format(void **state) {
+	char *fmt;
+	(void) state;
+
+	config_defaults();
+	set.log_datetime_format    = GD_MAX + 10;
+	set.log_datetime_separator = GDC_MAX + 10;
+
+	set_date_format();
+	fmt = get_date_format();
+
+	assert_non_null(fmt);
+	assert_int_equal(set.log_datetime_format, GD_DEFAULT);
+	assert_int_equal(set.log_datetime_separator, GDC_DEFAULT);
+}
+
+static void test_get_date_format_covers_each_supported_format(void **state) {
+	int fmt_value;
+	int sep_value;
+	char *fmt;
+	(void) state;
+
+	config_defaults();
+
+	for (fmt_value = GD_MIN; fmt_value <= GD_MAX; fmt_value++) {
+		for (sep_value = GDC_MIN; sep_value <= GDC_MAX; sep_value++) {
+			set.log_datetime_format    = fmt_value;
+			set.log_datetime_separator = sep_value;
+
+			set_date_format();
+			fmt = get_date_format();
+			assert_non_null(fmt);
+			assert_true(strlen(fmt) > 0);
+		}
+	}
+}
+
+/* --- is_debug_device(): reads the global table stubs.c provides ----------- */
+
+static void test_is_debug_device_matches_only_listed_ids(void **state) {
+	int table[100];
+	int *saved = debug_devices;
+	(void) state;
+
+	memset(table, 0, sizeof table);
+	table[0] = 42;
+	table[1] = 77;
+	debug_devices = table;
+
+	assert_int_equal(is_debug_device(42), TRUE);
+	assert_int_equal(is_debug_device(77), TRUE);
+	assert_int_equal(is_debug_device(1), FALSE);
+
+	debug_devices = saved;
+}
+
+/* --- nft_popen(): registry entries have exactly one closing owner -------- */
+
+struct close_result {
+	int fd;
+	int result;
+	int error;
+};
+
+static void *close_from_thread(void *arg) {
+	struct close_result *result = arg;
+
+	result->result = nft_pclose(result->fd);
+	result->error = errno;
+
+	return NULL;
+}
+
+static void test_nft_pclose_has_one_owner_per_registry_entry(void **state) {
+	static struct close_result results[2];
+	pthread_t threads[2];
+	int create_results[2] = {-1, -1};
+	int fd;
+	int successes = 0;
+	int bad_fds = 0;
+	int owner_result = -1;
+	int join_results[2] = {-1, -1};
+	int reap_error;
+	int reap_result;
+	pid_t child;
+	int i;
+	(void) state;
+
+	fd = nft_popen("exit 7", "r");
+	assert_true(fd >= 0);
+	child = nft_pchild(fd);
+	assert_true(child > 0);
+
+	for (i = 0; i < 2; i++) {
+		results[i].fd = fd;
+		results[i].result = -1;
+		results[i].error = 0;
+		create_results[i] = pthread_create(&threads[i], NULL, close_from_thread, &results[i]);
+	}
+
+	for (i = 0; i < 2; i++) {
+		if (create_results[i] == 0) {
+			join_results[i] = pthread_join(threads[i], NULL);
+		}
+
+		if (results[i].result >= 0) {
+			successes++;
+			owner_result = results[i].result;
+		} else if (results[i].error == EBADF) {
+			bad_fds++;
+		}
+	}
+
+	/* Avoid leaking the child if thread creation failed before either closer ran. */
+	if (successes == 0) {
+		(void)nft_pclose(fd);
+	}
+
+	assert_int_equal(create_results[0], 0);
+	assert_int_equal(create_results[1], 0);
+	assert_int_equal(join_results[0], 0);
+	assert_int_equal(join_results[1], 0);
+	assert_int_equal(successes, 1);
+	assert_int_equal(bad_fds, 1);
+	assert_true(WIFEXITED(owner_result));
+	assert_int_equal(WEXITSTATUS(owner_result), 7);
+
+	errno = 0;
+	reap_result = waitpid(child, NULL, WNOHANG);
+	reap_error = errno;
+	assert_int_equal(fcntl(fd, F_GETFD), -1);
+	assert_int_equal(errno, EBADF);
+	assert_int_equal(reap_result, -1);
+	assert_int_equal(reap_error, ECHILD);
+}
+
+static void test_nft_pclose_cancellation_releases_registry_entry(void **state) {
+	struct close_result result;
+	pthread_t thread;
+	void *thread_result = NULL;
+	pid_t child;
+	int cancel_result = -1;
+	int create_result;
+	int detached = 0;
+	int fd;
+	int i;
+	int join_result = -1;
+	int lookup_error;
+	int lookup_result;
+	char ready;
+	int status;
+	(void) state;
+
+	fd = nft_popen("printf x; kill -STOP $$", "r");
+	assert_true(fd >= 0);
+	child = nft_pchild(fd);
+	assert_true(child > 0);
+	assert_int_equal(read(fd, &ready, 1), 1);
+	assert_int_equal(ready, 'x');
+
+	result.fd = fd;
+	result.result = -1;
+	result.error = 0;
+	create_result = pthread_create(&thread, NULL, close_from_thread, &result);
+	if (create_result == 0) {
+		/* The registry transition, rather than elapsed time, proves the closer has
+		 * taken exclusive ownership and reached waitpid().
+		 */
+		for (i = 0; i < 5000; i++) {
+			errno = 0;
+			if (nft_pchild(fd) == -1 && errno == EBADF) {
+				detached = 1;
+				break;
+			}
+			usleep(1000);
+		}
+
+		if (detached) {
+			cancel_result = pthread_cancel(thread);
+		} else {
+			kill(child, SIGKILL);
+		}
+		join_result = pthread_join(thread, &thread_result);
+	}
+
+	errno = 0;
+	lookup_result = nft_pchild(fd);
+	lookup_error = errno;
+
+	/* Cancellation stops nft_pclose() before it can reap.  Clean up the child
+	 * before asserting because cmocka assertions longjmp.
+	 */
+	if (lookup_result > 0) {
+		kill(lookup_result, SIGKILL);
+		(void)nft_pclose(fd);
+	} else if (detached) {
+		kill(child, SIGKILL);
+		do {
+			status = waitpid(child, NULL, 0);
+		} while (status < 0 && errno == EINTR);
+	}
+
+	assert_int_equal(create_result, 0);
+	assert_true(detached);
+	assert_int_equal(cancel_result, 0);
+	assert_int_equal(join_result, 0);
+	assert_ptr_equal(thread_result, PTHREAD_CANCELED);
+	assert_int_equal(lookup_result, -1);
+	assert_int_equal(lookup_error, EBADF);
+}
+
+static void test_nft_pclose_early_error_preserves_cancellation_mode(void **state) {
+	int cancel_state_after;
+	int cancel_state_before;
+	(void) state;
+
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state_before);
+	pthread_setcancelstate(cancel_state_before, NULL);
+
+	errno = 0;
+	assert_int_equal(nft_pclose(-1), -1);
+	assert_int_equal(errno, EBADF);
+	errno = 0;
+	assert_int_equal(nft_pchild(-1), -1);
+	assert_int_equal(errno, EBADF);
+
+	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state_after);
+	pthread_setcancelstate(cancel_state_after, NULL);
+
+	assert_int_equal(cancel_state_after, cancel_state_before);
+}
+
+/* ---------------------------------------------------------------------------
+ * Child process hardening (nft_popen.c)
+ *
+ * PR #542 removed the close-on-exec and bounded-reap code PR #557 had just
+ * added, and nothing failed, because the only guard was a shell script that
+ * grepped the source and was deleted in the same commit. These exercise the
+ * behaviour against the shipped object instead.
+ * ------------------------------------------------------------------------- */
+
+static void test_cloexec_is_set_on_both_pipe_ends(void **state) {
+	int pdes[2];
+	int i;
+
+	(void) state;
+
+	assert_true(spine_open_pipe_cloexec(pdes));
+
+	for (i = 0; i < 2; i++) {
+		int flags = fcntl(pdes[i], F_GETFD);
+
+		assert_true(flags >= 0);
+		assert_true((flags & FD_CLOEXEC) != 0);
+	}
+
+	close(pdes[0]);
+	close(pdes[1]);
+}
+
+static void test_cloexec_pipe_is_a_working_pipe(void **state) {
+	int pdes[2];
+	char buf[8];
+
+	(void) state;
+
+	assert_true(spine_open_pipe_cloexec(pdes));
+	assert_int_equal(write(pdes[1], "ok", 2), 2);
+	assert_int_equal(read(pdes[0], buf, sizeof(buf)), 2);
+	assert_memory_equal(buf, "ok", 2);
+
+	close(pdes[0]);
+	close(pdes[1]);
+}
+
+static void test_duplicated_descriptor_is_close_on_exec(void **state) {
+	int original;
+	int duplicate;
+	int flags;
+
+	(void) state;
+	original = open("/dev/null", O_RDONLY);
+	assert_true(original >= 0);
+	duplicate = spine_dup_cloexec(original);
+	assert_true(duplicate >= 0);
+	flags = fcntl(duplicate, F_GETFD);
+	assert_true(flags >= 0);
+	assert_true((flags & FD_CLOEXEC) != 0);
+	close(duplicate);
+	close(original);
+}
+
+static void test_existing_pipe_on_stdout_does_not_close_a_new_child_redirect(void **state) {
+	int saved_stdin;
+	int saved_stdout;
+	int writer;
+	int reader;
+	int writer_status;
+	int reader_status;
+	ssize_t bytes;
+	char output[32] = {0};
+
+	(void) state;
+	saved_stdin = dup(STDIN_FILENO);
+	saved_stdout = dup(STDOUT_FILENO);
+	assert_true(saved_stdin >= 0);
+	assert_true(saved_stdout >= 0);
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+
+	/* The write-mode parent retains fd 1 in PidList. The following read-mode
+	 * child also redirects its new pipe onto fd 1. Its later PidList close walk
+	 * must not close that newly installed stdout. */
+	writer = nft_popen("cat >/dev/null", "w");
+	reader = nft_popen("printf second-child-visible", "r");
+	bytes = reader >= 0 ? read(reader, output, sizeof(output) - 1) : -1;
+	reader_status = reader >= 0 ? nft_pclose(reader) : -1;
+	writer_status = writer >= 0 ? nft_pclose(writer) : -1;
+
+	dup2(saved_stdin, STDIN_FILENO);
+	dup2(saved_stdout, STDOUT_FILENO);
+	close(saved_stdin);
+	close(saved_stdout);
+
+	assert_true(writer >= 0);
+	assert_true(reader >= 0);
+	assert_true(bytes > 0);
+	assert_string_equal(output, "second-child-visible");
+	assert_true(WIFEXITED(reader_status));
+	assert_int_equal(WEXITSTATUS(reader_status), 0);
+	assert_true(WIFEXITED(writer_status));
+	assert_int_equal(WEXITSTATUS(writer_status), 0);
+}
+
+static void test_abandoned_children_are_swept_and_capacity_is_bounded(void **state) {
+	pid_t pids[NFT_ABANDONED_MAX + 1];
+	int i;
+	int created = 0;
+	int status;
+
+	(void) state;
+	for (i = 0; i < NFT_ABANDONED_MAX + 1; i++) {
+		pids[i] = fork();
+		if (pids[i] < 0)
+			break;
+		if (pids[i] == 0) {
+			pause();
+			_exit(0);
+		}
+		created++;
+		nft_abandon_child(pids[i], "unit test");
+	}
+
+	if (created != NFT_ABANDONED_MAX + 1) {
+		for (i = 0; i < created; i++) {
+			(void)kill(pids[i], SIGKILL);
+			(void)waitpid(pids[i], &status, 0);
+		}
+		(void)nft_abandoned_pending();
+		skip();
+	}
+
+	assert_int_equal(nft_abandoned_pending(), NFT_ABANDONED_MAX);
+	for (i = 0; i < created; i++) {
+		assert_int_equal(kill(pids[i], SIGKILL), 0);
+		assert_int_equal(waitpid(pids[i], &status, 0), pids[i]);
+	}
+	assert_int_equal(nft_abandoned_pending(), 0);
+}
+
+#ifdef SPINE_TEST_WRAP_WAITPID
+/* waitpid() failing with anything other than ECHILD/EINTR (never true for a
+ * real call with WNOHANG) must still kill the child before parking it,
+ * rather than leaving a still-running process outside the sweep's reach. */
+static void test_nft_pclose_kills_child_when_waitpid_errors(void **state) {
+	int fd;
+	int status;
+	pid_t child;
+	pid_t reaped;
+	int real_status;
+	int attempts;
+
+	(void) state;
+	fd = nft_popen("printf x; while :; do sleep 1; done", "r");
+	assert_true(fd >= 0);
+	child = nft_pchild(fd);
+	assert_true(child > 0);
+
+	forced_waitpid_error_pid = child;
+	forced_waitpid_error_errno = EINVAL;
+
+	errno = 0;
+	status = nft_pclose(fd);
+
+	forced_waitpid_error_pid = -1;
+
+	assert_int_equal(status, -1);
+	assert_int_equal(errno, EINVAL);
+
+	/* Reap for real (bypassing the wrap) to prove the child was killed
+	 * rather than merely parked. */
+	reaped = -1;
+	for (attempts = 0; attempts < 100 && reaped != child; attempts++) {
+		reaped = __real_waitpid(child, &real_status, WNOHANG);
+		if (reaped == 0) {
+			usleep(10000);
+			reaped = -1;
+		}
+	}
+	assert_int_equal(reaped, child);
+	assert_true(WIFSIGNALED(real_status));
+	assert_int_equal(WTERMSIG(real_status), SIGKILL);
+
+	/* nft_abandon_child() still parked it; sweep it back out so it does not
+	 * leak into a later test's nft_abandoned_pending() count. */
+	assert_int_equal(nft_abandoned_pending(), 0);
+}
+#endif
+
+/* The descriptor must not survive an exec. A child that inherits the write end
+   keeps the pipe open, so the polling thread never sees EOF and blocks to
+   script_timeout for a data source that already answered. */
+static void test_pipe_is_not_inherited_across_exec(void **state) {
+	int pdes[2];
+	int status;
+	pid_t pid;
+	char fdarg[32];
+
+	(void) state;
+
+	assert_true(spine_open_pipe_cloexec(pdes));
+	snprintf(fdarg, sizeof(fdarg), "/proc/self/fd/%d", pdes[1]);
+
+	pid = fork();
+	assert_true(pid >= 0);
+
+	if (pid == 0) {
+		/* exits 0 when the descriptor survived exec, 1 when it did not */
+		execl("/bin/sh", "sh", "-c", "test -e \"$0\"", fdarg, (char *) NULL);
+		_exit(127);
+	}
+
+	assert_int_equal(waitpid(pid, &status, 0), pid);
+	assert_true(WIFEXITED(status));
+	assert_int_equal(WEXITSTATUS(status), 1);
+
+	close(pdes[0]);
+	close(pdes[1]);
+}
+
+static void test_reap_returns_still_running_rather_than_blocking(void **state) {
+	int pstat = 0;
+	int status;
+	pid_t pid;
+
+	(void) state;
+
+	pid = fork();
+	assert_true(pid >= 0);
+
+	if (pid == 0) {
+		pause();
+		_exit(0);
+	}
+
+	/* the shipped code blocked here forever; two attempts must come back */
+	assert_int_equal(spine_reap_child_bounded(pid, &pstat, 2), 1);
+
+	assert_int_equal(kill(pid, SIGKILL), 0);
+	assert_int_equal(waitpid(pid, &status, 0), pid);
+}
+
+static void test_reap_collects_an_exited_child(void **state) {
+	int pstat = 0;
+	pid_t pid;
+
+	(void) state;
+
+	pid = fork();
+	assert_true(pid >= 0);
+
+	if (pid == 0) {
+		_exit(3);
+	}
+
+	assert_int_equal(spine_reap_child_bounded(pid, &pstat, 20), 0);
+	assert_true(WIFEXITED(pstat));
+	assert_int_equal(WEXITSTATUS(pstat), 3);
+}
+
+static void test_reap_reports_an_already_reaped_child(void **state) {
+	int pstat = 99;
+	int status;
+	pid_t pid;
+
+	(void) state;
+
+	pid = fork();
+	assert_true(pid >= 0);
+
+	if (pid == 0) {
+		_exit(0);
+	}
+
+	assert_int_equal(waitpid(pid, &status, 0), pid);
+
+	/* ECHILD: someone else took the status, which is success with none */
+	assert_int_equal(spine_reap_child_bounded(pid, &pstat, 2), 0);
+	assert_int_equal(pstat, 0);
+}
+
+static void test_nft_pclose_does_not_block_on_a_lingering_child(void **state) {
+	char ready[6] = {0};
+	int fd;
+	double start;
+	int attempts;
+
+	(void) state;
+	fd = nft_popen("printf ready; while :; do sleep 1; done", "r");
+	assert_true(fd >= 0);
+	assert_int_equal(read(fd, ready, 5), 5);
+	assert_string_equal(ready, "ready");
+
+	start = get_time_as_double();
+	assert_int_equal(nft_pclose(fd), -1);
+
+	/* The removed escalating spin/sleep/SIGTERM/SIGKILL sequence took up to
+	 * ~5 seconds here. nft_pclose() must kill the child and hand it to the
+	 * abandoned-pid sweep instead of blocking waiting for it to exit. */
+	assert_true(get_time_as_double() - start < 0.5);
+
+	for (attempts = 0; attempts < 50; attempts++) {
+		if (nft_abandoned_pending() == 0) {
+			break;
+		}
+		usleep(20000);
+	}
+	assert_int_equal(nft_abandoned_pending(), 0);
+}
+
+int main(void) {
+
+	const struct CMUnitTest tests[] = {
+		cmocka_unit_test(test_strncopy_truncates_within_the_buffer),
+		cmocka_unit_test(test_strncopy_copies_a_short_source_whole),
+		cmocka_unit_test(test_strncopy_handles_a_zero_size),
+		cmocka_unit_test(test_strncopy_terminates_an_exact_fit),
+		cmocka_unit_test(test_regex_replace_returns_the_match),
+		cmocka_unit_test(test_regex_replace_passes_through_on_no_match),
+		cmocka_unit_test(test_regex_replace_passes_through_on_bad_pattern),
+		cmocka_unit_test(test_bounded_formatters),
+		cmocka_unit_test(test_spine_appendf_reports_truncation_and_guards),
+		cmocka_unit_test(test_all_digits),
+		cmocka_unit_test(test_is_ipaddress),
+		cmocka_unit_test(test_is_numeric),
+		cmocka_unit_test(test_is_hexadecimal),
+		cmocka_unit_test(test_trim_family),
+		cmocka_unit_test(test_reverse),
+		cmocka_unit_test(test_strpos),
+		cmocka_unit_test(test_char_count),
+		cmocka_unit_test(test_strip_alpha),
+		cmocka_unit_test(test_add_slashes_doubles_a_backslash),
+		cmocka_unit_test(test_add_slashes_passes_plain_text_through),
+		cmocka_unit_test(test_hex2dec),
+		cmocka_unit_test(test_poller_hex_overflow_is_undefined),
+		cmocka_unit_test(test_row_alias_upsert_version_gate),
+		cmocka_unit_test(test_file_exists),
+		cmocka_unit_test(test_get_time_as_double_advances),
+		cmocka_unit_test(test_get_checksum_is_stable),
+		cmocka_unit_test(test_icmp_classify_accepts_our_reply),
+		cmocka_unit_test(test_icmp_classify_rejects_a_runt),
+		cmocka_unit_test(test_icmp_classify_rejects_a_bad_ihl),
+		cmocka_unit_test(test_icmp_classify_rejects_a_non_echo),
+		cmocka_unit_test(test_icmp_classify_rejects_another_hosts_reply),
+		cmocka_unit_test(test_icmp_classify_rejects_a_null_buffer),
+		cmocka_unit_test(test_namebyhost_plain_hostname),
+		cmocka_unit_test(test_namebyhost_is_reentrant_across_calls),
+		cmocka_unit_test(test_namebyhost_tcpv6_method_keeps_the_full_hostname),
+		cmocka_unit_test(test_config_defaults_populates_the_set),
+		cmocka_unit_test(test_read_spine_config_rejects_a_missing_file),
+		cmocka_unit_test(test_read_spine_config_reads_settings),
+		cmocka_unit_test(test_get_date_format_returns_cached_storage),
+		cmocka_unit_test(test_set_date_format_clamps_an_out_of_range_format),
+		cmocka_unit_test(test_get_date_format_covers_each_supported_format),
+		cmocka_unit_test(test_is_debug_device_matches_only_listed_ids),
+		cmocka_unit_test(test_nft_pclose_has_one_owner_per_registry_entry),
+		cmocka_unit_test(test_nft_pclose_cancellation_releases_registry_entry),
+		cmocka_unit_test(test_nft_pclose_early_error_preserves_cancellation_mode),
+		cmocka_unit_test(test_cloexec_is_set_on_both_pipe_ends),
+		cmocka_unit_test(test_cloexec_pipe_is_a_working_pipe),
+		cmocka_unit_test(test_duplicated_descriptor_is_close_on_exec),
+		cmocka_unit_test(test_existing_pipe_on_stdout_does_not_close_a_new_child_redirect),
+		cmocka_unit_test(test_pipe_is_not_inherited_across_exec),
+		cmocka_unit_test(test_reap_returns_still_running_rather_than_blocking),
+		cmocka_unit_test(test_reap_collects_an_exited_child),
+		cmocka_unit_test(test_reap_reports_an_already_reaped_child),
+		cmocka_unit_test(test_nft_pclose_does_not_block_on_a_lingering_child),
+		cmocka_unit_test(test_abandoned_children_are_swept_and_capacity_is_bounded),
+#ifdef SPINE_TEST_WRAP_WAITPID
+		cmocka_unit_test(test_nft_pclose_kills_child_when_waitpid_errors),
+#endif
+	};
+
+	return cmocka_run_group_tests(tests, NULL, NULL);
+}

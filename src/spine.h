@@ -443,6 +443,7 @@ typedef struct config_struct {
 	int    log_datetime_format;
 	/* ping settings */
 	int    icmp_avail;
+	int    icmp_uses_caps;
 	int    availability_method;
 	int    ping_method;
 	int    ping_retries;
@@ -689,6 +690,11 @@ typedef struct db_connection {
 #include "error.h"
 
 /* Globals */
+extern int spine_snmpv3_protocol_is_set(const char *value);
+extern int spine_snmpv3_passphrase_is_set(const char *value);
+extern int spine_snmpv3_security_level(const char *auth_protocol, const char *auth_password,
+	const char *priv_protocol, const char *priv_passphrase);
+
 extern config_t set;
 extern php_t  *php_processes;
 extern char   start_datetime[20];

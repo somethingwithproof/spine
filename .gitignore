@@ -20,6 +20,7 @@
 # +-------------------------------------------------------------------------+
 
 .deps
+.dirstamp
 Makefile
 Makefile.in
 configure
@@ -38,3 +39,5 @@ build-*/
 # Agent / tooling session state
 .omc/
 .claude/worktrees/
+tests/unit/bin/
+test-artifacts/

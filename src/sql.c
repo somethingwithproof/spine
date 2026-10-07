@@ -714,41 +714,40 @@ int append_hostrange(char *obuf, const char *colname) {
  *
  */
 void db_escape(MYSQL *mysql, char *output, int max_size, const char *input) {
-	char input_trimmed[DBL_BUFSIZE];
-	size_t in_len;
-	int    trim_limit;
+	char   *input_trimmed;
+	size_t max_escaped_input_size;
+	size_t trim_len;
 
 	if (input == NULL) return;
+	if (max_size <= 0) return;
 
-	/* Zero before snprintf so that a partial write or an undersized trim_limit
-	 * still leaves a NUL-terminated buffer for strlen() and mysql_real_escape_string. */
-	memset(input_trimmed, 0, sizeof(input_trimmed));
-
-	in_len     = strlen(input);
-	/* Clamp to the actual buffer size so gcc -Wformat-truncation can prove
-	 * the snprintf destination cannot overflow regardless of max_size. */
-	trim_limit = (max_size < (int)(sizeof(input_trimmed) - 1))
-	             ? max_size
-	             : (int)(sizeof(input_trimmed) - 1);
-
-	/* Guard against snprintf size values that cannot preserve any input byte.
-	 * The (trim_limit / 2) - 1 path writes only a NUL for trim_limit in {4,5};
-	 * require >= 6 so at least one input byte plus NUL survives truncation. */
-	if (trim_limit < 6) {
-		output[0] = '\0';
-		return;
+	/* input_trimmed only ever needs to hold what can fit escaped into
+	 * output, so size it to the caller's max_size instead of a fixed
+	 * DBL_BUFSIZE. The previous fixed cap meant a larger max_size never
+	 * actually admitted a longer input, silently truncating it anyway. */
+	if (!(input_trimmed = (char *) malloc((size_t) max_size))) {
+		die("ERROR: Fatal malloc error: sql.c db_escape!");
 	}
 
-	/* Compare against max_size in size_t space: the old (strlen * 2) + 1 math
-	 * overflowed int for inputs near INT_MAX/2. Checking in_len against
-	 * (max_size / 2) - 1 is equivalent and overflow-free. */
-	if (max_size > 0 && in_len > (size_t)((max_size / 2) - 1)) {
-		snprintf(input_trimmed, (trim_limit / 2) - 1, "%s", input);
+	max_escaped_input_size = (strlen(input) * 2) + 1;
+
+	/* Escaping can double every byte, so input_trimmed may hold at most
+	 * (max_size - 1) / 2 characters and the escaped result still fits within
+	 * max_size, including the terminator. This is always >= 1 for any
+	 * max_size >= 1, so the terminator is always reserved: max_size of 1-3
+	 * previously drove this to 0 (an unterminated output) or -1 (converted
+	 * to a huge size_t that let snprintf overflow the allocation). */
+	trim_len = ((size_t) max_size - 1) / 2 + 1;
+
+	if (max_escaped_input_size > (size_t) max_size) {
+		snprintf(input_trimmed, trim_len, "%s", input);
 	} else {
-		snprintf(input_trimmed, trim_limit, "%s", input);
+		snprintf(input_trimmed, (size_t) max_size, "%s", input);
 	}
 
 	mysql_real_escape_string(mysql, output, input_trimmed, strlen(input_trimmed));
+
+	free(input_trimmed);
 }
 
 void db_free_result(MYSQL_RES *result) {

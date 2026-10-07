@@ -51,6 +51,9 @@
 #include <fcntl.h>
 #include <limits.h>
 
+#define SPINE_STRINGIFY_INNER(value) #value
+#define SPINE_STRINGIFY(value) SPINE_STRINGIFY_INNER(value)
+
 static int nopts = 0;
 
 /* Range-safe int parser for config-setting values. Replaces atoi() at
@@ -118,8 +121,95 @@ static struct {
  *
  */
 void set_option(const char *option, const char *value) {
+	if (nopts >= (int)(sizeof(opttable) / sizeof(opttable[0]))) {
+		die("ERROR: too many --option overrides");
+	}
+
 	opttable[nopts  ].opt = option;
 	opttable[nopts++].val = value;
+}
+
+/* Settings cache.
+ *
+ * read_config_options() looks up two dozen settings and each one was its own
+ * round trip.  The settings table is small, so it is read once up front and
+ * served from memory for the duration of that call.  Only ever populated and
+ * used from read_config_options(), which runs before any poller thread
+ * exists, so no locking is required.
+ */
+typedef struct setting_cache_entry {
+	char *name;
+	char *value;
+} setting_cache_t;
+
+static setting_cache_t *settings_cache       = NULL;
+static int              settings_cache_count = 0;
+
+static void settings_cache_free(void) {
+	int i;
+
+	if (settings_cache == NULL) return;
+
+	for (i = 0; i < settings_cache_count; i++) {
+		free(settings_cache[i].name);
+		free(settings_cache[i].value);
+	}
+
+	free(settings_cache);
+	settings_cache       = NULL;
+	settings_cache_count = 0;
+}
+
+static void settings_cache_load(MYSQL *psql, int mode) {
+	MYSQL_RES *result;
+	MYSQL_ROW  row;
+	my_ulonglong rows;
+	setting_cache_t *table;
+	int i = 0;
+
+	assert(psql != 0);
+
+	settings_cache_free();
+
+	result = db_query(psql, mode, "SELECT SQL_NO_CACHE name, value FROM settings");
+
+	if (result == NULL) return;
+
+	rows = mysql_num_rows(result);
+
+	if (rows == 0 || rows > (my_ulonglong) INT_MAX) {
+		db_free_result(result);
+		return;
+	}
+
+	table = (setting_cache_t *) calloc((size_t) rows, sizeof(setting_cache_t));
+
+	if (table == NULL) {
+		db_free_result(result);
+		return;
+	}
+
+	while ((row = mysql_fetch_row(result)) != NULL && i < (int) rows) {
+		if (row[0] == NULL) continue;
+
+		table[i].name  = strdup(row[0]);
+		table[i].value = strdup(row[1] != NULL ? row[1] : "");
+
+		if (table[i].name == NULL || table[i].value == NULL) {
+			free(table[i].name);
+			free(table[i].value);
+			break;
+		}
+
+		i++;
+	}
+
+	db_free_result(result);
+
+	settings_cache       = table;
+	settings_cache_count = i;
+
+	SPINE_LOG_DEBUG(("DEBUG: Loaded %i Cacti settings in one query", i));
 }
 
 /*! \fn static char *getsetting(MYSQL *psql, int mode, const char *setting)
@@ -154,6 +244,17 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 		}
 	}
 
+	/* served from the bulk-loaded table when read_config_options() is running */
+	if (settings_cache != NULL) {
+		for (i = 0; i < settings_cache_count; i++) {
+			if (STRIMATCH(setting, settings_cache[i].name)) {
+				return strdup(settings_cache[i].value);
+			}
+		}
+
+		return strdup("");
+	}
+
 	snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
 
 	result = db_query(psql, mode, qstring);
@@ -167,6 +268,7 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 				db_free_result(result);
 				return retval;
 			}else{
+				db_free_result(result);
 				return strdup("");
 			}
 		}else{
@@ -255,6 +357,7 @@ static char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 				db_free_result(result);
 				return retval;
 			} else {
+				db_free_result(result);
 				return 0;
 			}
 		} else {
@@ -350,6 +453,7 @@ static char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
 				db_free_result(result);
 				return retval;
 			} else {
+				db_free_result(result);
 				return 0;
 			}
 		} else {
@@ -381,6 +485,83 @@ int is_debug_device(int device_id) {
 	return FALSE;
 }
 
+/*! \fn static void read_availability_settings(MYSQL *psql)
+ *  \brief load the device availability and ping settings
+ *
+ *  Split out of read_config_options() unchanged; the settings and their
+ *  fallbacks are exactly as they were.
+ */
+static void read_availability_settings(MYSQL *psql) {
+	char *res;
+
+	/* set availability_method */
+	if ((res = getsetting(psql, LOCAL, "availability_method")) != 0) {
+		set.availability_method = spine_parse_int(res);
+		free(res);
+	}
+
+	/* log the availability_method variable */
+	SPINE_LOG_DEBUG(("DEBUG: The availability_method variable is %i", set.availability_method));
+
+	/* set ping_recovery_count */
+	if ((res = getsetting(psql, LOCAL, "ping_recovery_count")) != 0) {
+		set.ping_recovery_count = spine_parse_int(res);
+		free(res);
+	}
+
+	/* log the ping_recovery_count variable */
+	SPINE_LOG_DEBUG(("DEBUG: The ping_recovery_count variable is %i", set.ping_recovery_count));
+
+	/* set ping_failure_count */
+	if ((res = getsetting(psql, LOCAL, "ping_failure_count")) != 0) {
+		set.ping_failure_count = spine_parse_int(res);
+		free(res);
+	}
+
+	/* log the ping_failure_count variable */
+	SPINE_LOG_DEBUG(("DEBUG: The ping_failure_count variable is %i", set.ping_failure_count));
+
+	/* set ping_method */
+	if ((res = getsetting(psql, LOCAL, "ping_method")) != 0) {
+		set.ping_method = spine_parse_int(res);
+		free(res);
+	}
+
+	/* log the ping_method variable */
+	SPINE_LOG_DEBUG(("DEBUG: The ping_method variable is %i", set.ping_method));
+
+	/* set ping_retries */
+	if ((res = getsetting(psql, LOCAL, "ping_retries")) != 0) {
+		set.ping_retries = spine_parse_int(res);
+		free(res);
+	}
+
+	/* log the ping_retries variable */
+	SPINE_LOG_DEBUG(("DEBUG: The ping_retries variable is %i", set.ping_retries));
+
+	/* set ping_timeout */
+	if ((res = getsetting(psql, LOCAL, "ping_timeout")) != 0) {
+		set.ping_timeout = spine_parse_int(res);
+		free(res);
+	} else {
+		set.ping_timeout = 400;
+	}
+
+	/* log the ping_timeout variable */
+	SPINE_LOG_DEBUG(("DEBUG: The ping_timeout variable is %i", set.ping_timeout));
+
+	/* set snmp_retries */
+	if ((res = getsetting(psql, LOCAL, "snmp_retries")) != 0) {
+		set.snmp_retries = spine_parse_int(res);
+		free(res);
+	} else {
+		set.snmp_retries = 3;
+	}
+
+	/* log the snmp_retries variable */
+	SPINE_LOG_DEBUG(("DEBUG: The snmp_retries variable is %i", set.snmp_retries));
+}
+
 /*! \fn void read_config_options(void)
  *  \brief Reads the default Spine runtime parameters from the database and set's the global array
  *
@@ -388,6 +569,21 @@ int is_debug_device(int device_id) {
  *
  */
 static void read_config_options_legacy(void);
+int db_row_alias_upsert_supported(const char *version, unsigned long version_number) {
+	const char *p;
+
+	if (version == NULL) {
+		return FALSE;
+	}
+
+	for (p = version; *p != '\0'; p++) {
+		if (strncasecmp(p, "mariadb", 7) == 0) {
+			return FALSE;
+		}
+	}
+
+	return version_number >= 80020 && version_number < 100000;
+}
 
 void read_config_options(void) {
 	MYSQL mysql;
@@ -411,11 +607,14 @@ static void read_config_options_legacy(void) {
 	int        mode;
 	char       web_root[BUFSIZE];
 	char       sqlbuf[HUGE_BUFSIZE];
-	char       *sqlp = sqlbuf;
+	char       *sqlp;
+	size_t     remaining;
 	char       *res;
 	char       spine_priv[BUFSIZE];
 	char       spine_auth[BUFSIZE];
 	char       spine_capabilities[BUFSIZE];
+
+	web_root[0] = '\0';
 
 	/* publish spine snmpv3 capabilities to the database */
 	memset(spine_capabilities, 0, sizeof(spine_capabilities));
@@ -423,6 +622,9 @@ static void read_config_options_legacy(void) {
 	memset(spine_auth, 0, sizeof(spine_auth));
 
 	db_connect(LOCAL, &mysql);
+
+	/* one round trip instead of one per setting */
+	settings_cache_load(&mysql, LOCAL);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
 		db_connect(REMOTE, &mysqlr);
@@ -437,19 +639,32 @@ static void read_config_options_legacy(void) {
 		free(res);
 	}
 
-	if (STRIMATCH(set.dbversion, "mariadb")) {
-		set.dbonupdate = 0;
-	} else if (strpos(set.dbversion, "8.") == 0) {
-		set.dbonupdate = 1;
-	} else {
-		set.dbonupdate = 0;
-	}
+	/* The row alias form, INSERT ... AS rs, is a syntax error before
+	   MySQL 8.0.20 and is not MariaDB syntax. */
+	set.dbonupdate = db_row_alias_upsert_supported(set.dbversion, mysql_get_server_version(&mysql));
 
 	/* get the cacti version from the database */
 	set.cacti_version = get_cacti_version(&mysql, LOCAL);
 
 	/* log the path_webroot variable */
 	SPINE_LOG_DEBUG(("DEBUG: The binary Cacti version is %d", set.cacti_version));
+
+	/* Warn when Spine and Cacti come from different release lines.  Point
+	 * releases are expected to drift, so only major.minor is compared;
+	 * cacti_version is encoded as major*1000 + minor*100 + point. */
+	if (set.cacti_version > 0) {
+		int spine_major = 0, spine_minor = 0, spine_point = 0;
+
+		if (sscanf(VERSION, "%d.%d.%d", &spine_major, &spine_minor, &spine_point) >= 2) {
+			int spine_line = (spine_major * 1000) + (spine_minor * 100);
+			int cacti_line = (set.cacti_version / 100) * 100;
+
+			if (spine_line != cacti_line) {
+				SPINE_LOG(("WARNING: Spine %s does not match the Cacti release line (Cacti reports %d.%d). Use the Spine built for this Cacti version.",
+					VERSION, set.cacti_version / 1000, (set.cacti_version / 100) % 10));
+			}
+		}
+	}
 
 	/* get logging level from database - overrides spine.conf */
 	if ((res = getsetting(&mysql, LOCAL, "log_verbosity")) != 0) {
@@ -491,6 +706,20 @@ static void read_config_options_legacy(void) {
 		}
 	}
 
+	/* get log date format */
+	if ((res = getsetting(&mysql, LOCAL, "default_date_format")) != 0) {
+		set.log_datetime_format = spine_parse_int(res);
+		free(res);
+
+		if (set.log_datetime_format < GD_MIN || set.log_datetime_format > GD_MAX) {
+			set.log_datetime_format = GD_DEFAULT;
+		}
+	}
+
+	/* The remaining option reads can log at debug verbosity. Refresh the
+	 * cached format before any of those messages are emitted. */
+	set_date_format();
+
 	/* determine log file, syslog or both, default is 1 or log file only */
 	if ((res = getsetting(&mysql, LOCAL, "log_destination")) != 0) {
 		set.log_destination = parse_logdest(res, LOGDEST_FILE);
@@ -524,72 +753,7 @@ static void read_config_options_legacy(void) {
 	/* log the path_php variable */
 	SPINE_LOG_DEBUG(("DEBUG: The path_php variable is %s", set.path_php));
 
-	/* set availability_method */
-	if ((res = getsetting(&mysql, LOCAL, "availability_method")) != 0) {
-		set.availability_method = spine_parse_int(res);
-		free(res);
-	}
-
-	/* log the availability_method variable */
-	SPINE_LOG_DEBUG(("DEBUG: The availability_method variable is %i", set.availability_method));
-
-	/* set ping_recovery_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_recovery_count")) != 0) {
-		set.ping_recovery_count = spine_parse_int(res);
-		free(res);
-	}
-
-	/* log the ping_recovery_count variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_recovery_count variable is %i", set.ping_recovery_count));
-
-	/* set ping_failure_count */
-	if ((res = getsetting(&mysql, LOCAL, "ping_failure_count")) != 0) {
-		set.ping_failure_count = spine_parse_int(res);
-		free(res);
-	}
-
-	/* log the ping_failure_count variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_failure_count variable is %i", set.ping_failure_count));
-
-	/* set ping_method */
-	if ((res = getsetting(&mysql, LOCAL, "ping_method")) != 0) {
-		set.ping_method = spine_parse_int(res);
-		free(res);
-	}
-
-	/* log the ping_method variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_method variable is %i", set.ping_method));
-
-	/* set ping_retries */
-	if ((res = getsetting(&mysql, LOCAL, "ping_retries")) != 0) {
-		set.ping_retries = spine_parse_int(res);
-		free(res);
-	}
-
-	/* log the ping_retries variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_retries variable is %i", set.ping_retries));
-
-	/* set ping_timeout */
-	if ((res = getsetting(&mysql, LOCAL, "ping_timeout")) != 0) {
-		set.ping_timeout = spine_parse_int(res);
-		free(res);
-	} else {
-		set.ping_timeout = 400;
-	}
-
-	/* log the ping_timeout variable */
-	SPINE_LOG_DEBUG(("DEBUG: The ping_timeout variable is %i", set.ping_timeout));
-
-	/* set snmp_retries */
-	if ((res = getsetting(&mysql, LOCAL, "snmp_retries")) != 0) {
-		set.snmp_retries = spine_parse_int(res);
-		free(res);
-	} else {
-		set.snmp_retries = 3;
-	}
-
-	/* log the snmp_retries variable */
-	SPINE_LOG_DEBUG(("DEBUG: The snmp_retries variable is %i", set.snmp_retries));
+	read_availability_settings(&mysql);
 
 	/* set logging option for errors */
 	set.log_perror = getboolsetting(&mysql, LOCAL, "log_perror", FALSE);
@@ -754,11 +918,13 @@ static void read_config_options_legacy(void) {
 	/* log the requirement for the script server */
 	if (!strlen(set.host_id_list)) {
 		sqlp = sqlbuf;
-		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
-		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		remaining = sizeof(sqlbuf);
+		spine_appendf(&sqlp, &remaining, "SELECT SQL_NO_CACHE action FROM poller_item");
+		spine_appendf(&sqlp, &remaining, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
 		sqlp += append_hostrange(sqlp, "host_id");
-		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
-		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
+		remaining = sizeof(sqlbuf) - (size_t) (sqlp - sqlbuf);
+		spine_appendf(&sqlp, &remaining, " AND poller_id=%i", set.poller_id);
+		spine_appendf(&sqlp, &remaining, " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
 		num_rows = mysql_num_rows(result);
@@ -772,11 +938,12 @@ static void read_config_options_legacy(void) {
 			num_rows));
 	} else {
 		sqlp = sqlbuf;
-		sqlp += snprintf(sqlp, BUFSIZE, "SELECT SQL_NO_CACHE action FROM poller_item");
-		sqlp += snprintf(sqlp, BUFSIZE, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
-		sqlp += snprintf(sqlp, BUFSIZE, " AND host_id IN(%s)", set.host_id_list);
-		sqlp += snprintf(sqlp, BUFSIZE, " AND poller_id=%i", set.poller_id);
-		sqlp += snprintf(sqlp, BUFSIZE, " LIMIT 1");
+		remaining = sizeof(sqlbuf);
+		spine_appendf(&sqlp, &remaining, "SELECT SQL_NO_CACHE action FROM poller_item");
+		spine_appendf(&sqlp, &remaining, " WHERE action=%d", POLLER_ACTION_PHP_SCRIPT_SERVER);
+		spine_appendf(&sqlp, &remaining, " AND host_id IN(%s)", set.host_id_list);
+		spine_appendf(&sqlp, &remaining, " AND poller_id=%i", set.poller_id);
+		spine_appendf(&sqlp, &remaining, " LIMIT 1");
 
 		result = db_query(&mysql, LOCAL, sqlbuf);
 		num_rows = mysql_num_rows(result);
@@ -853,9 +1020,15 @@ static void read_config_options_legacy(void) {
 
 	#undef APPEND_CSV_TOKEN
 
-	snprintf(spine_capabilities, BUFSIZE, "{ authProtocols: \"%s\", privProtocols: \"%s\" }", spine_auth, spine_priv);
+	/* Each source buffer can be BUFSIZE bytes. Bound both fields so the
+	 * combined capability document always fits in its destination. */
+	if (!format_spine_capabilities(spine_capabilities,
+			sizeof(spine_capabilities), spine_auth, spine_priv)) {
+		SPINE_LOG(("ERROR: Unable to format Spine SNMP capabilities"));
+		spine_capabilities[0] = '\0';
+	}
 
-	if (set.poller_id == 1) {
+	if (set.poller_id == 1 && spine_capabilities[0] != '\0') {
 		putsetting(&mysql, LOCAL, "spine_capabilities", spine_capabilities);
 	}
 
@@ -864,6 +1037,32 @@ static void read_config_options_legacy(void) {
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
 		db_disconnect(&mysqlr);
 	}
+
+	settings_cache_free();
+}
+
+/* An upper bound on one row of either batch below. Every column is a number or
+   a db_escape() result bounded by sizeof(tmpstr), plus separators. The row
+   count alone is not a size bound: 500 rows of wide escaped SNMP strings
+   overrun sqlbuf, and spine_appendf() then reports a truncation nothing was
+   checking, so a statement cut inside a quoted value reached the server. */
+#define PUSH_ROW_MAX (24 * DBL_BUFSIZE)
+
+/*! \fn static void push_flush_batch(MYSQL *mysqlr, const char *sqlbuf, char **sqlp, const char *suffix)
+ *  \brief terminate the accumulated batch and send it to the main server
+ *
+ *  Refuses to send a statement that did not fit rather than shipping a
+ *  truncated one.
+ */
+static void push_flush_batch(MYSQL *mysqlr, const char *sqlbuf, char **sqlp, const char *suffix) {
+	size_t remaining = HUGE_BUFSIZE - (*sqlp - sqlbuf);
+
+	if (!spine_appendf(sqlp, &remaining, "%s", suffix)) {
+		SPINE_LOG(("ERROR: The remote push statement overflowed its buffer; this batch was dropped"));
+		return;
+	}
+
+	db_insert(mysqlr, REMOTE, sqlbuf);
 }
 
 void poller_push_data_to_main(void) {
@@ -875,7 +1074,7 @@ void poller_push_data_to_main(void) {
 	int        rows;
 	char       sqlbuf[HUGE_BUFSIZE];
 	char       *sqlp = sqlbuf;
-	int        remaining;
+	size_t     remaining;
 	char       query[MEGA_BUFSIZE];
 	char       prefix[BUFSIZE];
 	char       suffix[BUFSIZE];
@@ -918,51 +1117,34 @@ void poller_push_data_to_main(void) {
 		"status_last_error, min_time, max_time, cur_time, avg_time, polling_time, "
 		"total_polls, failed_polls, availability, last_updated) VALUES ");
 
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=VALUES(snmp_sysDescr), "
-			"snmp_sysObjectID=VALUES(snmp_sysObjectID), "
-			"snmp_sysUpTimeInstance=VALUES(snmp_sysUpTimeInstance), "
-			"snmp_sysContact=VALUES(snmp_sysContact), "
-			"snmp_sysName=VALUES(snmp_sysName), "
-			"snmp_sysLocation=VALUES(snmp_sysLocation), "
-			"status=VALUES(status), "
-			"status_event_count=VALUES(status_event_count), "
-			"status_fail_date=VALUES(status_fail_date), "
-			"status_rec_date=VALUES(status_rec_date), "
-			"status_last_error=VALUES(status_last_error), "
-			"min_time=VALUES(min_time), "
-			"max_time=VALUES(max_time), "
-			"cur_time=VALUES(cur_time), "
-			"avg_time=VALUES(avg_time), "
-			"polling_time=VALUES(polling_time), "
-			"total_polls=VALUES(total_polls), "
-			"failed_polls=VALUES(failed_polls), "
-			"availability=VALUES(availability), "
-			"last_updated=VALUES(last_updated)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"snmp_sysDescr=rs.snmp_sysDescr, "
-			"snmp_sysObjectID=rs.snmp_sysObjectID, "
-			"snmp_sysUpTimeInstance=rs.snmp_sysUpTimeInstance, "
-			"snmp_sysContact=rs.snmp_sysContact, "
-			"snmp_sysName=rs.snmp_sysName, "
-			"snmp_sysLocation=rs.snmp_sysLocation, "
-			"status=rs.status, "
-			"status_event_count=rs.status_event_count, "
-			"status_fail_date=rs.status_fail_date, "
-			"status_rec_date=rs.status_rec_date, "
-			"status_last_error=rs.status_last_error, "
-			"min_time=rs.min_time, "
-			"max_time=rs.max_time, "
-			"cur_time=rs.cur_time, "
-			"avg_time=rs.avg_time, "
-			"polling_time=rs.polling_time, "
-			"total_polls=rs.total_polls, "
-			"failed_polls=rs.failed_polls, "
-			"availability=rs.availability, "
-			"last_updated=rs.last_updated");
-	}
+	/* Every INSERT below goes to the main server on the REMOTE connection, and
+	   spine.c only calls this function when poller_id > 1 and mode is
+	   REMOTE_ONLINE. set.dbonupdate describes the LOCAL server, so branching on
+	   it here picks the syntax of the wrong database: a MySQL 8 remote poller
+	   would emit the row-alias form at a MariaDB main server, which rejects it,
+	   losing the whole batch silently. VALUES() is deprecated on MySQL 8 but
+	   accepted by both, so it stays until rdbonupdate is populated. See #590. */
+	snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
+		"snmp_sysDescr=VALUES(snmp_sysDescr), "
+		"snmp_sysObjectID=VALUES(snmp_sysObjectID), "
+		"snmp_sysUpTimeInstance=VALUES(snmp_sysUpTimeInstance), "
+		"snmp_sysContact=VALUES(snmp_sysContact), "
+		"snmp_sysName=VALUES(snmp_sysName), "
+		"snmp_sysLocation=VALUES(snmp_sysLocation), "
+		"status=VALUES(status), "
+		"status_event_count=VALUES(status_event_count), "
+		"status_fail_date=VALUES(status_fail_date), "
+		"status_rec_date=VALUES(status_rec_date), "
+		"status_last_error=VALUES(status_last_error), "
+		"min_time=VALUES(min_time), "
+		"max_time=VALUES(max_time), "
+		"cur_time=VALUES(cur_time), "
+		"avg_time=VALUES(avg_time), "
+		"polling_time=VALUES(polling_time), "
+		"total_polls=VALUES(total_polls), "
+		"failed_polls=VALUES(failed_polls), "
+		"availability=VALUES(availability), "
+		"last_updated=VALUES(last_updated)");
 
 	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
 		num_rows = mysql_num_rows(result);
@@ -970,95 +1152,99 @@ void poller_push_data_to_main(void) {
 
 		if (num_rows > 0) {
 			while ((row = mysql_fetch_row(result))) {
-				if (rows < 500) {
+				remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+
+				/* Flush before the row, never in place of it. The old shape reset
+				   the batch when it filled and dropped the row that triggered the
+				   reset, so every 501th device silently missed the push. The byte
+				   test is the other half: the count is not a size bound once the
+				   escaped SNMP strings are wide. */
+				if (rows > 0 && (rows >= 500 || remaining < PUSH_ROW_MAX)) {
+					push_flush_batch(&mysqlr, sqlbuf, &sqlp, suffix);
+					rows = 0;
+				}
+
+				{
 					if (rows == 0) {
 						sqlp  = sqlbuf;
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, "%s", prefix);
+						spine_appendf(&sqlp, &remaining, "%s", prefix);
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, " (");
+						spine_appendf(&sqlp, &remaining, " (");
 					} else {
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, ", (");
+						spine_appendf(&sqlp, &remaining, ", (");
 					}
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[0]); // id mediumint
+					spine_appendf(&sqlp, &remaining, "%s, ", row[0]); // id mediumint
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[1]); // snmp_sysDescr varchar(300)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // snmp_sysObjectID varchar(128)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[3]); // snmp_sysUpTimeInstance bigint
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[4]); // snmp_sysContact varchar(300)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[5]); // snmp_sysName varchar(300)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[6]); // snmp_sysLocation varchar(300)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[7]); // status tinyint
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[8]); // status_event_count mediumint
+					spine_appendf(&sqlp, &remaining, "%s, ", row[8]); // status_event_count mediumint
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[9]);  // status_fail_date timestamp
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[10]); // status_rec_date timestamp
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[11]); // status_last_error varchar(255)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[12]); // min_time decimal(10,5)
+					spine_appendf(&sqlp, &remaining, "%s, ", row[12]); // min_time decimal(10,5)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[13]); // max_time decimal(10,5)
+					spine_appendf(&sqlp, &remaining, "%s, ", row[13]); // max_time decimal(10,5)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[14]); // cur_time decimal(10,5)
+					spine_appendf(&sqlp, &remaining, "%s, ", row[14]); // cur_time decimal(10,5)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[15]); // avg_time decimal(10,5)
+					spine_appendf(&sqlp, &remaining, "%s, ", row[15]); // avg_time decimal(10,5)
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[16]); // polling_time double
+					spine_appendf(&sqlp, &remaining, "%s, ", row[16]); // polling_time double
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[17]); // total_polls int
+					spine_appendf(&sqlp, &remaining, "%s, ", row[17]); // total_polls int
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[18]); // failed_polls int
+					spine_appendf(&sqlp, &remaining, "%s, ", row[18]); // failed_polls int
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[19]); // availability decimal(8,5)
+					spine_appendf(&sqlp, &remaining, "%s, ", row[19]); // availability decimal(8,5)
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[20]); // last_updated timestamp
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s'", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s'", tmpstr);
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, ")");
+					spine_appendf(&sqlp, &remaining, ")");
 
 					rows++;
-				} else {
-					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
 				}
 			}
 		}
 
 		if (rows > 0) {
-			remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-			sqlp += snprintf(sqlp, remaining, "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
+			push_flush_batch(&mysqlr, sqlbuf, &sqlp, suffix);
 		}
 	}
 
@@ -1080,13 +1266,15 @@ void poller_push_data_to_main(void) {
 
 	snprintf(prefix, BUFSIZE, "INSERT INTO poller_item (local_data_id, host_id, rrd_name, rrd_step, rrd_next_step) VALUES ");
 
-	if (set.dbonupdate == 0) {
-		snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=VALUES(rrd_next_step)");
-	} else {
-		snprintf(suffix, BUFSIZE, " AS rs ON DUPLICATE KEY UPDATE "
-			"rrd_next_step=rs.rrd_next_step");
-	}
+	/* Every INSERT below goes to the main server on the REMOTE connection, and
+	   spine.c only calls this function when poller_id > 1 and mode is
+	   REMOTE_ONLINE. set.dbonupdate describes the LOCAL server, so branching on
+	   it here picks the syntax of the wrong database: a MySQL 8 remote poller
+	   would emit the row-alias form at a MariaDB main server, which rejects it,
+	   losing the whole batch silently. VALUES() is deprecated on MySQL 8 but
+	   accepted by both, so it stays until rdbonupdate is populated. See #590. */
+	snprintf(suffix, BUFSIZE, " ON DUPLICATE KEY UPDATE "
+		"rrd_next_step=VALUES(rrd_next_step)");
 
 	if ((result = db_query(&mysql, LOCAL, query)) != 0) {
 		num_rows = mysql_num_rows(result);
@@ -1094,50 +1282,54 @@ void poller_push_data_to_main(void) {
 
 		if (num_rows > 0) {
 			while ((row = mysql_fetch_row(result))) {
-				if (rows < 10000) {
+				remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
+
+				/* Flush before the row, never in place of it. The old shape reset
+				   the batch when it filled and dropped the row that triggered the
+				   reset, so every 10001th device silently missed the push. The byte
+				   test is the other half: the count is not a size bound once the
+				   escaped SNMP strings are wide. */
+				if (rows > 0 && (rows >= 10000 || remaining < PUSH_ROW_MAX)) {
+					push_flush_batch(&mysqlr, sqlbuf, &sqlp, suffix);
+					rows = 0;
+				}
+
+				{
 					if (rows == 0) {
 						sqlp = sqlbuf;
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, "%s", prefix);
+						spine_appendf(&sqlp, &remaining, "%s", prefix);
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, " (");
+						spine_appendf(&sqlp, &remaining, " (");
 					} else {
 						remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-						sqlp += snprintf(sqlp, remaining, ", (");
+						spine_appendf(&sqlp, &remaining, ", (");
 					}
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[0]); // local_data_id
+					spine_appendf(&sqlp, &remaining, "%s, ", row[0]); // local_data_id
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[1]); // host_id
+					spine_appendf(&sqlp, &remaining, "%s, ", row[1]); // host_id
 
 					db_escape(&mysql, tmpstr, sizeof(tmpstr), row[2]); // rrd_name
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "'%s', ", tmpstr);
+					spine_appendf(&sqlp, &remaining, "'%s', ", tmpstr);
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s, ", row[3]); // rrd_step
+					spine_appendf(&sqlp, &remaining, "%s, ", row[3]); // rrd_step
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s",   row[4]); // rrd_next_step
+					spine_appendf(&sqlp, &remaining, "%s",   row[4]); // rrd_next_step
 
 					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, ")");
+					spine_appendf(&sqlp, &remaining, ")");
 
 					rows++;
-				} else {
-					remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-					sqlp += snprintf(sqlp, remaining, "%s", suffix);
-					db_insert(&mysqlr, REMOTE, sqlbuf);
-
-					rows = 0;
 				}
 			}
 		}
 
 		if (rows > 0) {
-			remaining = HUGE_BUFSIZE - (sqlp - sqlbuf);
-			sqlp += snprintf(sqlp, remaining, "%s", suffix);
-			db_insert(&mysqlr, REMOTE, sqlbuf);
+			push_flush_batch(&mysqlr, sqlbuf, &sqlp, suffix);
 
 			rows = 0;
 		}
@@ -1589,7 +1781,7 @@ void die(const char *format, ...) {
 		snprintf(flogmessage, DBL_BUFSIZE, "%s (Spine init)", logmessage);
 	}
 
-	fprintf(stderr, "%s", flogmessage);
+	fprintf(stderr, "%s\n", flogmessage);
 
 	if (set.parent_fork == SPINE_PARENT) {
 		if (set.php_initialized) {
@@ -1604,13 +1796,20 @@ void die(const char *format, ...) {
 	exit(set.exit_code);
 }
 
-char *get_date_format(void) {
-	char *log_fmt;
-	char log_sep = '/';
+/* The log timestamp format depends only on two settings that are read once in
+ * read_config_options(), so it is built there, while spine is still single
+ * threaded, and only read afterwards.  Rebuilding it per log line cost a
+ * malloc/free pair and two switches on every message. */
+static char log_date_format[GD_FMT_SIZE] = "%Y/%b/%d %H:%M:%S - ";
 
-	if (!(log_fmt = (char *) malloc(GD_FMT_SIZE))) {
-		die("ERROR: Fatal malloc error: util.c get_date_format!");
-	}
+/*! \fn void set_date_format(void)
+ *  \brief build the cached log timestamp format from the current settings
+ *
+ *  Call once the log format and separator settings are known.  Not safe to
+ *  call after the poller threads have started.
+ */
+void set_date_format(void) {
+	char log_sep = '/';
 
 	if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
 		set.log_datetime_separator = GDC_DEFAULT;
@@ -1634,29 +1833,31 @@ char *get_date_format(void) {
 
 	switch (set.log_datetime_format) {
 		case GD_MO_D_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%m%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%m%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		case GD_MN_D_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%b%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%b%c%%d%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		case GD_D_MO_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%m%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%d%c%%m%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		case GD_D_MN_Y:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%d%c%%b%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%d%c%%b%c%%Y %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		case GD_Y_MO_D:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		case GD_Y_MN_D:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%b%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%Y%c%%b%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 		default:
-			snprintf(log_fmt, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
+			snprintf(log_date_format, GD_FMT_SIZE, "%%Y%c%%m%c%%d %%H:%%M:%%S - ", log_sep, log_sep);
 			break;
 	}
+}
 
-	return (log_fmt);
+char *get_date_format(void) {
+	return log_date_format;
 }
 
 /*! \fn void spine_log(const char *format, ...)
@@ -1667,7 +1868,6 @@ char *get_date_format(void) {
 int spine_log(const char *format, ...) {
 	va_list	args;
 
-	FILE *log_file = NULL;
 	FILE *fp = NULL;
 
 	/* variables for time display */
@@ -1752,9 +1952,15 @@ int spine_log(const char *format, ...) {
 		ulog_len = LOGSIZE - flog_len - prefix_len - 1;
 	}
 
-	memcpy(flogmessage + flog_len,              logprefix,   prefix_len);
-	memcpy(flogmessage + flog_len + prefix_len, ulogmessage, ulog_len);
-	flogmessage[flog_len + prefix_len + ulog_len] = '\0';
+	/* strncat() here trips -Wstringop-truncation: prefix_len/ulog_len are
+	 * runtime-clamped just above to fit, but GCC can't prove that across the
+	 * branches. memcpy() plus an explicit terminator is exactly as safe and
+	 * doesn't trigger the false positive. */
+	memcpy(flogmessage + flog_len, logprefix, (size_t) prefix_len);
+	flog_len += prefix_len;
+	memcpy(flogmessage + flog_len, ulogmessage, (size_t) ulog_len);
+	flog_len += ulog_len;
+	flogmessage[flog_len] = '\0';
 
 	/* output to syslog/eventlog */
 	if (IS_LOGGING_TO_SYSLOG()) {
@@ -1775,40 +1981,55 @@ int spine_log(const char *format, ...) {
 		closelog();
 	}
 
-	/* append a line feed to the log message if needed */
+	/* append a line feed to the log message if needed.  The two strncat()
+	 * calls above are allowed to fill flogmessage exactly, so appending
+	 * unconditionally would put the terminator one byte past the end. */
 	if (!strstr(flogmessage, "\n")) {
-		strcat(flogmessage, "\n");
+		size_t flogmessage_len = strlen(flogmessage);
+
+		if (flogmessage_len < sizeof(flogmessage) - 1) {
+			flogmessage[flogmessage_len]     = '\n';
+			flogmessage[flogmessage_len + 1] = '\0';
+		}
 	}
 
 	if ((IS_LOGGING_TO_FILE() &&
 		(set.log_level != POLLER_VERBOSITY_NONE) &&
 		(strlen(set.path_logfile) != 0))) {
 		if (set.logfile_processed) {
-			/* Refuse to follow symlinks: an attacker with write access to the
-			 * log directory could otherwise redirect spine's appends into a
-			 * sensitive file. O_NOFOLLOW fails the open if the final component
-			 * is a symlink; O_APPEND|O_CREAT handles first-write creation. */
-			int log_fd = open(set.path_logfile,
-				O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW,
-				S_IRUSR | S_IWUSR | S_IRGRP);
-			if (log_fd >= 0) {
-				log_file = fdopen(log_fd, "a");
-				if (log_file == NULL) {
-					close(log_fd);
-				}
-			} else {
-				log_file = NULL;
-			}
+			int log_fd;
+			int oldstate;
+			size_t message_len;
+			ssize_t bytes_written;
 
-			if (log_file) {
-				fputs(flogmessage, log_file);
-				fclose(log_file);
+			/* O_APPEND selects the end atomically, and one write() keeps a message
+			 * from being split into stdio-sized chunks another thread can splice
+			 * into. Reopening per message preserves log rotation. */
+			pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
+			/* O_NOFOLLOW: an attacker with write access to the log directory
+			 * must not be able to redirect appends through a symlink. */
+			log_fd = open(set.path_logfile, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW,
+				S_IRUSR | S_IWUSR | S_IRGRP);
+
+			if (log_fd >= 0) {
+				message_len = strlen(flogmessage);
+				bytes_written = write(log_fd, flogmessage, message_len);
+				close(log_fd);
+
+				if (bytes_written < 0 || (size_t) bytes_written != message_len) {
+					if (!log_error) {
+						printf("ERROR: Spine Log File Write Was Incomplete\n");
+						log_error = TRUE;
+					}
+				}
 			} else {
 				if (!log_error) {
 					printf("ERROR: Spine Log File Could Not Be Opened/Created\n");
 					log_error = TRUE;
 				}
 			}
+
+			pthread_setcancelstate(oldstate, NULL);
 		}
 	}
 
@@ -1881,7 +2102,6 @@ int spine_log(const char *format, ...) {
 		}
 	}
 
-	free(log_fmt);
 
 	return TRUE;
 }
@@ -2123,6 +2343,8 @@ char *strncopy(char *dst, const char *src, size_t obuf) {
 	copy_len = strnlen(src, obuf - 1);
 
 	if (copy_len) {
+		/* copy_len is the exact byte count and dst is terminated below, so
+		 * memcpy avoids the strncpy truncation diagnostic. */
 		memcpy(dst, src, copy_len);
 	}
 
@@ -2175,14 +2397,14 @@ char *trim(char *str) {
  */
 char *rtrim(char *str) {
 	char    *end;
-	const char *trim = " \"\'\\\t\n\r";
+	const char *trim_chars = " \"\'\\\t\n\r";
 
 	if (!str) return NULL;
 
 	end = str + strlen(str);
 
 	while (end-- > str) {
-		if (!strchr(trim, *end)) return str;
+		if (!strchr(trim_chars, *end)) return str;
 
 		*end = 0;
 	}
@@ -2197,12 +2419,12 @@ char *rtrim(char *str) {
  *  \return the trimmed string.
  */
 char *ltrim(char *str) {
-	const char *trim = " \"\'\\\t\n\r";
+	const char *trim_chars = " \"\'\\\t\n\r";
 
 	if (!str) return NULL;
 
 	while (*str) {
-		if (!strchr(trim, *str)) return str;
+		if (!strchr(trim_chars, *str)) return str;
 
 		++str;
 	}
@@ -2266,96 +2488,58 @@ int char_count(const char *str, int chr) {
 	return count;
 }
 
-unsigned long long hex2dec(char *str) {
-	int i = 0;
+int hex2dec(const char *str, unsigned long long *result) {
 	unsigned long long number = 0;
+	unsigned int digit;
+	int saw_digit = FALSE;
 
-	if (!str) return 0;
-
-	/* first revers the string */
-	reverse(str);
+	if (str == NULL || result == NULL) return FALSE;
 
 	while (*str) {
 		switch (*str) {
-		case '0':
-			i++;
-			break;
-		case '1':
-			number += pow(16, i) * 1;
-			i++;
-			break;
-		case '2':
-			number += pow(16, i) * 2;
-			i++;
-			break;
-		case '3':
-			number += pow(16, i) * 3;
-			i++;
-			break;
-		case '4':
-			number += pow(16, i) * 4;
-			i++;
-			break;
-		case '5':
-			number += pow(16, i) * 5;
-			i++;
-			break;
-		case '6':
-			number += pow(16, i) * 6;
-			i++;
-			break;
-		case '7':
-			number += pow(16, i) * 7;
-			i++;
-			break;
-		case '8':
-			number += pow(16, i) * 8;
-			i++;
-			break;
-		case '9':
-			number += pow(16, i) * 9;
-			i++;
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			digit = (unsigned int) (*str - '0');
 			break;
 		case 'a': case 'A':
-			number += pow(16, i) * 10;
-			i++;
-			break;
 		case 'b': case 'B':
-			number += pow(16, i) * 11;
-			i++;
-			break;
 		case 'c': case 'C':
-			number += pow(16, i) * 12;
-			i++;
-			break;
 		case 'd': case 'D':
-			number += pow(16, i) * 13;
-			i++;
-			break;
 		case 'e': case 'E':
-			number += pow(16, i) * 14;
-			i++;
-			break;
 		case 'f': case 'F':
-			number += pow(16, i) * 15;
-			i++;
+			digit = (unsigned int) (tolower((unsigned char) *str) - 'a' + 10);
 			break;
-		case '"': case ' ': case '\t':
-			break;
+		/* separators. is_hexadecimal() accepts '-' and ':' as well as space,
+		 * so anything it lets through has to be convertible here; skipping
+		 * only space meant a dash-separated octet string validated and then
+		 * converted to zero. */
+		case '"': case ' ': case '\t': case '-': case ':':
+			str++;
+			continue;
 		default:
-			return 0;
+			return FALSE;
 		}
 
+		/* A device can return an arbitrarily long string. Refuse overflow
+		 * before multiplying rather than converting an out-of-range double. */
+		if (number > (ULLONG_MAX - digit) / 16) {
+			return FALSE;
+		}
+
+		number = (number * 16) + digit;
+		saw_digit = TRUE;
 		str++;
 	}
 
-	return number;
+	if (!saw_digit) return FALSE;
+
+	*result = number;
+	return TRUE;
 }
 
 int hasCaps(void) {
 	#ifdef HAVE_LCAP
 	cap_t caps;
-	cap_value_t capval;
 	cap_flag_value_t capflag;
 
 	/* Recommended caps: cap_net_raw=eip */
@@ -2365,14 +2549,16 @@ int hasCaps(void) {
 		return FALSE;
 	}
 
-    /* check if cap_net_raw is in effective set */
+	/* check if cap_net_raw is in effective set */
 	if (cap_get_flag(caps, CAP_NET_RAW, CAP_EFFECTIVE, &capflag)) {
-		SPINE_LOG(("ERROR: cap_get_flag for CAP_NET_RAW failed. ICMP ping will not work as non-root user."));
+		SPINE_LOG(("ERROR: cap_get_flag for CAP_NET_RAW failed. Attempting the setuid-root ICMP fallback when available."));
+		cap_free(caps);
 		return FALSE;
 	}
 
 	if (capflag != CAP_SET) {
-		SPINE_LOG(("ERROR: Capability CAP_NET_RAW is not set. ICMP ping will not work as non-root user."));
+		SPINE_LOG_MEDIUM(("WARNING: Capability CAP_NET_RAW is not set. Attempting the setuid-root ICMP fallback when available."));
+		cap_free(caps);
 		return FALSE;
 	}
 
@@ -2386,6 +2572,7 @@ int hasCaps(void) {
 }
 
 void checkAsRoot(void) {
+	set.icmp_uses_caps = FALSE;
 	#ifdef SOLAR_PRIV
 	priv_set_t *privset;
 	char *p;
@@ -2436,8 +2623,21 @@ void checkAsRoot(void) {
 		}
 
 		if (geteuid() != 0) {
-			SPINE_LOG_DEBUG(("WARNING: Spine NOT running as root.  This is required if using ICMP.  Please run \"chown root:root spine;chmod u+s spine\" to resolve."));
-			set.icmp_avail = FALSE;
+			int probe;
+
+			/* Root is not the only way in.  net.ipv4.ping_group_range lists
+			 * the groups allowed to open datagram ICMP sockets, so ask the
+			 * kernel for one instead of assuming ICMP is unavailable */
+			probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+
+			if (probe != -1) {
+				close(probe);
+				SPINE_LOG_DEBUG(("DEBUG: Spine may use unprivileged ICMP sockets."));
+				set.icmp_avail = TRUE;
+			} else {
+				SPINE_LOG_DEBUG(("WARNING: Spine NOT running as root.  This is required if using ICMP unless net.ipv4.ping_group_range covers this user.  Please run \"chown root:root spine;chmod u+s spine\" to resolve."));
+				set.icmp_avail = FALSE;
+			}
 		} else {
 			SPINE_LOG_DEBUG(("DEBUG: Spine is running as root."));
 			set.icmp_avail = TRUE;
@@ -2449,6 +2649,7 @@ void checkAsRoot(void) {
 	} else {
 		SPINE_LOG_DEBUG(("DEBUG: Spine has cap_net_raw capability."));
 		set.icmp_avail = TRUE;
+		set.icmp_uses_caps = TRUE;
 	}
 	SPINE_LOG_DEBUG(("DEBUG: Spine has %sgot ICMP", set.icmp_avail?"":"not "));
 	#endif
@@ -2498,6 +2699,7 @@ int get_cacti_version(MYSQL *psql, int mode) {
 					return cacti_version;
 				}
 			}else{
+				db_free_result(result);
 				return 0;
 			}
 		}else{
@@ -2573,7 +2775,7 @@ const char *regex_replace(const char *exp, const char *value) {
 	regmatch_t matches[MAX_MATCHES];
 	size_t match_len;
 
-	/* Compile regular expression */
+	/* Stored output_regex values use the historical basic-regex dialect. */
 	reti = regcomp(&regex, exp, 0);
 	if (reti) {
 		return value;
@@ -2904,3 +3106,60 @@ void spine_redact_args(const char *cmd, char *out, size_t outsz) {
 	}
 }
 
+int format_spine_capabilities(char *output, size_t output_size,
+		const char *auth_protocols, const char *priv_protocols) {
+	int written;
+
+	if (output == NULL || output_size == 0 ||
+	    auth_protocols == NULL || priv_protocols == NULL) {
+		return FALSE;
+	}
+
+	written = snprintf(output, output_size,
+		"{ authProtocols: \"%." SPINE_STRINGIFY(CAPABILITY_PROTOCOL_LIST_MAX)
+		"s\", privProtocols: \"%." SPINE_STRINGIFY(CAPABILITY_PROTOCOL_LIST_MAX) "s\" }",
+		auth_protocols, priv_protocols);
+
+	return written >= 0 && (size_t)written < output_size;
+}
+
+/*! \fn int spine_appendf(char **cursor, size_t *remaining, const char *fmt, ...)
+ *  \brief append to a bounded buffer without walking off the end
+ *
+ *  See util.h for why the `p += snprintf(...)` idiom this replaces is unsafe.
+ *
+ *  \return TRUE when the whole string was appended, FALSE otherwise
+ */
+int spine_appendf(char **cursor, size_t *remaining, const char *fmt, ...) {
+	va_list args;
+	int written;
+
+	if (cursor == NULL || *cursor == NULL || remaining == NULL || *remaining == 0) {
+		return FALSE;
+	}
+
+	va_start(args, fmt);
+	written = vsnprintf(*cursor, *remaining, fmt, args);
+	va_end(args);
+
+	if (written < 0) {
+		/* the buffer is untouched on an encoding error, but vsnprintf may have
+		   written a partial result, so re-terminate where the cursor stands */
+		**cursor = '\0';
+		return FALSE;
+	}
+
+	if ((size_t) written >= *remaining) {
+		/* Truncated. Leave the cursor on the terminator vsnprintf wrote, so
+		   the buffer stays a valid string and every later append fails here
+		   rather than running past the end. */
+		*cursor += *remaining - 1;
+		*remaining = 1;
+		return FALSE;
+	}
+
+	*cursor    += written;
+	*remaining -= (size_t) written;
+
+	return TRUE;
+}

@@ -1,0 +1,2 @@
+# Fuzz corpora are raw inputs, not text.
+tests/fuzz/corpus/** binary
