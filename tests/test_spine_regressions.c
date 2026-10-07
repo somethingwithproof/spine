@@ -2095,6 +2095,22 @@ static void test_snmp_flush_contracts(MYSQL *mysql, test_poll_work_t *work, cons
 			assert(database_count(mysql, query) == 1);
 		}
 	}
+	/* Existing regexes were written against the normalized value: a
+	 * Hex-STRING becomes 266 first, then the regex keeps "266", not "00". */
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+	assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET snmp_version=2,arg1='.1.3.6.1.2.1.1.5.0',output_regex='^[0-9][0-9]*' WHERE host_id=44"));
+	work->thread.complete = FALSE;
+	work->thread.threads_complete = 0;
+	work->errors = 0;
+	pthread_t regex_worker;
+	assert(pthread_create(&regex_worker, NULL, test_poll_worker, work) == 0);
+	assert(pthread_join(regex_worker, NULL) == 0);
+	if (database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE local_data_id IN (601,602) AND output='266'") != 2) {
+		fprintf(stderr, "flush contract: output_regex did not see the normalized Hex-STRING\n");
+		assert(0);
+	}
 	set.hosts.has_output_regex = previous_regex;
 	assert(db_insert(mysql, LOCAL, "ALTER TABLE poller_item DROP COLUMN output_regex"));
 	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_reindex"));
