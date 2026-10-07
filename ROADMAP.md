@@ -68,6 +68,10 @@ merged.
   guarded by global locks, and `_Static_assert` for buffer and struct sizes.
   Keep pthreads; `<threads.h>` is missing on macOS. Upstream C99 code still
   compiles as C17, so the switch does not block upstream merges.
+- Add CI lanes for the newest GCC and Clang. Newer compilers turn unsafe
+  legacy behaviour into errors, and GCC 15 defaults to C23, so every build
+  passes an explicit `-std`. Revisit C23 once the oldest supported
+  distribution can build it; Rocky Linux 8 ships GCC 8.
 
 Done when: the fault suite covers a database outage, an SNMP timeout storm,
 a hung script and a crashed PHP script server, and asserts the outcome of
@@ -88,6 +92,13 @@ without reading log files.
 
 - Write a threat model covering the trust boundaries: the Cacti database,
   scripts, the network and the setuid start.
+- Decide, in the threat model, whether to split Spine the way OpenSSH
+  separates privileges. Today one process parses replies from untrusted
+  devices and script output, and also holds the Cacti database credentials.
+  A split would run sandboxed collector processes that poll and parse, with
+  no database access, and a coordinator that validates their results and
+  alone writes to the database. A parser bug would then reach bad values,
+  not the database.
 - Fuzz every parser: SNMP values, script output, configuration and host
   names.
 - Ship SELinux and AppArmor profiles that allow script polling.
@@ -114,6 +125,9 @@ none blocks a loop.
    across loops. Each device is a state machine: reachability, reindex
    checks, SNMP batches, scripts, then the result write. Root is already
    dropped before any loop starts.
+   If Phase 3 chose the collector and coordinator split, the loops run in
+   the sandboxed collector processes and only the coordinator talks to the
+   database.
 3. I/O sources:
    - SNMP: Net-SNMP's single-session API. Watch its sockets with `uv_poll`
      and drive its timeouts with `uv_timer`.
@@ -142,6 +156,9 @@ poller joins a release only after it meets its Phase 4 exit test.
   support branch.
 - Sign release tarballs with cosign, publish SLSA provenance and a CycloneDX
   SBOM, and verify that builds reproduce.
+- Build releases for generic CPUs, with compressed DWARF 5 debug
+  information split into separate debug packages. Enable link-time
+  optimisation only if the Phase 4 benchmark shows a gain.
 - Publish a support matrix of distributions, MySQL and MariaDB versions,
   Net-SNMP versions and Cacti versions, each cell tested in CI.
 - Define a compatibility and deprecation policy for configuration keys and
