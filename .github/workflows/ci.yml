@@ -166,6 +166,7 @@ jobs:
             --suppress=constVariablePointer \
             --suppress=redundantAssignment \
             --suppress=toomanyconfigs \
+            --library=scripts/cppcheck/spine.cfg \
             ./*.c ./*.h
 
   shellcheck:
