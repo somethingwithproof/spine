@@ -98,9 +98,9 @@ static void spine_signal_handler(int spine_signal) {
 	const char *message = NULL;
 	int saved_errno = errno;
 
-	/* Every signal handled here resets to SIG_DFL and is raised again before
-	 * returning, so the process ends with that signal's default action and
-	 * core. Returning alone only ended real faults, which re-execute; after
+	/* Every signal handled here except SIGSEGV, which exits with status 1
+	 * below, resets to SIG_DFL and is raised again before returning, so the
+	 * process ends with that signal's default action and core. Returning alone only ended real faults, which re-execute; after
 	 * SIGINT, SIGQUIT or a sent SIGBUS the poller logged FATAL and kept going.
 	 * SIGPIPE is a routine, recurring condition instead, and signal
 	 * dispositions are process-wide: dropping it to SIG_DFL here, even
