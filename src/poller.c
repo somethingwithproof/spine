@@ -498,8 +498,8 @@ static ResultCode persist_output_rows(const HostPollingRequest *request, HostPol
 }
 
 static void advance_persisted_schedule(const HostPollingRequest *request, MYSQL *mysql) {
-	char poller_next_step_query[BUFSIZE];
 	if (request->spine_host_thread == request->spine_host_threads && set.active_profiles != 1) {
+		char poller_next_step_query[BUFSIZE];
 		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll",
 			request->host_id, request->spine_host_thread));
 		if (set.poller_id == 0) {
@@ -529,8 +529,6 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	MYSQL mysqlr;
 	MYSQL mysqlt;
 	int mode;
-	int error_query_len;
-	char *error_query;
 
 	if (pipeline_data == NULL) {
 		output->host_errors = request->host_errors ? *request->host_errors : 0;
@@ -570,8 +568,8 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 	advance_persisted_schedule(request, &mysql);
 
 	if (pipeline_data->host_errors > 0) {
-		error_query_len = (int)strlen(pipeline_data->error_data_ids) + BUFSIZE;
-		error_query = malloc((size_t)error_query_len);
+		int error_query_len = (int)strlen(pipeline_data->error_data_ids) + BUFSIZE;
+		char *error_query = malloc((size_t)error_query_len);
 		if (error_query == NULL) {
 			SPINE_FREE(pipeline_data->poller_items);
 			if (remote_cnn != NULL) {
@@ -602,10 +600,8 @@ static ResultCode host_poll_stage_persist_results(const HostPollingRequest *requ
 
 static ResultCode host_poll_stage_update_host_state(const HostPollingRequest *request, HostPollingStageOutput *output) {
 	extern poller_thread_t** details;
-	pool_t *local_cnn;
+	const pool_t *local_cnn;
 	MYSQL mysql;
-	char query[BUFSIZE];
-	double poll_time;
 
 	local_cnn = db_get_connection(LOCAL);
 	if (local_cnn == NULL) {
@@ -618,7 +614,8 @@ static ResultCode host_poll_stage_update_host_state(const HostPollingRequest *re
 	details[request->device_counter]->threads_complete++;
 	if (details[request->device_counter]->threads_complete == details[request->device_counter]->spine_host_threads) {
 		details[request->device_counter]->complete = TRUE;
-		poll_time = get_time_as_double();
+		char query[BUFSIZE];
+		double poll_time = get_time_as_double();
 		snprintf(query, sizeof(query), "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i",
 			poll_time, request->spine_host_time_double, request->host_id);
 		db_query(&mysql, LOCAL, query);
@@ -1567,7 +1564,7 @@ static void check_legacy_host_availability(spine_spine_host_t *host, ping_t *pin
 
 }
 
-static void persist_legacy_host_status(spine_spine_host_t *host, MYSQL *mysql, int spine_host_thread, int ignore_sysinfo) {
+static void persist_legacy_host_status(const spine_spine_host_t *host, MYSQL *mysql, int spine_host_thread, int ignore_sysinfo) {
 	char update_sql[BIG_BUFSIZE];
 	/* update host table */
 	if (spine_host_thread == 1) {
@@ -2277,9 +2274,7 @@ static void load_legacy_host_details(legacy_poll_t *poll, MYSQL_ROW row, MYSQL_R
 }
 
 static int load_legacy_poll_host(legacy_poll_t *poll) {
-	MYSQL_RES *result;
 	MYSQL_ROW row;
-	int num_rows;
 	int ignore_sysinfo = TRUE;
 	/* initialize the ping structure variables */
 	snprintf(poll->resources.ping->ping_status,   50,            "down");
@@ -2289,9 +2284,10 @@ static int load_legacy_poll_host(legacy_poll_t *poll) {
 
 	/* if the host is a real host.  Note host_id=0 is not host based data source */
 	if (poll->request.host_id) {
+		MYSQL_RES *result;
 		/* get data about this host */
 		if ((result = db_query(&poll->resources.mysql, LOCAL, poll->queries.query2)) != 0) {
-			num_rows = mysql_num_rows(result);
+			int num_rows = mysql_num_rows(result);
 
 			if (num_rows != 1) {
 				db_free_result(result);
@@ -2441,9 +2437,9 @@ static void consume_legacy_reindex_cache(legacy_poll_t *poll, MYSQL_RES *result)
 }
 
 static void process_legacy_reindex(legacy_poll_t *poll) {
-	MYSQL_RES *result;
 	/* do the reindex check for this host if not script based */
 	if ((!poll->resources.host->ignore_host) && (poll->request.host_id)) {
+		MYSQL_RES *result;
 		if ((result = db_query(&poll->resources.mysql, LOCAL, poll->queries.query4)) != 0) {
 			consume_legacy_reindex_cache(poll, result);
 		} else {
@@ -2504,7 +2500,6 @@ static void poll_legacy_items(legacy_poll_t *poll) {
 	int num_rows;
 	int rows_processed = 0;
 	int i = 0;
-	int j = 0;
 	int k = 0;
 	int num_oids = 0;
 	double thread_start = 0;
@@ -2577,7 +2572,7 @@ static void poll_legacy_items(legacy_poll_t *poll) {
 	if (num_oids > 0) {
 		snmp_get_multi(poll->resources.host, poller_items, snmp_oids, num_oids);
 
-		for (j = 0; j < num_oids; j++) {
+		for (int j = 0; j < num_oids; j++) {
 			consume_final_batch_result(poll->resources.host, poller_items, snmp_oids, j, &result_context);
 		}
 	}
@@ -3126,7 +3121,6 @@ char *exec_poll(spine_spine_host_t *current_host, char *command, int id, const c
 	/* reduce the active script count */
 	pthread_cleanup_pop(needs_cleanup);
 
-	return result_string;
 	return result_string;
 }
 
