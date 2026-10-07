@@ -57,6 +57,10 @@ static int reply_queue_len;
 static int reply_queue_pos;
 static uint16_t reply_seq;
 static int recvfrom_calls;
+static int recvfrom_eintr_once;
+static int controlled_reply_v6;
+static int socket_cloexec_einval;
+static int fcntl_fails;
 
 static int test_socket(int domain, int type, int protocol);
 static int test_close(int fd);
@@ -149,6 +153,31 @@ static ssize_t test_recvfrom(int fd, void *buffer, size_t length, int flags,
 		return recvfrom(fd, buffer, length, flags, address, address_len);
 	}
 	recvfrom_calls++;
+	if (recvfrom_eintr_once) {
+		recvfrom_eintr_once = 0;
+		errno = EINTR;
+		return -1;
+	}
+	if (controlled_reply_v6) {
+		/* ICMPv6 sockets deliver the message without the IPv6 header. */
+		struct icmp6_hdr *reply6 = buffer;
+		struct sockaddr_in6 *source6;
+		size_t length6 = sizeof(*reply6) + sizeof(icmp6_payload) - 1;
+		assert_true(length >= length6);
+		memset(buffer, 0, length6);
+		reply6->icmp6_type = ICMP6_ECHO_REPLY;
+		reply6->icmp6_id = sent_icmp_id;
+		reply6->icmp6_seq = sent_icmp_seq;
+		memcpy((unsigned char *) buffer + sizeof(*reply6), icmp6_payload, sizeof(icmp6_payload) - 1);
+		if (address != NULL && address_len != NULL && *address_len >= sizeof(*source6)) {
+			source6 = (struct sockaddr_in6 *) address;
+			memset(source6, 0, sizeof(*source6));
+			source6->sin6_family = AF_INET6;
+			source6->sin6_addr = in6addr_loopback;
+			*address_len = sizeof(*source6);
+		}
+		return (ssize_t) length6;
+	}
 	/* A finite queue ends the way a drained non-blocking socket does. */
 	if (reply_queue_len > 0 && reply_queue_pos >= reply_queue_len) {
 		errno = EAGAIN;
@@ -192,6 +221,11 @@ static int test_socket(int domain, int type, int protocol) {
 		(void) domain;
 		(void) protocol;
 		#ifdef SOCK_CLOEXEC
+		/* A kernel too old for SOCK_CLOEXEC rejects the flag. */
+		if ((type & SOCK_CLOEXEC) && socket_cloexec_einval) {
+			errno = EINVAL;
+			return -1;
+		}
 		if (type & SOCK_CLOEXEC) {
 			controlled_socket_cloexec = 1;
 			type &= ~SOCK_CLOEXEC;
@@ -215,6 +249,10 @@ static int test_close(int fd) {
 
 static int test_fcntl(int fd, int command, int argument) {
 	if (use_controlled_socket && fd == controlled_socket_fd) {
+		if (fcntl_fails) {
+			errno = EBADF;
+			return -1;
+		}
 		if (command == F_SETFD && (argument & FD_CLOEXEC)) {
 			controlled_socket_cloexec = 1;
 		}
@@ -290,6 +328,12 @@ static int ping_reset(void **state) {
 	recvfrom_calls = 0;
 	icmp_shared.fd = -1;
 	icmp_shared.reading = FALSE;
+	icmp6_shared.fd = -1;
+	icmp6_shared.reading = FALSE;
+	recvfrom_eintr_once = 0;
+	controlled_reply_v6 = 0;
+	socket_cloexec_einval = 0;
+	fcntl_fails = 0;
 	icmp_waiters = NULL;
 	return 0;
 }
@@ -729,6 +773,231 @@ static void test_per_ping_sockets_are_close_on_exec(void **state) {
 	assert_int_equal(controlled_socket_cloexec, 1);
 }
 
+static void test_icmp6_reply_matching(void **state) {
+	unsigned char reply[sizeof(struct icmp6_hdr) + sizeof(icmp6_payload)];
+	struct icmp6_hdr *header = (struct icmp6_hdr *) reply;
+	ssize_t length = (ssize_t) (sizeof(*header) + sizeof(icmp6_payload) - 1);
+
+	(void) state;
+	memset(reply, 0, sizeof(reply));
+	header->icmp6_type = ICMP6_ECHO_REPLY;
+	header->icmp6_id = htons(7);
+	header->icmp6_seq = htons(9);
+	memcpy(reply + sizeof(*header), icmp6_payload, sizeof(icmp6_payload) - 1);
+
+	assert_true(icmp6_reply_matches(reply, length, htons(7), htons(9), TRUE));
+	assert_false(icmp6_reply_matches(reply, -1, htons(7), htons(9), TRUE));
+	assert_false(icmp6_reply_matches(reply, length - 1, htons(7), htons(9), TRUE));
+	assert_false(icmp6_reply_matches(reply, length, htons(7), htons(8), TRUE));
+	/* a datagram socket rewrites the id, so only the raw path checks it */
+	assert_false(icmp6_reply_matches(reply, length, htons(6), htons(9), TRUE));
+	assert_true(icmp6_reply_matches(reply, length, htons(6), htons(9), FALSE));
+	header->icmp6_type = ICMP6_ECHO_REQUEST;
+	assert_false(icmp6_reply_matches(reply, length, htons(7), htons(9), TRUE));
+	header->icmp6_type = ICMP6_ECHO_REPLY;
+	reply[sizeof(*header)] ^= 1;
+	assert_false(icmp6_reply_matches(reply, length, htons(7), htons(9), TRUE));
+}
+
+/* Where SOCK_CLOEXEC is missing or refused, fcntl() sets the flag, and a
+   socket whose flag cannot be set is closed rather than handed out. */
+static void test_open_socket_fcntl_fallback(void **state) {
+	(void) state;
+	use_owned_controlled_socket();
+	socket_cloexec_einval = 1;
+
+	assert_int_equal(icmp_open_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP), controlled_socket_fd);
+	assert_int_equal(controlled_socket_cloexec, 1);
+	assert_int_equal(controlled_socket_closed, 0);
+
+	fcntl_fails = 1;
+	assert_int_equal(icmp_open_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP), -1);
+	assert_int_equal(controlled_socket_closed, 1);
+}
+
+/* drop_privileges() calls this once, as root, before anything else runs. */
+static void test_open_shared_sockets(void **state) {
+	(void) state;
+	use_owned_controlled_socket();
+	assert_false(ping_icmp_shared_available());
+	assert_true(ping_icmp_open_shared());
+	assert_true(ping_icmp_shared_available());
+	assert_int_equal(icmp_shared.fd, controlled_socket_fd);
+	assert_int_equal(icmp6_shared.fd, controlled_socket_fd);
+	assert_int_equal(controlled_socket_type, SOCK_RAW);
+	assert_int_equal(controlled_socket_cloexec, 1);
+	/* opening twice keeps the sockets already open */
+	socket_calls = 0;
+	assert_true(ping_icmp_open_shared());
+	assert_int_equal(socket_calls, 0);
+	assert_int_equal(controlled_socket_closed, 0);
+}
+
+static void test_open_shared_sockets_failures(void **state) {
+	(void) state;
+	socket_failures_remaining = 2;
+	assert_false(ping_icmp_open_shared());
+	assert_int_equal(icmp6_shared.fd, -1);
+
+	/* select() cannot watch a descriptor this high, so it is not kept */
+	use_controlled_socket = 1;
+	controlled_socket_fd = FD_SETSIZE;
+	assert_false(ping_icmp_open_shared());
+	assert_int_equal(controlled_socket_closed, 2);
+	assert_int_equal(icmp_shared.fd, -1);
+}
+
+static void test_shared_dispatch_ipv6(void **state) {
+	icmp_waiter_t waiter;
+	unsigned char reply[sizeof(struct icmp6_hdr) + sizeof(icmp6_payload)];
+	struct icmp6_hdr *header = (struct icmp6_hdr *) reply;
+	struct sockaddr_storage from;
+	struct sockaddr_in6 *source = (struct sockaddr_in6 *) &from;
+	ssize_t length = (ssize_t) (sizeof(*header) + sizeof(icmp6_payload) - 1);
+
+	(void) state;
+	memset(&waiter, 0, sizeof(waiter));
+	waiter.shared = &icmp6_shared;
+	waiter.family = AF_INET6;
+	waiter.id     = htons(3);
+	waiter.seq    = htons(4);
+	waiter.peer6  = in6addr_loopback;
+	icmp_shared_register(&waiter);
+
+	memset(reply, 0, sizeof(reply));
+	header->icmp6_type = ICMP6_ECHO_REPLY;
+	header->icmp6_id = htons(3);
+	header->icmp6_seq = htons(4);
+	memcpy(reply + sizeof(*header), icmp6_payload, sizeof(icmp6_payload) - 1);
+	memset(&from, 0, sizeof(from));
+	source->sin6_family = AF_INET6;
+
+	/* right message, wrong source */
+	thread_mutex_lock(LOCK_ICMP);
+	icmp_shared_dispatch(AF_INET6, reply, length, &from);
+	assert_false(waiter.answered);
+	/* an IPv4 reply never answers an IPv6 request */
+	icmp_shared_dispatch(AF_INET, reply, length, &from);
+	assert_false(waiter.answered);
+	source->sin6_addr = in6addr_loopback;
+	icmp_shared_dispatch(AF_INET6, reply, length, &from);
+	assert_true(waiter.answered);
+	thread_mutex_unlock(LOCK_ICMP);
+
+	icmp_shared_unregister(&waiter);
+}
+
+/* A signal during the drain must not end it or lose the reply behind it. */
+static void test_shared_drain_retries_after_eintr(void **state) {
+	icmp_waiter_t mine;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	controlled_reply = 1;
+	recvfrom_eintr_once = 1;
+	sent_icmp_id = (uint16_t) (getpid() & 0xFFFF);
+	reply_queue[0] = 21;
+	reply_queue_len = 1;
+	make_waiter(&mine, 21);
+	icmp_shared_register(&mine);
+
+	assert_true(icmp_shared_await(&mine, get_time_as_double() + 1.0));
+	/* interrupted, the reply, then the empty queue */
+	assert_int_equal(recvfrom_calls, 3);
+	icmp_shared_unregister(&mine);
+}
+
+static void test_shared_socket_debug_device(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	use_controlled_socket = 0;
+	socket_failures_remaining = 1;
+	controlled_reply = 1;
+	make_host(&host, "127.0.0.1");
+	pi_debug_table[0] = host.id;
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp(&host, &ping), HOST_UP);
+	assert_null(icmp_waiters);
+}
+
+static void make_host6(host_t *host) {
+	make_host(host, "::1");
+}
+
+/* A setuid install pings IPv6 devices through the shared ICMPv6 socket. */
+static void test_ipv6_shared_socket_answers(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp6_shared.fd = controlled_pair[0];
+	use_controlled_socket = 0;
+	socket_failures_remaining = 1;
+	controlled_reply = 1;
+	controlled_reply_v6 = 1;
+	track_packet = 1;
+	packet_size = sizeof(struct icmp6_hdr) + sizeof(icmp6_payload) - 1;
+	make_host6(&host);
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_UP);
+	assert_string_equal(ping.ping_response, "ICMPv6: Device is Alive");
+	assert_int_equal(socket_calls, 1);
+	assert_int_equal(controlled_socket_closed, 0);
+	assert_int_equal(packet_released, 1);
+	assert_null(icmp_waiters);
+
+	/* and as a debug device */
+	pi_debug_table[0] = host.id;
+	socket_failures_remaining = 1;
+	memset(&ping, 0, sizeof(ping));
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_UP);
+}
+
+static void test_ipv6_shared_socket_timeout(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp6_shared.fd = controlled_pair[0];
+	use_controlled_socket = 0;
+	socket_failures_remaining = 1;
+	make_host6(&host);
+	host.availability.timeout = 50;
+	host.availability.retries = 1;
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_DOWN);
+	assert_string_equal(ping.ping_response, "ICMPv6: Ping timed out");
+	assert_null(icmp_waiters);
+}
+
+/* The datagram path matches on sequence and payload, not the rewritten id. */
+static void test_ipv6_datagram_socket_answers(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	controlled_reply = 1;
+	controlled_reply_v6 = 1;
+	make_host6(&host);
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_UP);
+	assert_int_equal(controlled_socket_type, SOCK_DGRAM);
+	assert_int_equal(controlled_socket_cloexec, 1);
+	assert_int_equal(controlled_socket_closed, 1);
+}
+
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_fd_setsize_guard_releases_the_packet, ping_reset, ping_teardown),
@@ -747,6 +1016,16 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_shared_reader_drains_the_queue, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_shared_reader_hands_over_on_leaving, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_per_ping_sockets_are_close_on_exec, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_icmp6_reply_matching, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_open_socket_fcntl_fallback, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_open_shared_sockets, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_open_shared_sockets_failures, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_dispatch_ipv6, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_drain_retries_after_eintr, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_socket_debug_device, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_shared_socket_answers, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_shared_socket_timeout, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_datagram_socket_answers, ping_reset, ping_teardown),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
