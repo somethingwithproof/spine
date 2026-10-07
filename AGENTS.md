@@ -1,0 +1,61 @@
+<!--
+SPDX-FileCopyrightText: 2026 The Cacti Group
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
+# Spine agent instructions
+
+## Project and architecture
+
+Spine is Cacti's multithreaded C poller, not a PHP web application.
+`spine.c` is the entry point; `poller.c`, `snmp.c`, `sql.c`, `ping.c` and related
+headers implement polling, SNMP, database access and reachability. `spine.conf.dist`
+is a sample configuration, not permission to contact a live Cacti installation.
+
+`configure.ac`, `Makefile.am`, `bootstrap` and tracked distribution inputs define
+an Autotools build. Dependencies include a C compiler, Autoconf/Automake,
+Libtool, Net-SNMP, MySQL/MariaDB client development libraries and OpenSSL.
+Read `README.md` for platform-specific prerequisites. Select managed tool/runtime
+versions through `mise`; report native libraries that must be installed separately.
+
+## Offline build validation
+
+In an isolated source/build checkout with the native prerequisites installed:
+
+```sh
+mise exec -- ./bootstrap
+mise exec -- ./configure
+mise exec -- make
+```
+
+`bootstrap` regenerates files and can normalize source line endings; review the
+diff and retain legitimate tracked release inputs such as `Makefile.in`.
+The repository does not currently define a comprehensive unit-test suite or a
+CI build matrix. Report compiler/build results as build validation, not polling
+acceptance. Consult `.github/workflows/codeql.yml` for existing static analysis.
+
+## Poller safety and review
+
+Preserve Cacti's poller/database protocol, data-source identifiers and numerical
+semantics. Audit memory ownership, buffer bounds, thread synchronization,
+connection cleanup, subprocess handling and timeout/error paths. Never print
+SNMP community strings or database passwords. Avoid changing privileges or
+concurrency defaults as a workaround for a test failure.
+
+Do not run `make install`, enable setuid, change Cacti poller settings or execute
+polling against live devices/databases during ordinary validation. Runtime tests
+need an explicitly selected disposable Cacti database and test endpoints.
+The tracked `debug` file is a helper script, not disposable debug output.
+Preserve GPL notices and distinguish this fork's `develop` work from `1.2.x`.
+
+## Working rules
+
+Select required language runtimes through `mise`. Read the checked-out manifests,
+lockfiles and GitHub Actions before choosing versions or commands; do not infer
+support from an old README example. Keep changes focused and preserve public
+interfaces, licenses and existing correctness/security checks.
+
+Keep credentials, customer data, `.omc/`, `.worktrees/` and generated output out
+of commits. Never disable checks or suppress findings just to obtain a passing
+result. Report the commands run, results and untested environments. Publishing,
+deploying, modifying live systems and merging require task authorization.
