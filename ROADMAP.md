@@ -46,8 +46,8 @@ Known gaps:
 - Add `SECURITY.md` and `CONTRIBUTING.md`.
 - Make `CI / required` and the SonarCloud gate required checks on `develop`.
 - Decide whether this fork keeps tracking upstream or diverges for good, and
-  record the decision as an ADR. The decision sets the build system: Spine
-  stays on autotools while it tracks upstream.
+  record the decision as an ADR. The CMake move in Phase 2 and the poller
+  rewrite in Phase 4 both mean upstream changes must be ported by hand.
 
 Done when: the gate passes, required checks block red merges, and the ADR is
 merged.
@@ -84,16 +84,25 @@ Done when: the fault suite covers a database outage, an SNMP timeout storm,
 a hung script and a crashed PHP script server, and asserts the outcome of
 each; a 24-hour soak shows no memory growth.
 
-## Phase 2: observability (Q1 to Q2 2027)
+## Phase 2: observability and build system (Q1 to Q2 2027)
 
 - Emit structured JSON logs with stable keys and a per-cycle run ID.
 - Record per-cycle metrics: devices polled and failed, poll latency, SNMP
   errors by class, and script timeouts. Spine exits after every cycle, so it
   pushes metrics at the end of the run: a Prometheus textfile and OTLP.
 - Offer an optional OpenTelemetry span for each device poll.
+- Replace autotools with CMake and Ninja, using presets for the CI builds.
+  Port every feature probe and `AC_DEFINE`. Until autotools is removed, a CI
+  job builds both ways and fails if the generated `config.h` files differ;
+  the retired best-of-best CMake port lost its MySQL TLS, retry and Solaris
+  defines without anyone noticing. Keep the install paths, the man page and
+  a source tarball for packagers, run the tests through `ctest`, and feed
+  the native `compile_commands.json` to SonarCloud and clang-tidy.
 
 Done when: an operator can see which devices failed in a cycle, and why,
-without reading log files.
+without reading log files; and CMake builds and tests every lane in the
+support matrix with a `config.h` identical to the autotools one, after which
+autotools is removed.
 
 ## Phase 3: security depth (Q2 to Q3 2027)
 
