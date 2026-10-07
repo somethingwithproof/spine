@@ -37,6 +37,50 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def verify_schedule(sql, profiles):
+    if profiles == 1:
+        if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=999") != "1" or sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=228") != "0":
+            raise RuntimeError("Profile1 selection limit changed")
+        if sql("SELECT COUNT(*) FROM poller_item WHERE local_data_id<>999 AND rrd_next_step=0") != "128" or sql("SELECT rrd_next_step FROM poller_item WHERE local_data_id=999") != "60":
+            raise RuntimeError("Profile1 schedule changed")
+    else:
+        if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 101 AND 228") != "128" or sql("SELECT COUNT(*) FROM poller_item WHERE rrd_next_step=300") != "129":
+            raise RuntimeError("Profile2 selection or schedule changed")
+
+
+def verify_profile(result, sql, profiles, boost, expected):
+    if "shutdown metrics all zero" not in result.stdout + result.stderr:
+        raise RuntimeError("Instrumented CLI did not drain owned resources")
+    if sql("SELECT COUNT(*) FROM poller_output") != "128":
+        raise RuntimeError("Missing production outputs")
+    if sql(f"SELECT COUNT(*) FROM poller_output WHERE SHA2(output,256)='{expected}' AND HEX(rrd_name)='71756F746564275C727264'") != "128":
+        raise RuntimeError("Production output bytes differ from the actual producer")
+    verify_schedule(sql, profiles)
+    if sql("SELECT COUNT(*) FROM poller_output_boost") != str(128 * boost):
+        raise RuntimeError("Boost output count changed")
+    if boost and sql("SELECT COUNT(*) FROM poller_output p JOIN poller_output_boost b ON p.local_data_id=b.local_data_id AND BINARY p.rrd_name=BINARY b.rrd_name AND p.time=b.time AND BINARY p.output=BINARY b.output") != "128":
+        raise RuntimeError("Normal/Boost output bytes diverge")
+    if sql("SELECT COUNT(*) FROM host_errors") != "0":
+        raise RuntimeError("Unexpected host errors")
+
+
+def verify_invalid_output(sql, seed, temp, binary, config):
+    # Invalid real producer output must reach normalization and persist
+    # an undefined sample with the actual item identity in host_errors.
+    sql(seed)
+    sql("DELETE FROM poller_item WHERE local_data_id<>101; REPLACE INTO settings (name,value) VALUES ('active_profiles','1'),('boost_redirect','0'),('boost_rrd_update_enable','0');")
+    (temp / "sample").write_text("not_numeric\n")
+    result = run([str(binary), "--conf=" + str(config), "-f", "1", "-l", "1", "-S"], capture_output=True)
+    if "shutdown metrics all zero" not in result.stdout + result.stderr:
+        raise RuntimeError("Invalid-response producer did not drain")
+    if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=101 AND output='U'") != "1":
+        raise RuntimeError("Invalid response must persist one undefined sample")
+    if sql("SELECT COUNT(*) FROM host_errors WHERE host_id=1 AND errors=1 AND local_data_ids='101'") != "1":
+        raise RuntimeError("Invalid-response error attribution changed")
+    marker = "NATIVE_COVERAGE_INVALID_SCRIPT_PASS"
+    print(marker, flush=True)
+    return marker
+
 def main():
     root = Path(__file__).resolve().parents[2]
     binary = root / "build/spine"
@@ -79,44 +123,11 @@ def main():
                     sql(seed)
                     sql(f"REPLACE INTO settings (name,value) VALUES ('active_profiles','{profiles}'),('boost_redirect','{boost}'),('boost_rrd_update_enable','{boost}');")
                     result = run([str(binary), "--conf=" + str(config), "-f", "1", "-l", "1", "-S"], capture_output=True)
-                    if "shutdown metrics all zero" not in result.stdout + result.stderr:
-                        raise RuntimeError("Instrumented CLI did not drain owned resources")
-                    if sql("SELECT COUNT(*) FROM poller_output") != "128":
-                        raise RuntimeError("Missing production outputs")
-                    if sql(f"SELECT COUNT(*) FROM poller_output WHERE SHA2(output,256)='{expected}' AND HEX(rrd_name)='71756F746564275C727264'") != "128":
-                        raise RuntimeError("Production output bytes differ from the actual producer")
-                    if profiles == 1:
-                        if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=999") != "1" or sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=228") != "0":
-                            raise RuntimeError("Profile1 selection limit changed")
-                        if sql("SELECT COUNT(*) FROM poller_item WHERE local_data_id<>999 AND rrd_next_step=0") != "128" or sql("SELECT rrd_next_step FROM poller_item WHERE local_data_id=999") != "60":
-                            raise RuntimeError("Profile1 schedule changed")
-                    else:
-                        if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id BETWEEN 101 AND 228") != "128" or sql("SELECT COUNT(*) FROM poller_item WHERE rrd_next_step=300") != "129":
-                            raise RuntimeError("Profile2 selection or schedule changed")
-                    if sql("SELECT COUNT(*) FROM poller_output_boost") != str(128 * boost):
-                        raise RuntimeError("Boost output count changed")
-                    if boost and sql("SELECT COUNT(*) FROM poller_output p JOIN poller_output_boost b ON p.local_data_id=b.local_data_id AND BINARY p.rrd_name=BINARY b.rrd_name AND p.time=b.time AND BINARY p.output=BINARY b.output") != "128":
-                        raise RuntimeError("Normal/Boost output bytes diverge")
-                    if sql("SELECT COUNT(*) FROM host_errors") != "0":
-                        raise RuntimeError("Unexpected host errors")
+                    verify_profile(result, sql, profiles, boost, expected)
                     marker = f"NATIVE_COVERAGE_PROFILE_{profiles}_BOOST_{boost}_PASS"
                     print(marker, flush=True)
                     cases.append(marker)
-            # Invalid real producer output must reach normalization and persist
-            # an undefined sample with the actual item identity in host_errors.
-            sql(seed)
-            sql("DELETE FROM poller_item WHERE local_data_id<>101; REPLACE INTO settings (name,value) VALUES ('active_profiles','1'),('boost_redirect','0'),('boost_rrd_update_enable','0');")
-            (temp / "sample").write_text("not_numeric\n")
-            result = run([str(binary), "--conf=" + str(config), "-f", "1", "-l", "1", "-S"], capture_output=True)
-            if "shutdown metrics all zero" not in result.stdout + result.stderr:
-                raise RuntimeError("Invalid-response producer did not drain")
-            if sql("SELECT COUNT(*) FROM poller_output WHERE local_data_id=101 AND output='U'") != "1":
-                raise RuntimeError("Invalid response must persist one undefined sample")
-            if sql("SELECT COUNT(*) FROM host_errors WHERE host_id=1 AND errors=1 AND local_data_ids='101'") != "1":
-                raise RuntimeError("Invalid-response error attribution changed")
-            marker = "NATIVE_COVERAGE_INVALID_SCRIPT_PASS"
-            print(marker, flush=True)
-            cases.append(marker)
+            cases.append(verify_invalid_output(sql, seed, temp, binary, config))
             output = root / "coverage"
             output.mkdir(exist_ok=True)
             manifest = {"producer": "coverage-native", "cases": cases,

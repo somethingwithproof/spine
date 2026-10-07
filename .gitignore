@@ -59,3 +59,5 @@ CPackConfig.cmake
 CPackSourceConfig.cmake
 CTestTestfile.cmake
 Testing/
+# Locally built locked security scanner
+.github/scorecard/bin/

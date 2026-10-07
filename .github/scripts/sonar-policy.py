@@ -24,29 +24,34 @@ import os
 from pathlib import Path
 
 
+def event_branch(event_name: str, event: dict, ref: str) -> tuple[str | None, str]:
+    repository = event.get("repository", {})
+    if event_name == "pull_request":
+        head = event.get("pull_request", {}).get("head", {})
+        if not repository.get("full_name") or head.get("repo", {}).get("full_name") != repository["full_name"]:
+            return None, "Fork PR: analysis credential is isolated; normal CI still runs."
+        return head.get("ref", ""), ""
+    if event_name == "push" and ref.startswith("refs/heads/"):
+        return ref.removeprefix("refs/heads/"), ""
+    return None, "Event is outside the analysis policy."
+
+
 def eligibility(event_name: str, event: dict, ref: str, enabled: str,
                 actor: str, required: str = "") -> tuple[bool, str]:
     if enabled != "true":
         return False, "ENABLE_SONAR is absent or not true."
     if actor == "dependabot[bot]":
         return False, "Dependabot runs cannot receive the Sonar credential."
-    repository = event.get("repository", {})
-    if event_name == "pull_request":
-        head = event.get("pull_request", {}).get("head", {})
-        if not repository.get("full_name") or head.get("repo", {}).get("full_name") != repository["full_name"]:
-            return False, "Fork PR: analysis credential is isolated; normal CI still runs."
-        branch = head.get("ref", "")
-        if required == "true":
-            return True, "Required mode analyzes every trusted PR."
-    elif event_name == "workflow_dispatch":
+    if event_name == "workflow_dispatch":
         requested = event.get("inputs", {}).get("run_sonar", "true")
         return (True, "Manual analysis requested.") if requested in (True, "true") else (False, "Manual analysis disabled by input.")
-    elif event_name == "push" and ref.startswith("refs/heads/"):
-        branch = ref.removeprefix("refs/heads/")
-        if branch == repository.get("default_branch"):
-            return True, "Default branch analysis."
-    else:
-        return False, "Event is outside the analysis policy."
+    branch, reason = event_branch(event_name, event, ref)
+    if branch is None:
+        return False, reason
+    if event_name == "pull_request" and required == "true":
+        return True, "Required mode analyzes every trusted PR."
+    if event_name == "push" and branch == event.get("repository", {}).get("default_branch"):
+        return True, "Default branch analysis."
     if required == "true":
         return True, "Required mode analyzes every trusted branch."
     if branch.startswith(("sonar/", "release/")):
