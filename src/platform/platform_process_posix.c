@@ -8,6 +8,12 @@
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE
 #endif
+/* NetBSD hides pipe2 under strict POSIX feature selection unless native
+ * extensions are requested before the first system header. Keep atomic
+ * CLOEXEC creation for concurrent spawning on that platform too. */
+#if defined(__NetBSD__) && !defined(_NETBSD_SOURCE)
+#define _NETBSD_SOURCE 1
+#endif
 
 #include "platform_process.h"
 
