@@ -91,9 +91,12 @@ for scenario in partition-order early-stop; do
     [[ "$(sql 'SELECT COUNT(*) FROM poller_output WHERE (local_data_id=41 AND output="41") OR (local_data_id=42 AND output="42");')" == 2 ]]
     [[ "$(sql 'SELECT COUNT(*) FROM host WHERE id=1 AND polling_time>0;')" == 1 ]]
   else
-    [[ "$(sql 'SELECT COUNT(*) FROM poller_output WHERE local_data_id=51 AND output="51";')" == 1 ]]
-    [[ "$(sql 'SELECT COUNT(*) FROM poller_output WHERE local_data_id=52;')" == 0 ]]
-    [[ "$(sql 'SELECT total_polls FROM host WHERE id=2;')" == 0 ]]
+    # Production orders by item count only; equal-work hosts have no
+    # promised ID order. Exactly one actual selected host must complete.
+    [[ "$(sql 'SELECT COUNT(*) FROM poller_output;')" == 1 ]]
+    [[ "$(sql 'SELECT COUNT(*) FROM host WHERE total_polls>0;')" == 1 ]]
+    [[ "$(sql 'SELECT COUNT(*) FROM host WHERE total_polls=0;')" == 1 ]]
+    [[ "$(sql 'SELECT COUNT(*) FROM host h JOIN poller_item pi ON pi.host_id=h.id JOIN poller_output po ON po.local_data_id=pi.local_data_id WHERE h.total_polls>0 AND ((h.id=1 AND po.local_data_id=51 AND po.output="51") OR (h.id=2 AND po.local_data_id=52 AND po.output="52"));')" == 1 ]]
   fi
   echo "PASS: $scenario executes real producers with verified ownership and persisted outcomes"
 done
