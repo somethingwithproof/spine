@@ -1310,6 +1310,7 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 	double poll_time;
 	bool last_partition;
 	bool update_schedule = FALSE;
+	bool write_failed = FALSE;
 	/* record the polling time for the device */
 	poll_time = get_time_as_double() - poll_start;
 	SPINE_LOG_DEVICE(host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] Total Time: %0.2g Seconds", host_id, host_thread, poll_time));
@@ -1342,14 +1343,16 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 
 	if (update_schedule) {
 		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] Updating Poller Items for Next Poll", host_id, host_thread));
-		db_query(mysql, LOCAL, queries->schedule);
+		/* db_insert() reports the outcome; db_query() has no result set to
+		 * show for an UPDATE, so a failed write used to look like success. */
+		if (!db_insert(mysql, LOCAL, queries->schedule)) write_failed = TRUE;
 	}
 
 	if (last_partition) {
 		poll_time = get_time_as_double();
 		queries->items[0] = '\0';
 		snprintf(queries->items, BUFSIZE, "UPDATE host SET polling_time = %.3f - %.3f WHERE id = %i", poll_time, host_time_double, host_id);
-		db_query(mysql, LOCAL, queries->items);
+		if (!db_insert(mysql, LOCAL, queries->items)) write_failed = TRUE;
 	}
 
 	if (errors > 0) {
@@ -1364,9 +1367,20 @@ static void complete_poll_host(MYSQL *mysql, poller_queries_t *queries,
 			" local_data_ids = CONCAT(local_data_ids, ', ', VALUES(local_data_ids))",
 			host_id, set.poller.poller_id, errors, error_string);
 
-		db_query(mysql, LOCAL, error_query);
+		if (!db_insert(mysql, LOCAL, error_query)) write_failed = TRUE;
 
 		free(error_query);
+	}
+
+	/* output_failed keeps a later partition from marking the device complete
+	 * or advancing its schedule, so its items stay due for the next poll. */
+	if (write_failed) {
+		thread_mutex_lock(LOCK_THDET);
+		device->output_failed = TRUE;
+		device->complete = FALSE;
+		set.exit.exit_code = EXIT_FAILURE;
+		thread_mutex_unlock(LOCK_THDET);
+		SPINE_LOG(("ERROR: Device[%i] HT[%i] device completion write failed; the device is not counted as polled", host_id, host_thread));
 	}
 }
 

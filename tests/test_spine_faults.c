@@ -72,6 +72,11 @@ static my_ulonglong fake_rows;
 static const char *fake_rows_prefix;
 static my_ulonglong fake_rows_matched;
 static my_ulonglong fake_rows_current;
+/* A statement starting with fake_fail_prefix fails; fake_item_rows rows of
+ * fake_item_row are handed out to the next fetches. */
+static const char *fake_fail_prefix;
+static int fake_item_rows;
+static char *fake_item_row[21];
 static int fake_queries;
 static int fake_result_storage;
 #define FAKE_RESULT ((MYSQL_RES *)(void *)&fake_result_storage)
@@ -186,6 +191,8 @@ int __wrap_mysql_query(MYSQL *mysql, const char *query) {
 			fake_rows_matched : fake_rows;
 		if (strncmp(query, "SET SESSION sql_mode", strlen("SET SESSION sql_mode")) == 0) {
 			fake_errno_value = fake_session_mode_fails ? 1146 : 0;
+		} else if (fake_fail_prefix != NULL && strncmp(query, fake_fail_prefix, strlen(fake_fail_prefix)) == 0) {
+			fake_errno_value = 1146;
 		} else {
 			fake_errno_value = fake_error_next < fake_error_count ? fake_errors[fake_error_next++] : 0;
 		}
@@ -280,7 +287,11 @@ my_ulonglong __wrap_mysql_num_rows(MYSQL_RES *result) {
 }
 
 MYSQL_ROW __wrap_mysql_fetch_row(MYSQL_RES *result) {
-	if (result == FAKE_RESULT) return NULL;
+	if (result == FAKE_RESULT) {
+		if (fake_item_rows <= 0) return NULL;
+		fake_item_rows--;
+		return fake_item_row;
+	}
 	return __real_mysql_fetch_row(result);
 }
 
@@ -820,6 +831,8 @@ static void fake_script(const int *errors, int count) {
 	fake_rows = 0;
 	fake_rows_prefix = NULL;
 	fake_rows_matched = 0;
+	fake_fail_prefix = NULL;
+	fake_item_rows = 0;
 	errno = 0;
 }
 
@@ -1016,6 +1029,31 @@ static void test_fake_database_poll_host(void) {
 	run_fake_poll(&device, 0);
 	assert(!device.poll_failed && device.complete && set.exit.exit_code == EXIT_SUCCESS);
 	assert(fake_queries == 3 && db_pool_local[0].free);
+
+	/* A completion write that fails must leave the device incomplete and
+	 * fail the run. One invalid script result makes a host_errors write. */
+	static const char *const completion_writes[] = {
+		"UPDATE poller_item", "UPDATE host SET polling_time", "INSERT INTO host_errors"
+	};
+	static char action[] = "1";
+	static char command[] = "/usr/bin/printf invalid";
+	static char local_data_id[] = "1";
+	fake_item_row[0] = action;
+	fake_item_row[8] = command;
+	fake_item_row[11] = local_data_id;
+	assert(spine_permits_init(&available_scripts, 1) == 0);
+	set.php.script_timeout = 5;
+	for (size_t failing = 0; failing < sizeof(completion_writes) / sizeof(completion_writes[0]); failing++) {
+		fake_script(NULL, 0);
+		fake_rows = 1;
+		fake_item_rows = 1;
+		fake_fail_prefix = completion_writes[failing];
+		run_fake_poll(&device, 0);
+		fprintf(stderr, "completion write '%s' failing: complete=%d exit=%d queries=%d\n",
+			completion_writes[failing], device.complete, set.exit.exit_code, fake_queries);
+		assert(!device.complete && set.exit.exit_code == EXIT_FAILURE && db_pool_local[0].free);
+	}
+	assert(spine_permits_destroy(&available_scripts) == 0);
 
 	db_disconnect(&db_pool_local[0].mysql);
 	free(db_pool_local);
