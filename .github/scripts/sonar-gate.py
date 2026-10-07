@@ -26,6 +26,8 @@ from pathlib import Path
 def result(policy: str, eligible: str, analysis: str, required: str) -> tuple[int, str]:
     if policy != "success":
         return 1, "Sonar policy failed or was cancelled."
+    if eligible not in ("true", "false"):
+        return 1, "Sonar policy eligibility output is missing or malformed."
     if eligible == "true":
         if analysis != "success":
             return 1, "Requested Sonar analysis or its quality gate did not succeed."

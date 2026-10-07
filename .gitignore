@@ -45,3 +45,6 @@ __pycache__/
 .claude/worktrees/
 tests/unit/bin/
 test-artifacts/
+
+# Machine-local permission/settings overrides are not repository inputs.
+settings.local.json
