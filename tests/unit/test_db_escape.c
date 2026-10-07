@@ -115,30 +115,36 @@ static void test_degenerate_destination(MYSQL *mysql) {
 	ASSERT_TRUE(strcmp(out, "\\'") == 0 && out[3] == '\0');
 }
 
-static int assert_output_query_row(char *query, size_t capacity, const char *prefix,
-	char *tuple, size_t tuple_capacity, int row, const char *escaped_name,
-	const char *escaped, const char *suffix) {
-	const int prefix_appended = spine_output_buffer_append(query, capacity, prefix, strlen(prefix));
+typedef struct {
+	const char *prefix;
+	const char *suffix;
+	const char *escaped_name;
+	const char *escaped;
+} output_query_fixture_t;
+
+static int assert_output_query_row(char *query, size_t capacity,
+	char *tuple, size_t tuple_capacity, int row, const output_query_fixture_t *fixture) {
+	const int prefix_appended = spine_output_buffer_append(query, capacity, fixture->prefix, strlen(fixture->prefix));
 	ASSERT_TRUE(prefix_appended);
 	if (!prefix_appended) return 0;
 	const int formatted = snprintf(tuple, tuple_capacity,
-		" (%i, '%s', FROM_UNIXTIME(1700000000), '%s')", row, escaped_name, escaped);
+		" (%i, '%s', FROM_UNIXTIME(1700000000), '%s')", row, fixture->escaped_name, fixture->escaped);
 	ASSERT_TRUE(formatted >= 0 && (size_t)formatted < tuple_capacity);
 	if (formatted < 0 || (size_t)formatted >= tuple_capacity) return 0;
 	const size_t length = (size_t)formatted;
 	if (length >= MAX_MYSQL_BUF_SIZE) {
-		ASSERT_TRUE(spine_output_buffer_needs_flush(strlen(prefix), length, MAX_MYSQL_BUF_SIZE));
+		ASSERT_TRUE(spine_output_buffer_needs_flush(strlen(fixture->prefix), length, MAX_MYSQL_BUF_SIZE));
 	}
 	const int tuple_appended = spine_output_buffer_append(query, capacity, tuple, length);
 	ASSERT_TRUE(tuple_appended);
 	if (!tuple_appended) return 0;
-	const int suffix_appended = spine_output_buffer_append(query, capacity, suffix, strlen(suffix));
+	const int suffix_appended = spine_output_buffer_append(query, capacity, fixture->suffix, strlen(fixture->suffix));
 	ASSERT_TRUE(suffix_appended);
 	if (!suffix_appended) return 0;
-	ASSERT_TRUE(strlen(query) == strlen(prefix) + length + strlen(suffix));
-	ASSERT_TRUE(memcmp(query, prefix, strlen(prefix)) == 0);
-	ASSERT_TRUE(memcmp(query + strlen(prefix), tuple, length) == 0);
-	ASSERT_TRUE(strcmp(query + strlen(prefix) + length, suffix) == 0);
+	ASSERT_TRUE(strlen(query) == strlen(fixture->prefix) + length + strlen(fixture->suffix));
+	ASSERT_TRUE(memcmp(query, fixture->prefix, strlen(fixture->prefix)) == 0);
+	ASSERT_TRUE(memcmp(query + strlen(fixture->prefix), tuple, length) == 0);
+	ASSERT_TRUE(strcmp(query + strlen(fixture->prefix) + length, fixture->suffix) == 0);
 	return 1;
 }
 
@@ -166,14 +172,20 @@ static void test_output_query_assembly(MYSQL *mysql, const char *prefix) {
 	db_escape(mysql, escaped_name, sizeof(escaped_name), name);
 	ASSERT_TRUE(strlen(escaped_name) == 2 * (sizeof(name) - 1));
 
+	const output_query_fixture_t fixture = {
+		.prefix = prefix,
+		.suffix = suffix,
+		.escaped_name = escaped_name,
+		.escaped = escaped,
+	};
+
 	/* Exercise two consecutive maximum-expansion rows. The real writers flush at the
 	 * shared threshold before appending each row and reset to this prefix.
 	 * Test the actual assembly primitives, not a fake mysql writer. */
 	for (int row = 1; row <= 2; row++) {
 		memset(guarded, 0xa5, capacity + 2);
 		query[0] = '\0';
-		if (!assert_output_query_row(query, capacity, prefix, tuple, sizeof(tuple),
-			row, escaped_name, escaped, suffix)) break;
+		if (!assert_output_query_row(query, capacity, tuple, sizeof(tuple), row, &fixture)) break;
 		ASSERT_TRUE(guarded[0] == 0xa5 && guarded[capacity + 1] == 0xa5);
 	}
 	free(guarded);
