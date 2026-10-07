@@ -359,16 +359,42 @@ static icmp_shared_t  icmp6_shared = {-1, FALSE};
 #endif
 static icmp_waiter_t *icmp_waiters = NULL;
 
+/*! \fn static int icmp_open_socket(int family, int type, int protocol)
+ *  \brief opens an ICMP socket that PHP and script children cannot inherit
+ *
+ *  Poller threads posix_spawn() scripts while others ping, so the flag is set
+ *  atomically where SOCK_CLOEXEC exists; elsewhere fcntl() narrows the window.
+ */
+static int icmp_open_socket(int family, int type, int protocol) {
+	int fd;
+
+	#ifdef SOCK_CLOEXEC
+	fd = socket(family, type | SOCK_CLOEXEC, protocol);
+
+	if (fd != -1 || errno != EINVAL) {
+		return fd;
+	}
+	#endif
+
+	fd = socket(family, type, protocol);
+
+	if (fd != -1 && fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+		close(fd);
+		return -1;
+	}
+
+	return fd;
+}
+
 static int icmp_open_shared(int family, int protocol) {
-	int fd = socket(family, SOCK_RAW, protocol);
+	int fd = icmp_open_socket(family, SOCK_RAW, protocol);
 
 	if (fd == -1) {
 		return -1;
 	}
 
-	/* PHP and script children must never inherit a raw socket, and a
-	 * descriptor select() cannot watch is no use to the readers below. */
-	if (fd >= FD_SETSIZE || fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+	/* A descriptor select() cannot watch is no use to the readers below. */
+	if (fd >= FD_SETSIZE) {
 		close(fd);
 		return -1;
 	}
@@ -654,7 +680,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 	 * unchanged.  A datagram reply arrives with the IPv4 header already
 	 * stripped, which the receive path has to account for. */
 	icmp_dgram  = FALSE;
-	icmp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	icmp_socket = icmp_open_socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
 
 	if (icmp_socket != -1) {
 		icmp_dgram = TRUE;
@@ -668,7 +694,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 	 * without capabilities uses the shared socket above instead. */
 	retry_count = 0;
 	while (icmp_socket == -1) {
-		icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+		icmp_socket = icmp_open_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 		socket_errno = errno;
 
 		if (icmp_socket != -1) {
@@ -1108,7 +1134,7 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 	 * rewrites the echo id on such a socket, which the reply match below
 	 * accounts for. */
 	icmp_dgram  = FALSE;
-	icmp_socket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+	icmp_socket = icmp_open_socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
 
 	if (icmp_socket != -1) {
 		icmp_dgram = TRUE;
@@ -1119,7 +1145,7 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 
 	/* As in ping_icmp(), a socket of our own never involves regaining root. */
 	while (icmp_socket == -1) {
-		icmp_socket = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+		icmp_socket = icmp_open_socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 		socket_errno = errno;
 
 		if (icmp_socket != -1) {

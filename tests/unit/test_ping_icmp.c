@@ -37,6 +37,7 @@ static int use_controlled_socket;
 static int controlled_socket_fd;
 static int controlled_socket_type;
 static int controlled_socket_closed;
+static int controlled_socket_cloexec;
 static int socket_failures_remaining;
 static int socket_calls;
 static int track_packet;
@@ -59,6 +60,7 @@ static int recvfrom_calls;
 
 static int test_socket(int domain, int type, int protocol);
 static int test_close(int fd);
+static int test_fcntl(int fd, int command, int argument);
 static void *intercepted_malloc(size_t size);
 static void intercepted_free(void *ptr);
 static int test_getaddrinfo(const char *node, const char *service,
@@ -75,6 +77,7 @@ static ssize_t test_recvfrom(int fd, void *buffer, size_t length, int flags,
  * resource sinks can be observed without root or Linux-only linker wrapping. */
 #define socket test_socket
 #define close test_close
+#define fcntl test_fcntl
 #define malloc intercepted_malloc
 #define free intercepted_free
 #define getaddrinfo test_getaddrinfo
@@ -85,6 +88,7 @@ static ssize_t test_recvfrom(int fd, void *buffer, size_t length, int flags,
 #include "../../ping.c"
 #undef socket
 #undef close
+#undef fcntl
 #undef malloc
 #undef free
 #undef getaddrinfo
@@ -187,6 +191,12 @@ static int test_socket(int domain, int type, int protocol) {
 	if (use_controlled_socket) {
 		(void) domain;
 		(void) protocol;
+		#ifdef SOCK_CLOEXEC
+		if (type & SOCK_CLOEXEC) {
+			controlled_socket_cloexec = 1;
+			type &= ~SOCK_CLOEXEC;
+		}
+		#endif
 		controlled_socket_type = type;
 		return controlled_socket_fd;
 	}
@@ -201,6 +211,17 @@ static int test_close(int fd) {
 	}
 
 	return close(fd);
+}
+
+static int test_fcntl(int fd, int command, int argument) {
+	if (use_controlled_socket && fd == controlled_socket_fd) {
+		if (command == F_SETFD && (argument & FD_CLOEXEC)) {
+			controlled_socket_cloexec = 1;
+		}
+		return 0;
+	}
+
+	return fcntl(fd, command, argument);
 }
 
 static void *intercepted_malloc(size_t size) {
@@ -246,6 +267,7 @@ static int ping_reset(void **state) {
 	controlled_socket_fd = -1;
 	controlled_socket_type = 0;
 	controlled_socket_closed = 0;
+	controlled_socket_cloexec = 0;
 	socket_failures_remaining = 0;
 	socket_calls = 0;
 	track_packet = 0;
@@ -680,6 +702,33 @@ static void test_shared_reader_hands_over_on_leaving(void **state) {
 	icmp_shared_unregister(&mine);
 }
 
+/* Poller threads spawn scripts while others ping, so a per-ping socket must
+   be close-on-exec from the start or a script can inherit raw ICMP access. */
+static void test_per_ping_sockets_are_close_on_exec(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	make_host(&host, "127.0.0.1");
+	host.availability.timeout = 1;
+	host.availability.retries = 0;
+
+	/* datagram socket */
+	memset(&ping, 0, sizeof(ping));
+	assert_int_equal(ping_icmp(&host, &ping), HOST_DOWN);
+	assert_int_equal(controlled_socket_type, SOCK_DGRAM);
+	assert_int_equal(controlled_socket_cloexec, 1);
+
+	/* raw socket after the datagram one is refused */
+	controlled_socket_cloexec = 0;
+	socket_failures_remaining = 1;
+	memset(&ping, 0, sizeof(ping));
+	assert_int_equal(ping_icmp(&host, &ping), HOST_DOWN);
+	assert_int_equal(controlled_socket_type, SOCK_RAW);
+	assert_int_equal(controlled_socket_cloexec, 1);
+}
+
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_fd_setsize_guard_releases_the_packet, ping_reset, ping_teardown),
@@ -697,6 +746,7 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_shared_waiter_does_not_read_while_another_thread_does, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_shared_reader_drains_the_queue, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_shared_reader_hands_over_on_leaving, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_per_ping_sockets_are_close_on_exec, ping_reset, ping_teardown),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
