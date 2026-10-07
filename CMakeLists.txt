@@ -112,6 +112,7 @@ endif()
 
 set(SPINE_CORE_SOURCES
     src/sql.c
+    src/output_buffer.c
     src/spine.c
     src/util.c
     src/snmp.c
@@ -344,6 +345,13 @@ else()
         target_compile_definitions(spine_posix_features INTERFACE _ALL_SOURCE=1 _XOPEN_SOURCE=700)
         target_compile_definitions(spine_platform PUBLIC _ALL_SOURCE=1 _XOPEN_SOURCE=700)
         target_link_options(spine_platform PUBLIC -Wl,-brtl)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+        # Native libc extensions expose pipe2 and the BSD typedefs required
+        # by Net-SNMP under the project's strict POSIX feature selection.
+        target_compile_definitions(spine_posix_features INTERFACE
+            _NETBSD_SOURCE=1 __BSD_VISIBLE=1 _XOPEN_SOURCE=700)
+        target_compile_definitions(spine_platform PUBLIC
+            _NETBSD_SOURCE=1 __BSD_VISIBLE=1 _XOPEN_SOURCE=700)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
         # OpenBSD's <sys/cdefs.h> treats any of _POSIX_C_SOURCE /
         # _XOPEN_SOURCE / _ANSI_SOURCE as a hard signal to force
@@ -354,11 +362,10 @@ else()
         target_compile_definitions(spine_posix_features INTERFACE __BSD_VISIBLE=1)
         target_compile_definitions(spine_platform PUBLIC __BSD_VISIBLE=1)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR
-           CMAKE_SYSTEM_NAME STREQUAL "NetBSD" OR
            CMAKE_SYSTEM_NAME STREQUAL "DragonFly")
-        # FreeBSD / NetBSD / DragonFly honor __BSD_VISIBLE=1 alongside
+        # FreeBSD / DragonFly honor __BSD_VISIBLE=1 alongside
         # _POSIX_C_SOURCE and expose XSI helpers under _XOPEN_SOURCE=700.
-        # FreeBSD 14 is Tier 1; NetBSD 10 and DragonFly 6 are Tier 3.
+        # FreeBSD 14 is Tier 1; DragonFly 6 is Tier 3.
         target_compile_definitions(spine_posix_features INTERFACE
             __BSD_VISIBLE=1
             _XOPEN_SOURCE=700)

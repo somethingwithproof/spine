@@ -35,9 +35,29 @@ libtool
 # Build directories (CMake out-of-source + local experiments)
 build/
 build-*/
+coverage/
+coverage.filtered.info
+.scannerwork/
+__pycache__/
 
 # Agent / tooling session state
 .omc/
 .claude/worktrees/
 tests/unit/bin/
 test-artifacts/
+
+# Machine-local permission/settings overrides are not repository inputs.
+settings.local.json
+
+# Generated CMake/Ninja files; source configuration stays tracked.
+CMakeCache.txt
+CMakeFiles/
+build.ninja
+.ninja_deps
+.ninja_log
+CPackConfig.cmake
+CPackSourceConfig.cmake
+CTestTestfile.cmake
+Testing/
+# Locally built locked security scanner
+.github/scorecard/bin/

@@ -31,12 +31,12 @@ bool spine_governor_subnet_allow(uint32_t subnet_id);
 /**
  * Consume a token (dispatching a task).
  */
-void spine_governor_consume(spine_task_t *task);
+void spine_governor_consume(const spine_task_t *task);
 
 /**
  * Release a token (task completed). Adjusts adaptive host limits.
  */
-void spine_governor_release(spine_task_t *task, bool success);
+void spine_governor_release(const spine_task_t *task, bool success);
 
 /**
  * Returns the current global inflight task count.

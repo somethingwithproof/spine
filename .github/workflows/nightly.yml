@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -21,7 +21,7 @@ env:
   COMMON_DEPS: >-
     cmake make pkg-config
     gcc clang llvm valgrind
-    libsnmp-dev default-libmysqlclient-dev help2man libssl-dev
+    libsnmp-dev default-libmysqlclient-dev help2man libssl-dev libseccomp-dev libuv1-dev
   TSAN_OPTIONS: halt_on_error=1:history_size=7:log_path=tsan
   ASAN_OPTIONS: >-
     detect_leaks=1:abort_on_error=1:strict_string_checks=1:
@@ -33,6 +33,7 @@ jobs:
   tsan:
     name: clang tsan
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -60,7 +61,7 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure || echo '::notice::ctest non-zero.'
+          ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Upload tsan artifacts
         if: always()
@@ -77,6 +78,7 @@ jobs:
   asan-soak:
     name: clang asan/ubsan soak
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -104,7 +106,7 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          ctest --test-dir build --output-on-failure || echo '::notice::ctest non-zero.'
+          ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Enforce asan/ubsan leak trend baseline
         run: |
@@ -132,6 +134,7 @@ jobs:
   valgrind:
     name: valgrind test pass
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -170,7 +173,7 @@ jobs:
             done
           else
             echo '::notice::No test binaries under build/; running ctest.'
-            ctest --test-dir build --output-on-failure || true
+            ctest --test-dir build --output-on-failure --no-tests=error
           fi
 
       - name: Enforce valgrind leak trend baseline
@@ -198,6 +201,7 @@ jobs:
   fuzz-smoke:
     name: libfuzzer harness smoke
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -260,6 +264,7 @@ jobs:
   helgrind:
     name: Valgrind Helgrind (Thread Errors)
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -301,6 +306,7 @@ jobs:
   stack-usage:
     name: Stack Usage Analysis
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -337,6 +343,7 @@ jobs:
   soak-placeholder:
     name: soak/integration placeholder
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     needs: [tsan, asan-soak, valgrind, fuzz-smoke, helgrind, stack-usage]
 
     steps:

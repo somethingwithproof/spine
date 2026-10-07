@@ -294,6 +294,25 @@ function(spine_add_tests)
     endif()
     target_link_libraries(test_dry_run PRIVATE spine_hardening)
     add_test(NAME dry_run COMMAND test_dry_run)
+
+    add_executable(test_db_escape tests/unit/test_db_escape.c tests/unit/test_sql_stubs.c src/sql.c src/db_session.c src/output_buffer.c)
+    target_include_directories(
+      test_db_escape
+      PRIVATE ${CMAKE_BINARY_DIR}
+              ${CMAKE_SOURCE_DIR}
+              ${CMAKE_SOURCE_DIR}/src
+              ${CMAKE_SOURCE_DIR}/src/platform
+              ${CMAKE_SOURCE_DIR}/tests/unit
+              ${CMAKE_SOURCE_DIR}/third_party)
+    target_link_libraries(test_db_escape PRIVATE spine_platform spine_mysql spine_netsnmp Threads::Threads)
+    if(OpenSSL_FOUND)
+      target_link_libraries(test_db_escape PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
+    if(TARGET spine_build_options)
+      target_link_libraries(test_db_escape PRIVATE spine_build_options)
+    endif()
+    target_link_libraries(test_db_escape PRIVATE spine_hardening)
+    add_test(NAME db_escape COMMAND test_db_escape)
   endif()
 
   # Windows-only Job Object lifecycle test.

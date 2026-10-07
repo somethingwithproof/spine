@@ -107,7 +107,7 @@ void php_processes_initialize(php_t *processes, int count) {
 	}
 }
 
-static char *php_read_result(int php_process, char *command, int allow_restart);
+static char *php_read_result(int php_process, const char *command, int allow_restart);
 
 /* Block SIGPIPE in the calling thread around Spine's two pipe writes. The
  * daemon normally catches SIGPIPE with a no-op handler process-wide, but this local guard
@@ -327,7 +327,7 @@ char *php_read_result_for_test(int php_process, char *command, int allow_restart
 }
 #endif
 
-/*! \fn char *php_readpipe(int php_process, char *command)
+/*! \fn char *php_readpipe(int php_process, const char *command)
  *  \brief read a line from a PHP Script Server process
  *  \param php_process the PHP Script Server process to obtain output from
  *
@@ -338,7 +338,7 @@ char *php_read_result_for_test(int php_process, char *command, int allow_restart
  *
  *  \return a string pointer to the PHP Script Server response
  */
-/*! \fn static char *php_read_result(int php_process, char *command, int allow_restart)
+/*! \fn static char *php_read_result(int php_process, const char *command, int allow_restart)
  *  \brief reads one script server response.
  *
  *  allow_restart is FALSE for the startup handshake. php_init() calls this to
@@ -348,7 +348,7 @@ char *php_read_result_for_test(int php_process, char *command, int allow_restart
  *  recursion, spawning a fresh server at every level. Refusing the restart on
  *  the handshake bounds the depth at one by construction.
  */
-static char *php_read_result(int php_process, char *command, int allow_restart) {
+static char *php_read_result(int php_process, const char *command, int allow_restart) {
 	fd_set fds;
 	struct timeval timeout;
 	double begin_time = 0;
@@ -517,13 +517,13 @@ static char *php_read_result(int php_process, char *command, int allow_restart) 
 	return result_string;
 }
 
-/*! \fn char *php_readpipe(int php_process, char *command)
+/*! \fn char *php_readpipe(int php_process, const char *command)
  *  \brief reads a script server response, restarting a server that stops
  *         answering.
  *
  *  \return a string pointer to the PHP Script Server response
  */
-char *php_readpipe(int php_process, char *command) {
+char *php_readpipe(int php_process, const char *command) {
 	return php_read_result(php_process, command, TRUE);
 }
 
