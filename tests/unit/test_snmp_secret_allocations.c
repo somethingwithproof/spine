@@ -107,7 +107,7 @@ static void test_owned_copy_allocation(int failing_index) {
 	faults_observed = 0;
 	failure_index = failing_index;
 	capture_active = 1;
-	void *handle = snmp_host_init(&(spine_snmp_profile_t){
+	void *handle = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = 1,
 			.hostname = hostname,
 			.snmp_version = 3,
