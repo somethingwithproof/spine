@@ -87,12 +87,13 @@ pass "IPv6 test host and poller_item configured"
 
 echo ""
 echo "=== Run IPv6-targeted poll ==="
+poll_status=0
 output=$("${COMPOSE[@]}" run --rm --no-deps --entrypoint spine spine \
-  --conf=/etc/spine/spine.conf -f 3 -l 3 -S 2>&1 || true)
+  --conf=/etc/spine/spine.conf -f 3 -l 3 -S 2>&1) || poll_status=$?
 echo "$output"
 
-if echo "$output" | grep -qiE "segfault|SIGSEGV|Aborted|core dump|Unknown column"; then
-  fail "spine crashed or hit SQL regression in IPv6 poll path"
+if [[ $poll_status -ne 0 ]] || echo "$output" | grep -qiE "segfault|SIGSEGV|Aborted|core dump|Unknown column"; then
+  fail "spine exited unsuccessfully (status=$poll_status), crashed, or hit an SQL regression in IPv6 poll path"
 else
   pass "spine handled IPv6 poll path without crash/SQL regression"
 fi
