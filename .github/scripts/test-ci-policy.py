@@ -40,6 +40,7 @@ gate = load("sonar-gate")
 coverage = load("validate-coverage")
 workflow = load("check-workflow-policy")
 cppcheck = load("compare-cppcheck")
+clang_sarif = load("clang_tidy_to_sarif")
 
 
 class SonarPolicy(unittest.TestCase):
@@ -125,6 +126,22 @@ class WorkflowPolicy(unittest.TestCase):
                 document = json.loads(json.dumps(good)); mutation(document)
                 path.write_text(yaml.safe_dump(document))
                 self.assertTrue(workflow.audit(root))
+
+
+class ClangTidyEvidence(unittest.TestCase):
+    def test_empty_note_keeps_a_nonempty_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report, output = root / "report.txt", root / "report.sarif"
+            report.write_text("src/example.c:1:2: warning: real finding [clang-analyzer-core.NullDereference]\n"
+                              "src/example.c:3:4: note: \n")
+            command = [sys.executable, clang_sarif.__file__, str(report), str(output)]
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            results = json.loads(output.read_text())["runs"][0]["results"]
+            self.assertEqual(len(results), 2)
+            self.assertTrue(all(result["message"]["text"].strip() for result in results))
+            self.assertEqual(results[0]["message"]["text"], "real finding")
+            self.assertEqual(results[1]["level"], "note")
 
 
 class CppcheckEvidence(unittest.TestCase):
