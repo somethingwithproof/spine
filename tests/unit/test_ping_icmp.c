@@ -1,9 +1,10 @@
-/* ping_icmp() resource ownership.
+/* ping_icmp() resource ownership and the shared raw socket.
  *
- * This is the least-tested and highest-consequence change in the branch: the
- * function runs in a SUID-root binary, and its five exits were collapsed onto
- * one cleanup label while the seteuid(0)/LOCK_SETEUID wrapper around close()
- * was removed. Nothing covered it.
+ * The function runs in a SUID-root binary, and its five exits were collapsed
+ * onto one cleanup label while the seteuid(0) wrapper around close() was
+ * removed. Root is now dropped at startup and a setuid install without
+ * capabilities pings through raw sockets opened before the drop, which every
+ * poller thread shares.
  *
  * The live ICMP cases skip without raw-socket privilege. The ownership cases
  * use controlled socket and allocation sinks, so they run everywhere.
@@ -49,6 +50,12 @@ static int freeaddrinfo_calls;
 static int controlled_reply;
 static uint16_t sent_icmp_id;
 static uint16_t sent_icmp_seq;
+static int reply_seq_override;
+static uint16_t reply_queue[8];
+static int reply_queue_len;
+static int reply_queue_pos;
+static uint16_t reply_seq;
+static int recvfrom_calls;
 
 static int test_socket(int domain, int type, int protocol);
 static int test_close(int fd);
@@ -137,16 +144,28 @@ static ssize_t test_recvfrom(int fd, void *buffer, size_t length, int flags,
 	if (!controlled_reply) {
 		return recvfrom(fd, buffer, length, flags, address, address_len);
 	}
+	recvfrom_calls++;
+	/* A finite queue ends the way a drained non-blocking socket does. */
+	if (reply_queue_len > 0 && reply_queue_pos >= reply_queue_len) {
+		errno = EAGAIN;
+		return -1;
+	}
 	assert_true(length >= reply_length);
 	memset(buffer, 0, reply_length);
 	if (ip_length != 0) {
 		ip_reply = buffer;
+		ip_reply->ip_v = 4;
 		ip_reply->ip_hl = sizeof(struct ip) >> 2;
+		ip_reply->ip_p = IPPROTO_ICMP;
 	}
 	icmp_reply = (struct icmp *)((unsigned char *) buffer + ip_length);
 	icmp_reply->icmp_type = ICMP_ECHOREPLY;
 	icmp_reply->icmp_id = sent_icmp_id;
-	icmp_reply->icmp_seq = sent_icmp_seq;
+	if (reply_queue_len > 0) {
+		icmp_reply->icmp_seq = reply_queue[reply_queue_pos++];
+	} else {
+		icmp_reply->icmp_seq = reply_seq_override ? reply_seq : sent_icmp_seq;
+	}
 	if (address != NULL && address_len != NULL && *address_len >= sizeof(*source)) {
 		source = (struct sockaddr_in *) address;
 		memset(source, 0, sizeof(*source));
@@ -242,6 +261,14 @@ static int ping_reset(void **state) {
 	controlled_reply = 0;
 	sent_icmp_id = 0;
 	sent_icmp_seq = 0;
+	reply_seq_override = 0;
+	reply_queue_len = 0;
+	reply_queue_pos = 0;
+	reply_seq = 0;
+	recvfrom_calls = 0;
+	icmp_shared.fd = -1;
+	icmp_shared.reading = FALSE;
+	icmp_waiters = NULL;
 	return 0;
 }
 
@@ -367,8 +394,8 @@ static void test_matching_reply_releases_resources(void **state) {
 	assert_non_null(strstr(ping.ping_response, "Alive"));
 	assert_int_equal(packet_released, 1);
 	assert_int_equal(controlled_socket_closed, 1);
-	assert_int_equal(thread_mutex_trylock(LOCK_SETEUID), 0);
-	thread_mutex_unlock(LOCK_SETEUID);
+	assert_int_equal(thread_mutex_trylock(LOCK_ICMP), 0);
+	thread_mutex_unlock(LOCK_ICMP);
 }
 
 static void test_cached_capability_path_releases_resources(void **state) {
@@ -384,8 +411,8 @@ static void test_cached_capability_path_releases_resources(void **state) {
 
 	assert_int_equal(ping_icmp(&host, &ping), HOST_DOWN);
 	assert_int_equal(geteuid(), getuid());
-	assert_int_equal(thread_mutex_trylock(LOCK_SETEUID), 0);
-	thread_mutex_unlock(LOCK_SETEUID);
+	assert_int_equal(thread_mutex_trylock(LOCK_ICMP), 0);
+	thread_mutex_unlock(LOCK_ICMP);
 }
 
 static void test_socket_retry_can_succeed_after_one_failure(void **state) {
@@ -403,13 +430,14 @@ static void test_socket_retry_can_succeed_after_one_failure(void **state) {
 	assert_int_equal(socket_calls, 2);
 	assert_int_equal(geteuid(), getuid());
 	assert_int_equal(controlled_socket_closed, 1);
-	assert_int_equal(thread_mutex_trylock(LOCK_SETEUID), 0);
-	thread_mutex_unlock(LOCK_SETEUID);
+	assert_int_equal(thread_mutex_trylock(LOCK_ICMP), 0);
+	thread_mutex_unlock(LOCK_ICMP);
 }
 
-/* The socket() retry used to sleep and loop back with LOCK_SETEUID still held,
-   so attempt two relocked a non-recursive process-global mutex from its own
-   owner. That wedges the thread at euid 0 and every other thread behind it.
+/* The socket() retry used to sleep and loop back with the seteuid lock still
+   held, so attempt two relocked a non-recursive process-global mutex from its
+   own owner. That wedged the thread at euid 0 and every other thread behind it.
+   The elevation is gone; the retry must still give up rather than hang.
 
    This runs exactly where the tests above skip: with no privilege, socket()
    fails with EPERM and the retry loop is what executes. An alarm turns the
@@ -438,7 +466,7 @@ static void test_socket_retry_does_not_deadlock_on_seteuid(void **state) {
 	if (sigsetjmp(ping_deadlock_env, 1) != 0) {
 		alarm(0);
 		sigaction(SIGALRM, &prev, NULL);
-		fail_msg("ping_icmp() blocked in the socket() retry; LOCK_SETEUID was held across the sleep");
+		fail_msg("ping_icmp() blocked in the socket() retry");
 	}
 
 	make_host(&host, "127.0.0.1");
@@ -456,9 +484,200 @@ static void test_socket_retry_does_not_deadlock_on_seteuid(void **state) {
 	assert_non_null(strstr(ping.ping_response, "ICMP Socket"));
 
 	/* Keep the alarm armed for the probe, and never block on a leaked lock. */
-	assert_int_equal(thread_mutex_trylock(LOCK_SETEUID), 0);
-	thread_mutex_unlock(LOCK_SETEUID);
+	assert_int_equal(thread_mutex_trylock(LOCK_ICMP), 0);
+	thread_mutex_unlock(LOCK_ICMP);
 
+}
+
+/* A setuid install without capabilities pings through the socket opened before
+   root was dropped. It must not try for a raw socket of its own, which would
+   fail, and must leave the shared socket open for the next caller. */
+static void test_shared_socket_answers_without_a_socket_of_its_own(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	use_controlled_socket = 0;
+	socket_failures_remaining = 1;
+	controlled_reply = 1;
+	track_packet = 1;
+	make_host(&host, "127.0.0.1");
+	memset(&ping, 0, sizeof(ping));
+
+	assert_true(ping_icmp_shared_available());
+	assert_int_equal(ping_icmp(&host, &ping), HOST_UP);
+	assert_non_null(strstr(ping.ping_response, "Alive"));
+	assert_int_equal(socket_calls, 1);
+	assert_int_equal(controlled_socket_closed, 0);
+	assert_int_equal(packet_released, 1);
+	assert_null(icmp_waiters);
+	assert_int_equal(geteuid(), getuid());
+	assert_int_equal(thread_mutex_trylock(LOCK_ICMP), 0);
+	thread_mutex_unlock(LOCK_ICMP);
+}
+
+static void test_shared_socket_timeout_unregisters(void **state) {
+	host_t host;
+	ping_t ping;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	use_controlled_socket = 0;
+	socket_failures_remaining = 1;
+	make_host(&host, "127.0.0.1");
+	host.availability.timeout = 50;
+	host.availability.retries = 1;
+	memset(&ping, 0, sizeof(ping));
+
+	assert_int_equal(ping_icmp(&host, &ping), HOST_DOWN);
+	assert_non_null(strstr(ping.ping_response, "timed out"));
+	assert_int_equal(controlled_socket_closed, 0);
+	assert_null(icmp_waiters);
+}
+
+static void make_waiter(icmp_waiter_t *waiter, uint16_t seq) {
+	memset(waiter, 0, sizeof(*waiter));
+	waiter->shared      = &icmp_shared;
+	waiter->family      = AF_INET;
+	waiter->id          = (uint16_t) (getpid() & 0xFFFF);
+	waiter->seq         = seq;
+	waiter->peer.s_addr = htonl(INADDR_LOOPBACK);
+}
+
+/* One raw socket queues each reply once. Whoever reads a reply that answers
+   another thread's request must hand it over, or that device goes down. */
+static void test_shared_reply_for_another_waiter_is_handed_over(void **state) {
+	icmp_waiter_t mine;
+	icmp_waiter_t theirs;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	controlled_reply = 1;
+	reply_seq_override = 1;
+	reply_seq = 77;
+	sent_icmp_id = (uint16_t) (getpid() & 0xFFFF);
+	make_waiter(&mine, 5);
+	make_waiter(&theirs, 77);
+	icmp_shared_register(&theirs);
+	icmp_shared_register(&mine);
+
+	assert_false(icmp_shared_await(&mine, get_time_as_double() + 0.05));
+	assert_true(theirs.answered);
+	assert_false(mine.answered);
+	assert_true(recvfrom_calls > 0);
+
+	icmp_shared_unregister(&mine);
+	icmp_shared_unregister(&theirs);
+	assert_null(icmp_waiters);
+	assert_false(icmp_shared.reading);
+}
+
+static void *answer_waiter(void *argument) {
+	icmp_waiter_t *waiter = argument;
+
+	usleep(20000);
+	thread_mutex_lock(LOCK_ICMP);
+	waiter->answered = TRUE;
+	pthread_cond_signal(&waiter->wake);
+	thread_mutex_unlock(LOCK_ICMP);
+	return NULL;
+}
+
+/* While another thread reads, a waiter sleeps on the condition variable and
+   never touches the socket; the reader's hand-over wakes it. */
+static void test_shared_waiter_does_not_read_while_another_thread_does(void **state) {
+	icmp_waiter_t mine;
+	pthread_t reader;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	controlled_reply = 1;
+	make_waiter(&mine, 9);
+	icmp_shared_register(&mine);
+	icmp_shared.reading = TRUE;
+
+	assert_int_equal(pthread_create(&reader, NULL, answer_waiter, &mine), 0);
+	assert_true(icmp_shared_await(&mine, get_time_as_double() + 2.0));
+	assert_int_equal(pthread_join(reader, NULL), 0);
+	assert_int_equal(recvfrom_calls, 0);
+
+	icmp_shared.reading = FALSE;
+	icmp_shared_unregister(&mine);
+}
+
+/* Under a flood one reply per lock cycle falls behind the queue. A reader must
+   empty everything that is waiting and answer every waiter it finds. */
+static void test_shared_reader_drains_the_queue(void **state) {
+	icmp_waiter_t mine;
+	icmp_waiter_t others[3];
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	controlled_reply = 1;
+	sent_icmp_id = (uint16_t) (getpid() & 0xFFFF);
+	for (int i = 0; i < 3; i++) {
+		make_waiter(&others[i], (uint16_t) (100 + i));
+		icmp_shared_register(&others[i]);
+		reply_queue[i] = (uint16_t) (100 + i);
+	}
+	reply_queue[3] = 9;
+	reply_queue_len = 4;
+	make_waiter(&mine, 9);
+	icmp_shared_register(&mine);
+
+	assert_true(icmp_shared_await(&mine, get_time_as_double() + 1.0));
+	for (int i = 0; i < 3; i++) {
+		assert_true(others[i].answered);
+		icmp_shared_unregister(&others[i]);
+	}
+	/* one pass: four replies, then the empty queue */
+	assert_int_equal(recvfrom_calls, 5);
+	icmp_shared_unregister(&mine);
+	assert_null(icmp_waiters);
+}
+
+static void *release_reader(void *argument) {
+	icmp_shared_t *shared = argument;
+
+	usleep(20000);
+	thread_mutex_lock(LOCK_ICMP);
+	shared->reading = FALSE;
+	icmp_shared_handoff(shared);
+	thread_mutex_unlock(LOCK_ICMP);
+	return NULL;
+}
+
+/* With per-waiter wakeups, a reader that leaves must hand the socket to a
+   sleeping waiter, or that waiter sleeps through its own reply. */
+static void test_shared_reader_hands_over_on_leaving(void **state) {
+	icmp_waiter_t mine;
+	pthread_t reader;
+	double begin;
+
+	(void) state;
+	use_owned_controlled_socket();
+	icmp_shared.fd = controlled_pair[0];
+	controlled_reply = 1;
+	sent_icmp_id = (uint16_t) (getpid() & 0xFFFF);
+	reply_queue[0] = 11;
+	reply_queue_len = 1;
+	make_waiter(&mine, 11);
+	icmp_shared_register(&mine);
+	icmp_shared.reading = TRUE;
+
+	begin = get_time_as_double();
+	assert_int_equal(pthread_create(&reader, NULL, release_reader, &icmp_shared), 0);
+	assert_true(icmp_shared_await(&mine, begin + 5.0));
+	assert_int_equal(pthread_join(reader, NULL), 0);
+	assert_true(get_time_as_double() - begin < 2.0);
+	assert_false(icmp_shared.reading);
+	icmp_shared_unregister(&mine);
 }
 
 int main(void) {
@@ -472,6 +691,12 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_cached_capability_path_releases_resources, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_socket_retry_can_succeed_after_one_failure, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_socket_retry_does_not_deadlock_on_seteuid, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_socket_answers_without_a_socket_of_its_own, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_socket_timeout_unregisters, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_reply_for_another_waiter_is_handed_over, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_waiter_does_not_read_while_another_thread_does, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_reader_drains_the_queue, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_shared_reader_hands_over_on_leaving, ping_reset, ping_teardown),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);

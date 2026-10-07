@@ -21,6 +21,9 @@ extern int spine_program_main(int argc, char **argv);
 extern void test_output_write_contracts(MYSQL *mysql);
 extern void test_additional_contracts(void);
 extern void test_cli_alias_contracts(void);
+extern void test_privilege_contracts(void);
+extern void test_setuid_icmp(void);
+extern void test_setuid_stress(int rounds);
 extern int run_script_stream_fixture(const char *scenario);
 extern void test_script_stream_contracts(void);
 extern void test_additional_database_contracts(MYSQL *mysql);
@@ -1338,7 +1341,7 @@ static void test_icmp_socket_failure(void) {
 		assert(geteuid() == getuid());
 		return;
 	}
-	/* Failed socket retries must release the privilege mutex each time. */
+	/* Failed socket retries must give up without regaining root. */
 	alarm(6);
 	assert(ping_icmp(&host, &ping) == HOST_DOWN);
 	alarm(0);
@@ -2484,6 +2487,19 @@ int main(int argc, char **argv) {
 		puts("production ICMP loopback regression passed");
 		return 0;
 	}
+	if (argc == 2 && strcmp(argv[1], "--privilege-drop") == 0) {
+		test_privilege_contracts();
+		return 0;
+	}
+	if (argc == 3 && strcmp(argv[1], "--setuid-stress") == 0) {
+		test_setuid_stress(atoi(argv[2]));
+		return 0;
+	}
+	if (argc == 2 && strcmp(argv[1], "--setuid-icmp") == 0) {
+		test_setuid_icmp();
+		puts("production setuid ICMP regression passed");
+		return 0;
+	}
 	if (argc == 2 && strcmp(argv[1], "--icmp-no-capability") == 0) {
 		init_mutexes();
 		test_icmp_socket_failure();
@@ -2556,6 +2572,7 @@ int main(int argc, char **argv) {
 	test_script_execution();
 	test_script_stream_contracts();
 	test_cli_alias_contracts();
+	test_privilege_contracts();
 	test_error_id_buffer_boundaries();
 	test_additional_contracts();
 	puts("production regression tests passed");
