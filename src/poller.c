@@ -1785,7 +1785,7 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 	if ((*state->k) == 0) {
 		capture_snmp_item_profile(state->profile, &poller_items[i]);
 
-		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = host->id,
 			.hostname = poller_items[i].hostname,
 			.snmp_version = poller_items[i].snmp_version,
@@ -1840,7 +1840,7 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 
 		SNMP_FREE(host->snmp_session);
 
-		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = host->id,
 			.hostname = poller_items[i].hostname,
 			.snmp_version = poller_items[i].snmp_version,
@@ -2267,7 +2267,7 @@ static void load_legacy_host_details(legacy_poll_t *poll, MYSQL_ROW row, MYSQL_R
 	if (((poll->resources.host->snmp_version >= 1) && (poll->resources.host->snmp_version <= 2) &&
 		(strlen(poll->resources.host->snmp_community) > 0)) ||
 		(poll->resources.host->snmp_version == 3)) {
-		poll->resources.host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		poll->resources.host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = poll->resources.host->id,
 			.hostname = poll->resources.host->hostname,
 			.snmp_version = poll->resources.host->snmp_version,
