@@ -75,6 +75,15 @@ merged.
   Keep pthreads until Phase 4 brings libuv, whose thread API covers what
   `<threads.h>` would, on Windows too. Upstream C99 code still
   compiles as C17, so the switch does not block upstream merges.
+- Prepare for C23 without requiring it. Add a small `spine_ckd.h` that uses
+  `<stdckdint.h>` where the compiler has it and the GCC and Clang overflow
+  builtins elsewhere, and check every allocation-size and buffer-length
+  calculation with it. Keep the code free of warnings when built as C23, so
+  the eventual switch is a flag change; the newest-GCC CI lane also builds
+  once with `-std=gnu23`. Move to C23 when every supported distribution's
+  default compiler builds it, which is mid-2028 when Debian 12 reaches end
+  of life, or earlier if older distributions build with a newer compiler
+  package such as `gcc-toolset-14`.
 - Tighten typing so the compiler catches more mistakes. Fix the 26
   implicit-conversion warnings that `-Wconversion -Wsign-conversion` reports
   today, then make those warnings errors in CI. Use `bool` instead of `int`
