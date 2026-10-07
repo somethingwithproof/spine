@@ -224,3 +224,11 @@ analysis path. Do not expose the token to fork code or use pull_request_target
 to solve this. Review changes to the CI policy itself through the normal
 independent-review process. Keep Sonar optional until those prerequisites
 and current-head analyses are verified.
+
+## Locked security scanner
+
+The Scorecard job selects Go 1.26.8 through the pinned mise Action and builds
+the existing Scorecard v5.5.0 root command using `.github/scorecard/go.mod`
+and `go.sum` with `-mod=readonly`. The scanner module is CI tooling only;
+Spine's native runtime and distro-managed dependencies are unchanged. Python
+CI/coverage installations retain their existing hashes and accept wheels only.

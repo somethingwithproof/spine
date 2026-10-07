@@ -29,18 +29,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 
-def validate(root: Path) -> None:
-    manifest = json.loads((root / "coverage/producer.json").read_text())
-    expected = {f"NATIVE_COVERAGE_PROFILE_{profile}_BOOST_{boost}_PASS"
-                for profile in (1, 2) for boost in (0, 1)}
-    expected.add("NATIVE_COVERAGE_INVALID_SCRIPT_PASS")
-    if manifest.get("producer") != "coverage-native" or set(manifest.get("cases", [])) != expected:
-        raise ValueError("Missing native producer scenarios")
-    actual_sources = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
-                      for path in sorted((root / "src").rglob("*")) if path.is_file()}
-    if manifest.get("sources") != actual_sources:
-        raise ValueError("Missing or stale worker/production source registrations")
-    files = {file.attrib["path"]: file for file in ET.parse(root / "coverage/sonar.xml").getroot().findall("file")}
+def compiled_units(root: Path) -> dict:
     entries = json.loads((root / "build/compile_commands.json").read_text())
     compiled = {}
     for entry in entries:
@@ -55,26 +44,45 @@ def validate(root: Path) -> None:
             compiled.setdefault(relative, entry)
     if not compiled:
         raise ValueError("Compilation database has no production units")
+    return compiled
+
+
+def verify_omitted_unit(entry: dict, source: str) -> None:
+    # OS-guarded empty units still compile. Accept omission only when the
+    # actual compiler's coverage tool proves no executable lines; no
+    # source allowlist or guessed platform exclusion is used.
+    output = Path(entry.get("output", ""))
+    if not output.is_absolute():
+        output = Path(entry["directory"]) / output
+    notes = output.with_suffix(".gcno")
+    if not notes.is_file():
+        raise ValueError("Missing coverage report/notes for " + source)
+    tool = shlex.split(os.environ.get("GCOV", "gcov"))
+    report = subprocess.run(tool + ["-n", str(notes)], capture_output=True,
+                            text=True, timeout=30, check=True)
+    # GCC emits the explicit marker. LLVM's gcov emits no output for
+    # a successfully parsed function-free unit (verified with actual
+    # guarded .gcno files); non-empty units emit file/line summaries.
+    empty_unit = "No executable lines" in report.stdout or (not report.stdout.strip() and not report.stderr.strip())
+    if not empty_unit:
+        raise ValueError("Compiled production coverage is omitted: " + source)
+
+
+def validate(root: Path) -> None:
+    manifest = json.loads((root / "coverage/producer.json").read_text())
+    expected = {f"NATIVE_COVERAGE_PROFILE_{profile}_BOOST_{boost}_PASS"
+                for profile in (1, 2) for boost in (0, 1)}
+    expected.add("NATIVE_COVERAGE_INVALID_SCRIPT_PASS")
+    if manifest.get("producer") != "coverage-native" or set(manifest.get("cases", [])) != expected:
+        raise ValueError("Missing native producer scenarios")
+    actual_sources = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                      for path in sorted((root / "src").rglob("*")) if path.is_file()}
+    if manifest.get("sources") != actual_sources:
+        raise ValueError("Missing or stale worker/production source registrations")
+    files = {file.attrib["path"]: file for file in ET.parse(root / "coverage/sonar.xml").getroot().findall("file")}
+    compiled = compiled_units(root)
     for source in sorted(set(compiled) - set(files)):
-        # OS-guarded empty units still compile. Accept omission only when the
-        # actual compiler's coverage tool proves no executable lines; no
-        # source allowlist or guessed platform exclusion is used.
-        entry = compiled[source]
-        output = Path(entry.get("output", ""))
-        if not output.is_absolute():
-            output = Path(entry["directory"]) / output
-        notes = output.with_suffix(".gcno")
-        if not notes.is_file():
-            raise ValueError("Missing coverage report/notes for " + source)
-        tool = shlex.split(os.environ.get("GCOV", "gcov"))
-        report = subprocess.run(tool + ["-n", str(notes)], capture_output=True,
-                                text=True, timeout=30, check=True)
-        # GCC emits the explicit marker. LLVM's gcov emits no output for
-        # a successfully parsed function-free unit (verified with actual
-        # guarded .gcno files); non-empty units emit file/line summaries.
-        empty_unit = "No executable lines" in report.stdout or (not report.stdout.strip() and not report.stderr.strip())
-        if not empty_unit:
-            raise ValueError("Compiled production coverage is omitted: " + source)
+        verify_omitted_unit(compiled[source], source)
     for source in ("src/spine.c", "src/poller.c"):
         if source not in files or not any(line.attrib["covered"] == "true" for line in files[source].findall("lineToCover")):
             raise ValueError("Actual production entrypoint/poller coverage is missing")

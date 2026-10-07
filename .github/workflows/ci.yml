@@ -34,7 +34,8 @@ jobs:
           cache: pip
           cache-dependency-path: .github/requirements-ci.txt
       - name: Install locked CI tools
-        run: python3 -m pip install --require-hashes -r .github/requirements-ci.txt
+        run: >-
+          python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
       - name: Validate workflows and analysis policy
         run: |
           set -euo pipefail
@@ -54,7 +55,8 @@ jobs:
           cache-dependency-path: .github/requirements-ci.txt
 
       - name: Install flawfinder
-        run: python3 -m pip install --require-hashes -r .github/requirements-ci.txt
+        run: >-
+          python3 -m pip install --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
 
       # Note: flawfinder will light up like a christmas tree on this codebase.
       # error-level=5 means only critical hits fail the build — the rest is
