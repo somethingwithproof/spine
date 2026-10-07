@@ -189,10 +189,10 @@ fi
 
 v3_output=$("${COMPOSE[@]}" exec -T db mariadb -uspine -pspine cacti \
   -N -e "SELECT output FROM poller_output WHERE local_data_id=1;" 2>/dev/null || echo "")
-if [[ -n "$v3_output" && "$v3_output" != "NULL" ]]; then
+if [[ "$v3_output" =~ ^[0-9]+$ ]]; then
   pass "poller_output written for SNMPv3 (value=$v3_output)"
 else
-  fail "poller_output empty after SNMPv3 poll"
+  fail "SNMPv3 uptime output is missing or not a numeric authenticated sample: $v3_output"
 fi
 
 v3_sysdescr=$("${COMPOSE[@]}" exec -T db mariadb -uspine -pspine cacti \
