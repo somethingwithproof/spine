@@ -1043,6 +1043,9 @@ static void test_fake_database_poll_host(void) {
 	fake_item_row[11] = local_data_id;
 	assert(spine_permits_init(&available_scripts, 1) == 0);
 	set.php.script_timeout = 5;
+	/* Reach the per-item result lines, which must name only the script. */
+	set.logging.spine_log_level = 2;
+	set.logging.log_level = POLLER_VERBOSITY_MEDIUM;
 	for (size_t failing = 0; failing < sizeof(completion_writes) / sizeof(completion_writes[0]); failing++) {
 		fake_script(NULL, 0);
 		fake_rows = 1;

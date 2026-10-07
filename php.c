@@ -84,9 +84,10 @@ static char *php_undefined_result(void) {
 	return result;
 }
 
-/* Script server arguments can carry SNMP communities and v3 passphrases, so
- * logs name only the first token, the script, never the arguments. */
-static void php_command_script(const char *command, char *script, size_t capacity) {
+/* Script and script server arguments can carry SNMP communities and v3
+ * passphrases, so logs name only the first token, the script, never the
+ * arguments. */
+void php_command_script(const char *command, char *script, size_t capacity) {
 	size_t length = strcspn(command, " \t\r\n");
 
 	if (length >= capacity) length = capacity - 1;

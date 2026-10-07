@@ -1023,6 +1023,21 @@ static void run_php_failure_logs(int level) {
 	assert(close(responses[1]) == 0);
 	int status;
 	assert(waitpid(server, &status, 0) == server);
+	/* The script poller logs the same commands; drive its empty-result and
+	 * missing-file lines with the secret in the arguments. */
+	assert(spine_permits_init(&available_scripts, 1) == 0);
+	host_t host = {0};
+	STRNCOPY(host.hostname, "regression-device");
+	char script_command[BUFSIZE];
+	spine_snprintf(script_command, sizeof(script_command), "/usr/bin/printf '' %s", secret);
+	result = exec_poll(&host, script_command, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	spine_snprintf(script_command, sizeof(script_command), "/spine-regression/missing-script %s", secret);
+	result = exec_poll(&host, script_command, 1, "DS");
+	assert(strcmp(result, "U") == 0);
+	free(result);
+	assert(spine_permits_destroy(&available_scripts) == 0);
 	FILE *file = fopen(path, "r");
 	assert(file != NULL);
 	char logged[16384];
@@ -1032,10 +1047,15 @@ static void run_php_failure_logs(int level) {
 	assert(strstr(logged, "did not respond in time") != NULL);
 	assert(strstr(logged, "partial response") != NULL);
 	assert(strstr(logged, "communications lost") != NULL);
+	assert(strstr(logged, "Empty result [regression-device]: '/usr/bin/printf'") != NULL);
+	assert(strstr(logged, "File '/spine-regression/missing-script' does not exist") != NULL);
 	fprintf(stderr, "php failure logs at level %d contain command arguments: %s\n", level, strstr(logged, secret) != NULL ? "yes" : "no");
 	assert(strstr(logged, secret) == NULL);
 	/* Debug output still names the script, which is enough to find it. */
-	if (level == POLLER_VERBOSITY_DEBUG) assert(strstr(logged, "ss_regression.php") != NULL);
+	if (level == POLLER_VERBOSITY_DEBUG) {
+		assert(strstr(logged, "ss_regression.php") != NULL);
+		assert(strstr(logged, "The executable is '/usr/bin/printf'") != NULL);
+	}
 	assert(unlink(path) == 0);
 	php_processes = previous_processes;
 	set = previous_config;

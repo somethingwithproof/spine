@@ -213,8 +213,11 @@ static void record_result_error(const poll_error_context_t *context, const host_
 			context->host_id, context->thread_id, item->local_data_id,
 			host->snmp.profile.version, host->hostname, item->rrd_name, item->arg1, result));
 	} else {
+		char script[SMALL_BUFSIZE];
+
+		php_command_script(item->arg1, script, sizeof(script));
 		SPINE_LOG(("WARNING: Invalid Response, Device[%i] HT[%i] DS[%i] SCRIPT: %s, output: %s",
-			context->host_id, context->thread_id, item->local_data_id, item->arg1, result));
+			context->host_id, context->thread_id, item->local_data_id, script, result));
 	}
 }
 
@@ -688,6 +691,7 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thread, char *sysUptime, bool *unavailable) {
 	char *poll_result = NULL;
 	int php_process;
+	char script[SMALL_BUFSIZE];
 	switch(reindex->action) {
 	case POLLER_ACTION_SNMP:
 		poll_result = poll_reindex_snmp(host, reindex, host_thread, sysUptime, unavailable);
@@ -702,7 +706,8 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 
 		poll_result = trim(exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ"));
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+		php_command_script(reindex->arg1, script, sizeof(script));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));
 
 		break;
 	case POLLER_ACTION_PHP_SCRIPT_SERVER: /* script (php script server) */
@@ -710,7 +715,8 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 
 		poll_result = trim(php_cmd(reindex->arg1, php_process));
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+		php_command_script(reindex->arg1, script, sizeof(script));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));
 
 		break;
 	case POLLER_ACTION_SNMP_COUNT: { /* snmp; count items */
@@ -740,7 +746,8 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 		snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
 		SPINE_FREE(count_result);
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+		php_command_script(reindex->arg1, script, sizeof(script));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));
 
 		break;
 	}
@@ -756,7 +763,8 @@ static char *poll_reindex_action(host_t *host, reindex_t *reindex, int host_thre
 		spine_snprintf(poll_result, BUFSIZE, "%d", char_count(count_result, '\n'));
 		SPINE_FREE(count_result);
 
-		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+		php_command_script(reindex->arg1, script, sizeof(script));
+		SPINE_LOG_DEVICE(host->id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DQ[%i] RECACHE SERVER COUNT: %s, output: %s", host->id, host_thread, reindex->data_query_id, script, poll_result));
 
 		break;
 	}
@@ -914,10 +922,12 @@ static void poll_script_item(host_t *host, target_t *item,
 	}
 	SPINE_FREE(poll_result);
 	double thread_end = get_time_as_double();
+	char script[SMALL_BUFSIZE];
+	php_command_script(item->arg1, script, sizeof(script));
 	if (script_server) {
-		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SS[%i] SERVER: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), php_process, item->arg1, item->result));
+		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SS[%i] SERVER: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), php_process, script, item->result));
 	} else {
-		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SCRIPT: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), item->arg1, item->result));
+		SPINE_LOG_DEVICE(errors->host_id, POLLER_VERBOSITY_MEDIUM, ("Device[%i] HT[%i] DS[%i] TT[%.2f] SCRIPT: %s, output: %s", errors->host_id, errors->thread_id, item->local_data_id, (float) ((thread_end - thread_start) * 1000), script, item->result));
 	}
 	/* insert a NaN in place of the actual value if the snmp agent restarts */
 	if (!IS_UNDEFINED(item->result) && spike_kill && !strstr(item->result, ":")) SET_UNDEFINED(item->result);
@@ -1200,6 +1210,7 @@ static int collect_poll_items(host_t *host, snmp_poll_batch_t *batch, int num_ro
 	int i = 0;
 	int rows_processed = 0;
 	double thread_start = 0;
+	char script[SMALL_BUFSIZE];
 	while ((i < num_rows) && (!host->ignore_host)) {
 		thread_start = get_time_as_double();
 
@@ -1214,7 +1225,8 @@ static int collect_poll_items(host_t *host, snmp_poll_batch_t *batch, int num_ro
 			poll_script_item(host, &batch->items[i], batch->errors, thread_start, spike_kill, TRUE);
 			break;
 		default: /* unknown action, generate error */
-			SPINE_LOG(("Device[%i] HT[%i] DS[%i] ERROR: Unknown Poller Action: %s", batch->errors->host_id, batch->errors->thread_id, batch->items[i].local_data_id, batch->items[i].arg1));
+			php_command_script(batch->items[i].arg1, script, sizeof(script));
+			SPINE_LOG(("Device[%i] HT[%i] DS[%i] ERROR: Unknown Poller Action: %s", batch->errors->host_id, batch->errors->thread_id, batch->items[i].local_data_id, script));
 
 			break;
 		}
@@ -1783,10 +1795,13 @@ static bool read_script_result(const script_result_context_t *context, int fd, d
 	if (bytes > 0 && bytes < RESULTS_BUFFER) {
 		result[bytes] = '\0';
 	} else {
+		char script[SMALL_BUFSIZE];
+
+		php_command_script(context->command, script, sizeof(script));
 		if (STRIMATCH(context->type, "DS")) {
-			SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, context->command));
+			SPINE_LOG(("Device[%i] DS[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, script));
 		} else {
-			SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, context->command));
+			SPINE_LOG(("Device[%i] DQ[%i] ERROR: Empty result [%s]: '%s'", context->host->id, context->id, context->host->hostname, script));
 		}
 		SET_UNDEFINED(result);
 	}
@@ -1866,7 +1881,8 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 			strtok_r(executable, " ", &saveptr);
 		}
 
-		SPINE_LOG_DEBUG(("The executable is '%s' in \'%s\'", executable, proc_command));
+		/* executable is the first token; the arguments can carry credentials. */
+		SPINE_LOG_DEBUG(("The executable is '%s'", executable));
 
 		if (access(executable, X_OK | F_OK) != -1) {
 			cmd_fd = nft_popen(proc_command, "r");
@@ -1879,11 +1895,11 @@ char *exec_poll(host_t *current_host, char *command, int id, const char *type) {
 				/* close pipe */
 				nft_pclose(cmd_fd);
 			} else {
-				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, command));
+				SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN [%s]: '%s'", current_host->id, current_host->hostname, executable));
 				SET_UNDEFINED(result_string);
 			}
 		} else {
-			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, command));
+			SPINE_LOG(("Device[%i] ERROR: Problem executing POPEN.  File '%s' does not exist or is not executable.", current_host->id, executable));
 			SET_UNDEFINED(result_string);
 		}
 
