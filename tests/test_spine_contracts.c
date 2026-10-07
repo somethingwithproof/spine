@@ -283,6 +283,44 @@ static void assert_stale_interrupt_is_retried(void) {
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
+/* Query wrappers report failure to the caller; only startup code may turn a
+ * database error into a process exit. Port 1 refuses the reconnect quickly
+ * and deterministically, which stands in for a server that is down. */
+static void assert_database_failures_return(void) {
+	fflush(NULL);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		alarm(30);
+		MYSQL administrator;
+		MYSQL victim;
+		if (!db_connect(LOCAL, &administrator) || !db_connect(LOCAL, &victim)) _exit(2);
+		if (db_query(&administrator, LOCAL, "SELECT spine_regression_missing FROM spine_regression_missing") != NULL) _exit(3);
+		if (db_insert(&administrator, LOCAL, "UPDATE spine_regression_missing SET value=1") != FALSE) _exit(4);
+		char query[100];
+		snprintf(query, sizeof(query), "KILL CONNECTION %lu", mysql_thread_id(&victim));
+		if (mysql_query(&administrator, query) != 0) _exit(5);
+		unsigned int port = set.database.port;
+		set.database.port = 1;
+		double begin = spine_monotonic_time();
+		if (db_query(&victim, LOCAL, "SELECT 1") != NULL) _exit(6);
+		if (db_insert(&victim, LOCAL, "SET @spine_regression_down=1") != FALSE) _exit(7);
+		if (db_reconnect(&victim, LOCAL, 2006, "regression_down_server") != -1) _exit(8);
+		if (spine_monotonic_time() - begin > 20) _exit(9);
+		/* The same handle recovers once the server is reachable again. */
+		set.database.port = port;
+		MYSQL_RES *result = db_query(&victim, LOCAL, "SELECT 789");
+		MYSQL_ROW row = result != NULL ? mysql_fetch_row(result) : NULL;
+		if (row == NULL || row[0] == NULL || strcmp(row[0], "789") != 0) _exit(10);
+		db_free_result(result);
+		_exit(0);
+	}
+	int status;
+	assert(waitpid(child, &status, 0) == child);
+	fprintf(stderr, "database failure propagation: raw_status=%d\n", status);
+	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
 void test_additional_database_contracts(MYSQL *mysql) {
 	assert(db_column_exists(mysql, LOCAL, "host", "id") == TRUE);
 	assert(db_column_exists(mysql, LOCAL, "host", "regression_missing_column") == FALSE);
@@ -328,4 +366,5 @@ void test_additional_database_contracts(MYSQL *mysql) {
 	}
 	db_disconnect(&victim);
 	assert_stale_interrupt_is_retried();
+	assert_database_failures_return();
 }

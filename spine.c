@@ -870,11 +870,12 @@ static double initialize_process_defaults(void) {
 static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 	MYSQL_RES *result;
 	int mode;
+	int has_output_regex;
 	/* initialize mysql objects for threads */
 	mysql_library_init(0, NULL, NULL);
 
 	/* connect for main loop */
-	db_connect(LOCAL, mysql);
+	if (!db_connect(LOCAL, mysql)) die("FATAL: Unable to connect to the local database");
 
 	/* setup local connection pool for hosts */
 	db_pool_local = (pool_t *) calloc(set.poller.threads, sizeof(pool_t));
@@ -882,7 +883,7 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 	db_create_connection_pool(LOCAL);
 
 	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE) {
-		db_connect(REMOTE, mysqlr);
+		if (!db_connect(REMOTE, mysqlr)) die("FATAL: Unable to connect to the remote database");
 		mode = REMOTE;
 
 		/* setup remote connection pool for hosts */
@@ -896,13 +897,16 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 
 	/* check for device 0 items */
 	result = db_query(mysql, LOCAL, "SELECT * FROM (SELECT COUNT(*) AS items FROM poller_item WHERE host_id = 0 AND poller_id = 1) AS rs WHERE rs.items > 0");
+	if (result == NULL) die("FATAL: Unable to check for Device 0 poller items");
 	if (mysql_num_rows(result)) {
 		set.hosts.has_device_0 = TRUE;
 	}
 	db_free_result(result);
 
 	/* check if poller_item has the output_regex column (added in Cacti 1.3.1) */
-	if (db_column_exists(mysql, LOCAL, "poller_item", "output_regex")) {
+	has_output_regex = db_column_exists(mysql, LOCAL, "poller_item", "output_regex");
+	if (has_output_regex < 0) die("FATAL: Unable to inspect the poller_item table");
+	if (has_output_regex) {
 		set.hosts.has_output_regex = TRUE;
 		SPINE_LOG_DEBUG(("DEBUG: poller_item.output_regex column detected"));
 	}
@@ -1152,6 +1156,7 @@ int main(int argc, char *argv[]) {
 	initialize_main_php();
 
 	result = select_poll_hosts(&mysql);
+	if (result == NULL) die("FATAL: Unable to select the devices to poll");
 
 	prepare_worker_storage(result, &num_rows, &threads, &ids, &host_time);
 

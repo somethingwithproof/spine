@@ -46,16 +46,22 @@
  *  \return TRUE if successful, or FALSE if not.
  *
  */
-static void retry_disconnected_query(MYSQL *mysql, int type, int error, const char *function, int *error_count) {
+/* Returns FALSE when the statement should not be retried. A failed reconnect
+ * ends the attempt at once: db_connect() has already spent its own tries, and
+ * repeating it here only multiplies the wait while a worker holds its device. */
+static bool retry_disconnected_query(MYSQL *mysql, int type, int error, const char *function, int *error_count) {
 	/* Every attempt counts. A signal that interrupted the call gets a few
 	 * in-place retries, but the client library does not reset errno, so a
 	 * stale EINTR used to skip both the reconnect and the count forever. */
-	if (++*error_count > 30) die("FATAL: Too many Reconnect Attempts!");
+	if (++*error_count > 30) {
+		SPINE_LOG(("ERROR: Too many Reconnect Attempts in Function %s", function));
+		return FALSE;
+	}
 	if (errno == EINTR && *error_count <= 3) {
 		spine_sleep_usec(50000);
-		return;
+		return TRUE;
 	}
-	db_reconnect(mysql, type, error, function);
+	return db_reconnect(mysql, type, error, function) >= 0;
 }
 
 int db_insert(MYSQL *mysql, int type, const char *query) {
@@ -67,8 +73,9 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	while (mysql_query(mysql, query) != 0) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
-			retry_disconnected_query(mysql, type, error, "db_insert", &error_count);
-			continue;
+			if (retry_disconnected_query(mysql, type, error, "db_insert", &error_count)) continue;
+			SPINE_LOG(("ERROR: SQL Failed! Connection lost, SQL Fragment:'%s'", query_frag));
+			return FALSE;
 		}
 		if (error == 1213 || error == 1205) {
 			spine_sleep_usec(50000);
@@ -84,6 +91,9 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	return TRUE;
 }
 
+/* Returns TRUE after a reconnect, FALSE when the session was still alive, and
+ * -1 when the server could not be reached. After -1 the handle is initialized
+ * but unconnected, so the next attempt closes and reconnects it again. */
 int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
 	unsigned long  mysql_thread = 0;
 	char   query[100];
@@ -117,15 +127,14 @@ int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
 	SPINE_LOG(("WARNING: Connection Broken in Function %s with Error %i.  Attempting explicit reconnect.", function, error));
 
 	mysql_close(mysql);
-	db_connect(type, mysql);
 
-	if (mysql_thread_id(mysql) > 0) {
+	if (db_connect(type, mysql) && mysql_thread_id(mysql) > 0) {
 		SPINE_LOG(("WARNING: Explicit reconnect successful in Function %s.", function));
 		return TRUE;
 	}
 
 	SPINE_LOG(("WARNING: Connection Broken with Error %i.  Reconnect failed.", error));
-	return FALSE;
+	return -1;
 }
 
 /*! \fn MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query)
@@ -135,7 +144,9 @@ int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
  *
  *	This function will execute the SQL statement specified in the query variable.
  *
- *  \return MYSQL_RES a MySQL result structure
+ *  \return MYSQL_RES a MySQL result structure, or NULL when the statement
+ *          failed or produced no result set; the caller decides whether a
+ *          failure ends a device, a startup step or the process
  *
  */
 MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
@@ -146,20 +157,21 @@ MYSQL_RES *db_query(MYSQL *mysql, int type, const char *query) {
 	while (mysql_query(mysql, query) != 0) {
 		int error = mysql_errno(mysql);
 		if (error == 2013 || error == 2006) {
-			retry_disconnected_query(mysql, type, error, "db_query", &error_count);
-			continue;
+			if (retry_disconnected_query(mysql, type, error, "db_query", &error_count)) continue;
+			SPINE_LOG(("ERROR: Database connection lost, SQL Fragment:'%s'", query_frag));
+			return NULL;
 		}
 		if (error == 1213 || error == 1205) {
 			spine_sleep_usec(50000);
 			if (++error_count > 30) {
-				SPINE_LOG(("FATAL: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
-				exit(1);
+				SPINE_LOG(("ERROR: Too many Lock/Deadlock errors occurred!, SQL Fragment:'%s'", query_frag));
+				return NULL;
 			}
 			continue;
 		}
-		SPINE_LOG(("FATAL: Database Error:'%i', Message:'%s'", error, mysql_error(mysql)));
+		SPINE_LOG(("ERROR: Database Error:'%i', Message:'%s'", error, mysql_error(mysql)));
 		SPINE_LOG(("ERROR: The Query Was:'%s'", query));
-		exit(1);
+		return NULL;
 	}
 	return mysql_store_result(mysql);
 }
@@ -224,7 +236,10 @@ static void db_set_ssl_options(MYSQL *mysql, int type) {
 }
 #endif
 
-void db_connect(int type, MYSQL *mysql) {
+/* Reports failure instead of exiting: worker threads reconnect through here,
+ * and a lost database must fail a device rather than the poller. Startup
+ * callers turn FALSE into a process exit. */
+int db_connect(int type, MYSQL *mysql) {
 	int     tries;
 	int     attempts;
 	int     timeout;
@@ -250,7 +265,7 @@ void db_connect(int type, MYSQL *mysql) {
 	if (mysql_init(mysql) == NULL) {
 		db_address_release(&address);
 		printf("FATAL: Database unable to allocate memory and therefore can not connect\n");
-		exit(1);
+		return FALSE;
 	}
 
 	db_set_option(mysql, MYSQL_OPT_READ_TIMEOUT, &rtimeout, "read timeout");
@@ -309,12 +324,14 @@ void db_connect(int type, MYSQL *mysql) {
 
 	if (!success){
 		printf("FATAL: Connection Failed, Error:'%i', Message:'%s'\n", error, mysql_error(mysql));
-		exit(1);
+		return FALSE;
 	}
 
 	SPINE_LOG_DEBUG(("DEBUG: Total Connections made %i", connections));
 
 	connections++;
+
+	return TRUE;
 }
 
 /*! \fn void db_disconnect(MYSQL *mysql)
@@ -343,7 +360,7 @@ void db_create_connection_pool(int type) {
 		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Creating Local Connection %i.", id));
 
-			db_connect(type, &db_pool_local[id].mysql);
+			if (!db_connect(type, &db_pool_local[id].mysql)) die("FATAL: Unable to create the local connection pool");
 
 			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
 			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
@@ -362,7 +379,7 @@ void db_create_connection_pool(int type) {
 		for(id = 0; id < set.poller.threads; id++) {
 			SPINE_LOG_DEBUG(("DEBUG: Creating Remote Connection %i.", id));
 
-			db_connect(type, &db_pool_remote[id].mysql);
+			if (!db_connect(type, &db_pool_remote[id].mysql)) die("FATAL: Unable to create the remote connection pool");
 
 			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
 			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
@@ -531,6 +548,7 @@ void db_free_result(MYSQL_RES *result) {
 	mysql_free_result(result);
 }
 
+/* TRUE or FALSE, or -1 when the probe itself failed. */
 int db_column_exists(MYSQL *mysql, int type, const char *table, const char *column) {
 	char       query_frag[BUFSIZE];
    MYSQL_RES *result;
@@ -544,6 +562,7 @@ int db_column_exists(MYSQL *mysql, int type, const char *table, const char *colu
 	SPINE_LOG_DEVDBG(("DEVDBG: db_column_exists('%s','%s'): %s", table, column, query_frag));
 
 	result = db_query(mysql, type, query_frag);
+	if (result == NULL) return -1;
 	if (mysql_num_rows(result)) {
 		exists = TRUE;
 	} else {

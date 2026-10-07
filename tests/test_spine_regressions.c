@@ -1756,6 +1756,51 @@ static void test_profile_schedule_completion(MYSQL *mysql, test_poll_work_t *agg
 	set = previous;
 }
 
+/* A real, non-retryable SQL error inside a worker fails that device and the
+ * worker returns: the schedule is not advanced, nothing is written, and the
+ * connection goes back to the pool for the next device. The item query names
+ * a column the fixture schema lacks, so MariaDB itself rejects it. */
+static void test_poll_database_failure(MYSQL *mysql, test_poll_work_t *aggregate) {
+	config_t previous = set;
+	test_poll_work_t original = *aggregate;
+	assert(database_count(mysql, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='poller_item' AND COLUMN_NAME='output_regex'") == 0);
+	set.poller.active_profiles = 2;
+	set.poller.poller_interval = 5;
+	assert(db_insert(mysql, LOCAL, "DELETE FROM poller_item WHERE host_id=43 AND local_data_id NOT IN (601,602)"));
+	for (int failing = 1; failing >= 0; failing--) {
+		set.hosts.has_output_regex = failing;
+		assert(db_insert(mysql, LOCAL, "UPDATE poller_item SET rrd_step=300,rrd_next_step=0 WHERE host_id=43"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output"));
+		assert(db_insert(mysql, LOCAL, "DELETE FROM poller_output_boost"));
+		aggregate->thread.host_thread = 1;
+		aggregate->thread.host_threads = 1;
+		aggregate->thread.host_data_ids = 0;
+		aggregate->thread.complete = FALSE;
+		aggregate->thread.threads_complete = 0;
+		aggregate->thread.output_failed = FALSE;
+		aggregate->thread.poll_failed = FALSE;
+		set.exit.exit_code = EXIT_SUCCESS;
+		pthread_t worker;
+		assert(pthread_create(&worker, NULL, test_poll_worker, aggregate) == 0);
+		assert(pthread_join(worker, NULL) == 0);
+		assert(aggregate->thread.threads_complete == 1);
+		assert(db_pool_local[0].free && spine_permits_available(&available_scripts) == 2);
+		if (failing) {
+			assert(aggregate->thread.poll_failed && !aggregate->thread.complete);
+			assert(set.exit.exit_code == EXIT_FAILURE);
+			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output") == 0);
+			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=43 AND rrd_next_step=0") == 2);
+		} else {
+			assert(!aggregate->thread.poll_failed && aggregate->thread.complete);
+			assert(set.exit.exit_code == EXIT_SUCCESS);
+			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_output WHERE (local_data_id=601 AND output='123') OR (local_data_id=602 AND output='U')") == 2);
+			assert(database_count(mysql, "SELECT COUNT(*) FROM poller_item WHERE host_id=43 AND rrd_next_step=295") == 2);
+		}
+	}
+	*aggregate = original;
+	set = previous;
+}
+
 static void prepare_nullable_snmp_profile(MYSQL *mysql) {
 	/* These fields are nullable in the shipped schema; missing values
 	 * must survive the real row-loader/session handoff. */
@@ -1902,6 +1947,7 @@ static void test_poll_pipeline(MYSQL *mysql) {
 			test_reindex_pipeline(mysql, &work);
 			test_reindex_query_shortcut(mysql, &work);
 			test_profile_schedule_completion(mysql, &work);
+			test_poll_database_failure(mysql, &work);
 		}
 	}
 	assert(spine_permits_destroy(&available_scripts) == 0);
