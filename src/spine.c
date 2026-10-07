@@ -123,6 +123,7 @@
 #endif
 
 #include <signal.h>
+#include <stdatomic.h>
 #ifndef _WIN32
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -139,8 +140,8 @@
  * SIGTERM sets a graceful stop flag. The main loop checks it between devices
  * and exits cleanly so poller_output rows flush and the DB disconnects.
  */
-static volatile sig_atomic_t spine_reload_requested = 0;
-static volatile sig_atomic_t spine_stop_requested   = 0;
+static atomic_int spine_reload_requested = 0;
+static atomic_int spine_stop_requested = 0;
 
 /* umask at process entry, captured immediately before spine installs its
  * own 027 mask. Logged at debug once the log subsystem is live so an
@@ -152,8 +153,11 @@ uv_loop_t *loop = NULL;
 static spine_loop_t *spine_loops = NULL;
 static int num_loops = 0;
 
-/* Forward declare poller internal entry point */
-extern void spine_async_poll_start_internal(uv_loop_t *target_loop, poller_thread_t *det);
+static atomic_int g_spine_poll_work_failed = 0;
+
+void spine_poll_work_failed(void) {
+    atomic_store_explicit(&g_spine_poll_work_failed, 1, memory_order_release);
+}
 
 static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
     (void)handle;
@@ -174,7 +178,6 @@ static void spine_uv_signal_handler(uv_signal_t *handle, int signo) {
  * is a resource-leak bug; surface it in the log so the next run's
  * operator files an issue. Declared atomic so a future refactor that
  * walks the loop from a worker thread does not lose increments. */
-#include <stdatomic.h>
 static atomic_int g_spine_uv_leaked_handles = 0;
 
 static void spine_uv_force_close(uv_handle_t *handle, void *arg) {
@@ -231,10 +234,19 @@ static void on_loop_wake(uv_async_t *handle) {
         if (!det) break;
 
         /* Now we can safely touch the loop because we are IN the loop thread */
-        spine_async_poll_start_internal(&sl->loop, det);
+        int status = spine_queue_poll(det);
+        if (status != 0) {
+            spine_poll_work_failed();
+            det->complete = FALSE;
+            spine_sem_post(&available_threads);
+            SPINE_LOG(("ERROR: Device[%i] failed to queue poll work (status=%d)", det->host_id, status));
+        }
     }
 
-    if (sl->stop_requested) {
+    uv_mutex_lock(&sl->queue_lock);
+    bool stopping = sl->stop_requested;
+    uv_mutex_unlock(&sl->queue_lock);
+    if (stopping) {
         uv_close((uv_handle_t *)&sl->wake_handle, NULL);
     }
 }
@@ -242,29 +254,35 @@ static void on_loop_wake(uv_async_t *handle) {
 static void spine_loop_worker(void *arg) {
     spine_loop_t *sl = (spine_loop_t *)arg;
     
-    uv_async_init(&sl->loop, &sl->wake_handle, on_loop_wake);
-    sl->wake_handle.data = sl;
-
     /* Install signals on each loop */
-    uv_signal_t sig_hup, sig_term, sig_int;
-    uv_signal_init(&sl->loop, &sig_hup);
-    uv_signal_start(&sig_hup, spine_uv_signal_handler, SIGHUP);
-    uv_signal_init(&sl->loop, &sig_term);
-    uv_signal_start(&sig_term, spine_uv_signal_handler, SIGTERM);
-    uv_signal_init(&sl->loop, &sig_int);
-    uv_signal_start(&sig_int, spine_uv_signal_handler, SIGINT);
+    if (uv_signal_start(&sl->sig_hup, spine_uv_signal_handler, SIGHUP) != 0 ||
+        uv_signal_start(&sl->sig_term, spine_uv_signal_handler, SIGTERM) != 0 ||
+        uv_signal_start(&sl->sig_int, spine_uv_signal_handler, SIGINT) != 0) {
+        set.exit_code = EXIT_FAILURE;
+        die("ERROR: Failed to install poll-loop signal handlers");
+    }
+    /* Signals remain deliverable while queued work drains, without keeping
+     * an otherwise idle loop alive after its wake handle closes. */
+    uv_unref((uv_handle_t *)&sl->sig_hup);
+    uv_unref((uv_handle_t *)&sl->sig_term);
+    uv_unref((uv_handle_t *)&sl->sig_int);
 
     uv_run(&sl->loop, UV_RUN_DEFAULT);
-    
-    uv_signal_stop(&sig_hup);
-    uv_signal_stop(&sig_term);
-    uv_signal_stop(&sig_int);
-    
+
+    uv_signal_stop(&sl->sig_hup);
+    uv_signal_stop(&sl->sig_term);
+    uv_signal_stop(&sl->sig_int);
+    uv_close((uv_handle_t *)&sl->sig_hup, NULL);
+    uv_close((uv_handle_t *)&sl->sig_term, NULL);
+    uv_close((uv_handle_t *)&sl->sig_int, NULL);
     spine_async_dns_runtime_destroy(sl->dns_runtime);
-    uv_loop_close(&sl->loop);
+    uv_run(&sl->loop, UV_RUN_DEFAULT);
+    if (uv_loop_close(&sl->loop) != 0) {
+        spine_poll_work_failed();
+    }
 }
 
-void spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det) {
+int spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det) {
     /* Find which loop struct this target_loop belongs to */
     spine_loop_t *sl = NULL;
     int k;
@@ -275,20 +293,28 @@ void spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det) {
         }
     }
 
-    if (!sl) return;
+    if (!sl) return UV_EINVAL;
 
-    /* Push task to queue and wake the loop */
+    /* Keep queue ownership until the wake is accepted. A failed wake must
+     * not leave an unreachable descriptor or consume a worker permit. */
     uv_mutex_lock(&sl->queue_lock);
-    det->next_task = NULL;
-    if (sl->task_queue_tail) {
-        ((poller_thread_t *)sl->task_queue_tail)->next_task = det;
-    } else {
-        sl->task_queue_head = det;
+    if (sl->stop_requested) {
+        uv_mutex_unlock(&sl->queue_lock);
+        return UV_ECANCELED;
     }
+    poller_thread_t *previous_tail = sl->task_queue_tail;
+    det->next_task = NULL;
+    if (previous_tail) previous_tail->next_task = det;
+    else sl->task_queue_head = det;
     sl->task_queue_tail = det;
+    int status = uv_async_send(&sl->wake_handle);
+    if (status != 0) {
+        if (previous_tail) previous_tail->next_task = NULL;
+        else sl->task_queue_head = NULL;
+        sl->task_queue_tail = previous_tail;
+    }
     uv_mutex_unlock(&sl->queue_lock);
-
-    uv_async_send(&sl->wake_handle);
+    return status;
 }
 #endif
 
@@ -427,6 +453,7 @@ int main(int argc, char *argv[]) {
 
 	pthread_t* threads = NULL;
 	poller_thread_t* poller_details = NULL;
+	poller_thread_t* owned_partitions = NULL;
 	pthread_attr_t attr;
 	int* ids = NULL;
 	int mode = REMOTE;
@@ -447,6 +474,8 @@ int main(int argc, char *argv[]) {
 	int threads_count;
 	struct snmp_session session;
 #ifdef HAVE_LIBUV
+	spine_async_batch_stats_t final_batch_stats;
+	int final_batch_stats_status = -1;
 #ifdef UV_METRICS_IDLE_TIME
 	uint64_t loop_idle_ns = 0;
 #endif
@@ -477,39 +506,7 @@ int main(int argc, char *argv[]) {
 
 	/* we must initialize snmp in the main thread */
 
-#ifdef HAVE_LIBUV
-	num_loops = set.threads;
-	spine_loops = calloc(num_loops, sizeof(spine_loop_t));
-	loop = uv_default_loop();
-	spine_scheduler_init(5000);
 
-	/* Seed the async_mysql owner thread on main BEFORE any worker
-	 * thread exists. If we let the first query seed it implicitly,
-	 * a worker that somehow reaches spine_async_mysql_query first
-	 * on a misconfigured poll cycle would capture itself as owner
-	 * and the subsequent main-thread close-callback would die(). */
-	spine_async_mysql_bind_main_thread();
-
-	spine_async_batch_init(loop, &mysql, 100, 500);
-	spine_async_php_init(loop);
-	/* Telemetry listener is a stub (src/telemetry.c): no uv_pipe_bind,
-	 * no peer-cred check, no write side. Passing any real path here
-	 * would ship an attack surface the moment someone wires the
-	 * listener without also wiring auth. Pass NULL; when the real
-	 * listener lands, it must resolve its own socket path inside
-	 * RUNTIME_DIRECTORY (0700 already pinned by the service units)
-	 * and reject clients that fail SO_PEERCRED. */
-	spine_telemetry_init(loop, NULL);
-	for (i = 0; i < num_loops; i++) {
-		uv_loop_init(&spine_loops[i].loop);
-		uv_mutex_init(&spine_loops[i].queue_lock);
-		spine_async_dns_runtime_create(&spine_loops[i].loop, &spine_loops[i].dns_runtime);
-		spine_loops[i].core_id = i;
-		spine_loops[i].active = true;
-		spine_loops[i].stop_requested = false;
-		uv_thread_create(&spine_loops[i].thread, spine_loop_worker, &spine_loops[i]);
-	}
-#endif
 
 	/* install SIGHUP (reload) and SIGTERM (graceful stop) handlers.
 	 * Keep this separate from install_spine_signal_handler(), which covers
@@ -909,6 +906,10 @@ int main(int argc, char *argv[]) {
 
 	/* read settings table from the database to further establish environment */
 	read_config_options();
+	if (set.threads < 1 || set.threads > MAX_THREADS) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Polling thread count must be between 1 and %d", MAX_THREADS);
+	}
 
 	/* Optional page pinning. --mlock keeps credentials and the working set
 	 * out of swap and off any swap-backed hibernation image. mlockall is a
@@ -1106,7 +1107,7 @@ int main(int argc, char *argv[]) {
 			die("ERROR: Fatal malloc error: spine.c threads!");
 		}
 
-		if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
+		if (!(details = (poller_thread_t **)calloc(num_rows, sizeof(poller_thread_t*)))) {
 			die("ERROR: Fatal malloc error: spine.c details!");
 		}
 
@@ -1175,6 +1176,55 @@ int main(int argc, char *argv[]) {
      * is thread safe in threads
      */
 	snmp_sess_init(&session);
+
+	/* Resolve configuration and initialize MySQL/SNMP before creating workers. */
+#ifdef HAVE_LIBUV
+	num_loops = set.threads;
+	spine_loops = calloc(num_loops, sizeof(spine_loop_t));
+	if (spine_loops == NULL) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Failed to allocate poll loops");
+	}
+	loop = uv_default_loop();
+	spine_scheduler_init(5000);
+
+	/* Seed the async_mysql owner thread on main BEFORE any worker
+	 * thread exists. If we let the first query seed it implicitly,
+	 * a worker that somehow reaches spine_async_mysql_query first
+	 * on a misconfigured poll cycle would capture itself as owner
+	 * and the subsequent main-thread close-callback would die(). */
+	spine_async_mysql_bind_main_thread();
+
+	spine_async_batch_init(loop, &mysql, 100, 500);
+	/* Telemetry listener is a stub (src/telemetry.c): no uv_pipe_bind,
+	 * no peer-cred check, no write side. Passing any real path here
+	 * would ship an attack surface the moment someone wires the
+	 * listener without also wiring auth. Pass NULL; when the real
+	 * listener lands, it must resolve its own socket path inside
+	 * RUNTIME_DIRECTORY (0700 already pinned by the service units)
+	 * and reject clients that fail SO_PEERCRED. */
+	spine_telemetry_init(loop, NULL);
+	for (i = 0; i < num_loops; i++) {
+		spine_loop_t *sl = &spine_loops[i];
+		if (uv_loop_init(&sl->loop) != 0 || uv_mutex_init(&sl->queue_lock) != 0 ||
+			spine_async_dns_runtime_create(&sl->loop, &sl->dns_runtime) != 0 ||
+			uv_async_init(&sl->loop, &sl->wake_handle, on_loop_wake) != 0 ||
+			uv_signal_init(&sl->loop, &sl->sig_hup) != 0 ||
+			uv_signal_init(&sl->loop, &sl->sig_term) != 0 ||
+			uv_signal_init(&sl->loop, &sl->sig_int) != 0) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Failed to initialize poll-loop services");
+		}
+		sl->wake_handle.data = sl;
+		spine_loops[i].core_id = i;
+		spine_loops[i].active = true;
+		spine_loops[i].stop_requested = false;
+		if (uv_thread_create(&sl->thread, spine_loop_worker, sl) != 0) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Failed to start a poll-loop worker");
+		}
+	}
+#endif
 
 	/* Notify systemd that spine is fully initialised. Safe no-op when not
 	 * running under systemd or when libsystemd was not linked. */
@@ -1287,7 +1337,8 @@ int main(int argc, char *argv[]) {
 		}
 
 		/* populate the thread structure */
-		if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
+		if (!(poller_details = (poller_thread_t *)calloc(1, sizeof(poller_thread_t)))) {
+			set.exit_code = EXIT_FAILURE;
 			die("ERROR: Fatal malloc error: spine.c poller_details!");
 		}
 
@@ -1309,7 +1360,16 @@ int main(int argc, char *argv[]) {
 		poller_details->threads_complete = 0;
 
 		thread_mutex_lock(LOCK_THDET);
-		details[device_counter] = poller_details;
+		if (details[device_counter] == NULL) {
+			details[device_counter] = malloc(sizeof(*poller_details));
+			if (details[device_counter] == NULL) {
+				set.exit_code = EXIT_FAILURE;
+				die("ERROR: Fatal malloc error: spine.c host aggregate!");
+			}
+			*details[device_counter] = *poller_details;
+		}
+		poller_details->next_owned = owned_partitions;
+		owned_partitions = poller_details;
 		thread_mutex_unlock(LOCK_THDET);
 
 		/* dev note - errno was never primed at this point in previous version of code */
@@ -1410,8 +1470,7 @@ int main(int argc, char *argv[]) {
 			int loop_idx = poller_details->host_id % num_loops;
 			poller_details->event_loop = &spine_loops[loop_idx].loop;
 			poller_details->dns_runtime = spine_loops[loop_idx].dns_runtime;
-			spine_async_poll_start(poller_details->event_loop, poller_details);
-			thread_status = 0;
+			thread_status = spine_async_poll_start(poller_details->event_loop, poller_details);
 			thread_mutex_unlock(LOCK_HOST_TIME);
 #else
 			thread_status = pthread_create(&threads[device_counter], &attr, child, poller_details);
@@ -1447,6 +1506,12 @@ int main(int argc, char *argv[]) {
 
 			/* Restore thread initialization semaphore if thread creation failed */
 			if (thread_status) {
+#ifdef HAVE_LIBUV
+				spine_poll_work_failed();
+				canexit = TRUE;
+				spine_sem_post(&available_threads);
+				SPINE_LOG(("ERROR: Device[%i] failed to wake poll loop (status=%d)", host_id, thread_status));
+#endif
 #ifndef HAVE_LIBUV
 				thread_mutex_unlock(LOCK_HOST_TIME);
 #endif
@@ -1465,6 +1530,7 @@ int main(int argc, char *argv[]) {
      * TimeoutStopSec (90s default) is satisfied with margin. On the normal
      * path the existing poller_interval deadline still applies. */
 	const int SPINE_SIGTERM_DRAIN_SECS = 30;
+	double cur_time;
 	double drain_deadline = begin_time + set.poller_interval;
 	if (spine_stop_requested) {
 		double sigterm_deadline = get_time_as_double() + SPINE_SIGTERM_DRAIN_SECS;
@@ -1474,17 +1540,43 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifdef HAVE_LIBUV
-	/* Join all worker loops */
+	/* Request shutdown on every loop before waiting for callbacks. Borrowed
+	 * details, database pools and DNS runtimes remain live until each join. */
 	for (i = 0; i < num_loops; i++) {
+		uv_mutex_lock(&spine_loops[i].queue_lock);
 		spine_loops[i].stop_requested = true;
-		uv_async_send(&spine_loops[i].wake_handle);
-		uv_thread_join(&spine_loops[i].thread);
+		uv_mutex_unlock(&spine_loops[i].queue_lock);
+		if (uv_async_send(&spine_loops[i].wake_handle) != 0) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Failed to request poll-loop shutdown");
+		}
+	}
+	spine_sem_getvalue(&available_threads, &a_threads_value);
+	while (a_threads_value < set.threads) {
+		cur_time = get_time_as_double();
+		if (spine_stop_requested) {
+			double stop_deadline = cur_time + SPINE_SIGTERM_DRAIN_SECS;
+			if (stop_deadline < drain_deadline) drain_deadline = stop_deadline;
+		}
+		if (cur_time > drain_deadline) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Polling timed out while draining worker callbacks");
+		}
+		spine_platform_sleep_us(10000);
+		spine_sem_getvalue(&available_threads, &a_threads_value);
+	}
+	for (i = 0; i < num_loops; i++) {
+		if (uv_thread_join(&spine_loops[i].thread) != 0) {
+			set.exit_code = EXIT_FAILURE;
+			die("ERROR: Failed to join a poll-loop worker");
+		}
 		uv_mutex_destroy(&spine_loops[i].queue_lock);
+	}
+	if (atomic_load_explicit(&g_spine_poll_work_failed, memory_order_acquire)) {
+		set.exit_code = EXIT_FAILURE;
 	}
 	spine_scheduler_destroy();
 
-	spine_async_batch_cleanup();
-	spine_async_php_cleanup();
 	spine_telemetry_cleanup();
 	free(spine_loops);
 #else
@@ -1612,6 +1704,11 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	while (owned_partitions != NULL) {
+		poller_thread_t *next = owned_partitions->next_owned;
+		SPINE_FREE(owned_partitions);
+		owned_partitions = next;
+	}
 	SPINE_FREE(details);
 	SPINE_FREE(threads);
 	SPINE_FREE(ids);
@@ -1627,7 +1724,6 @@ int main(int argc, char *argv[]) {
 	 * callback cannot hang shutdown; a systemd TimeoutStopSec of 10s
 	 * then has the full unit teardown budget left. */
 	SPINE_LOG_DEBUG(("DEBUG: Running main thread event loop for cleanup"));
-	spine_uv_run_bounded(loop);
 
 	/* Flush first, fence second.
 	 *
@@ -1654,6 +1750,9 @@ int main(int argc, char *argv[]) {
 		uv_run(loop, UV_RUN_ONCE);
 	}
 
+	/* Keep the batch mutex and context live through flush and its callbacks. */
+	final_batch_stats_status = spine_async_batch_get_stats(&final_batch_stats);
+	spine_async_batch_cleanup();
 	spine_async_mysql_shutdown_begin();
 	spine_uv_run_bounded(loop);
 
@@ -1723,16 +1822,15 @@ int main(int argc, char *argv[]) {
 
 #ifdef HAVE_LIBUV
 	{
-		spine_async_batch_stats_t batch_stats;
-		if (spine_async_batch_get_stats(&batch_stats) == 0) {
+		if (final_batch_stats_status == 0) {
 			SPINE_LOG(("AsyncDB: submitted=%lu pending=%d active=%d/%d max_pending=%d dropped=%lu enqueue_failures=%lu",
-				batch_stats.submitted_queries,
-				batch_stats.pending_count,
-				batch_stats.active_queries,
-				batch_stats.max_inflight,
-				batch_stats.max_pending,
-				batch_stats.dropped_queries,
-				batch_stats.enqueue_failures));
+				final_batch_stats.submitted_queries,
+				final_batch_stats.pending_count,
+				final_batch_stats.active_queries,
+				final_batch_stats.max_inflight,
+				final_batch_stats.max_pending,
+				final_batch_stats.dropped_queries,
+				final_batch_stats.enqueue_failures));
 		}
 #ifdef UV_METRICS_IDLE_TIME
 		SPINE_LOG(("LoopMetrics: idle_ms=%.3f", (double)loop_idle_ns / 1000000.0));
@@ -1764,7 +1862,7 @@ int main(int argc, char *argv[]) {
 
 	spine_platform_cleanup();
 
-	exit(EXIT_SUCCESS);
+	exit(set.exit_code);
 }
 
 /*! \fn static void display_help()

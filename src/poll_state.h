@@ -27,7 +27,7 @@ typedef struct poll_context_struct poll_context_t;
  */
 typedef int (*spine_async_stage_f)(poll_context_t *ctx);
 
-void spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det);
+int spine_async_poll_start(uv_loop_t *target_loop, poller_thread_t *det);
 void spine_transition_state(poll_context_t *ctx);
 
 #endif

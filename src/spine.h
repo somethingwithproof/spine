@@ -144,6 +144,9 @@ typedef struct {
     uv_loop_t loop;
     uv_thread_t thread;
     uv_async_t wake_handle;
+    uv_signal_t sig_hup;
+    uv_signal_t sig_term;
+    uv_signal_t sig_int;
     uv_mutex_t queue_lock;
     void *task_queue_head;
     void *task_queue_tail;
@@ -550,6 +553,7 @@ typedef struct poller_thread {
 	char spine_host_time[40];
 	double spine_host_time_double;
 	spine_sem_t *thread_init_sem;
+	struct poller_thread *next_owned; /* Main-owned partition lifetime, separate from queue links. */
 	void *next_task; /* Queue pointer for async loop distribution */
 #ifdef HAVE_LIBUV
 	uv_loop_t *event_loop;

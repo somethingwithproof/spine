@@ -40,10 +40,13 @@
 #include "poll_state.h"
 #include "platform/platform_fd.h"
 
+static int poll_host_run(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double);
+
 #ifdef HAVE_LIBUV
 typedef struct {
 	uv_work_t work;
 	poller_thread_t *details;
+	int poll_status;
 } spine_work_t;
 
 static void spine_poll_work_cb(uv_work_t *req) {
@@ -56,7 +59,7 @@ static void spine_poll_work_cb(uv_work_t *req) {
 	if (spine_cb_should_skip(det->host_id)) {
 		SPINE_LOG_MEDIUM(("Device[%i] skipped by circuit breaker", det->host_id));
 	} else {
-		poll_host(det->device_counter, det->host_id, det->spine_host_thread, det->spine_host_threads, det->host_data_ids, det->spine_host_time, &host_errors, det->spine_host_time_double);
+		sw->poll_status = poll_host_run(det->device_counter, det->host_id, det->spine_host_thread, det->spine_host_threads, det->host_data_ids, det->spine_host_time, &host_errors, det->spine_host_time_double);
 		spine_cb_record(det->host_id, host_errors);
 	}
 }
@@ -65,7 +68,10 @@ static void spine_after_poll_work_cb(uv_work_t *req, int status) {
 	spine_work_t *sw = (spine_work_t *)req->data;
 	poller_thread_t *det = sw->details;
 
-	det->complete = TRUE;
+	det->complete = (status == 0 && sw->poll_status == 0);
+	if (!det->complete) {
+		spine_poll_work_failed();
+	}
 	SPINE_LOG_DEVDBG(("DEBUG: Device[%i] HT[%i] Poll work complete (status=%d)", det->host_id, det->spine_host_thread, status));
 
 	/* Post to available_threads to signal slot availability */
@@ -82,6 +88,7 @@ int spine_queue_poll(poller_thread_t *det) {
 	}
 	sw->work.data = sw;
 	sw->details = det;
+	sw->poll_status = 0;
 
 	rc = uv_queue_work(det->event_loop, &sw->work, spine_poll_work_cb, spine_after_poll_work_cb);
 	if (rc != 0) {
@@ -211,7 +218,7 @@ typedef struct HostPollPipelineData {
 	int posuffix_len;
 } HostPollPipelineData;
 
-void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
+static int poll_host_run(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
 	HostPollingRequest request;
 	HostPollingResult result;
 	HostPollPipelineData pipeline_data;
@@ -243,6 +250,11 @@ void poll_host(int device_counter, int host_id, int spine_host_thread, int spine
 		SPINE_LOG(("ERROR: Device[%d] pipeline failed at stage %d after %d retries",
 			host_id, (int)result.failed_stage, result.retries_used));
 	}
+	return result.code == RESULT_CODE_OK ? 0 : EIO;
+}
+
+void poll_host(int device_counter, int host_id, int spine_host_thread, int spine_host_threads, int host_data_ids, char *spine_host_time, int *host_errors, double spine_host_time_double) {
+	(void)poll_host_run(device_counter, host_id, spine_host_thread, spine_host_threads, host_data_ids, spine_host_time, host_errors, spine_host_time_double);
 }
 
 static ResultCode host_poll_stage_poll_items(const HostPollingRequest *request, HostPollingStageOutput *output) {
@@ -594,9 +606,14 @@ static void poll_host_legacy(int host_id, int spine_host_thread, int host_data_i
 	target_t    *poller_items = NULL;
 	snmp_oids_t *snmp_oids = NULL;
 
-	error_string = malloc(DBL_BUFSIZE);
+	error_string = calloc(1, DBL_BUFSIZE);
 	buf_size     = malloc(sizeof(int));
 	buf_errors   = malloc(sizeof(int));
+
+	if (error_string == NULL || buf_size == NULL || buf_errors == NULL) {
+		set.exit_code = EXIT_FAILURE;
+		die("ERROR: Failed to allocate polling error buffers");
+	}
 
 	*buf_size     = 0;
 	*buf_errors   = 0;
