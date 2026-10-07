@@ -145,9 +145,9 @@ enum poll_result_status normalize_poll_result(char *result, bool snmp) {
 		strncopy(result, classified.text, RESULTS_BUFFER);
 		return POLL_RESULT_VALID;
 	}
-	if (unknown_marker) return POLL_RESULT_UNDEFINED;
+	/* An agent's "u" or "NaN" is still unknown; store the U RRDtool expects. */
 	SET_UNDEFINED(result);
-	return POLL_RESULT_INVALID;
+	return unknown_marker ? POLL_RESULT_UNDEFINED : POLL_RESULT_INVALID;
 }
 
 typedef struct poll_error_context {

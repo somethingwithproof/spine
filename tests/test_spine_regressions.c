@@ -683,10 +683,17 @@ static void test_poll_result_formats(void) {
 			assert(strcmp(result, cases[i].output) == 0);
 		}
 	}
-	char undefined[RESULTS_BUFFER] = "u";
-	assert(normalize_poll_result(undefined, true) == POLL_RESULT_UNDEFINED);
-	assert(strcmp(undefined, "u") == 0);
-	assert(normalize_poll_result(undefined, false) == POLL_RESULT_INVALID);
+	/* An agent's "u" or "NaN" is unknown, and poller_output stores it as U. */
+	static const char *const unknown[] = {"u", "NaN", "nan"};
+	for (size_t i = 0; i < sizeof(unknown) / sizeof(unknown[0]); i++) {
+		char undefined[RESULTS_BUFFER];
+		strncopy(undefined, unknown[i], sizeof(undefined));
+		assert(normalize_poll_result(undefined, true) == POLL_RESULT_UNDEFINED);
+		assert(strcmp(undefined, "U") == 0);
+		strncopy(undefined, unknown[i], sizeof(undefined));
+		assert(normalize_poll_result(undefined, false) == POLL_RESULT_INVALID);
+		assert(strcmp(undefined, "U") == 0);
+	}
 }
 
 static void test_hostnames(void) {
