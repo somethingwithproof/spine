@@ -160,6 +160,25 @@ int ping_snmp(host_t *host, ping_t *ping) {
 
 static int ping_down(ping_t *ping, const char *message);
 
+/*! \fn static void ping_wait_left(double deadline, struct timeval *timeout)
+ *  \brief converts the time left before a monotonic deadline to a timeval
+ *
+ *  Each ICMP attempt owns a deadline of its own.  Measuring from the first
+ *  attempt left every retry with an already spent budget, so one lost packet
+ *  marked the device down, and rint(ms / 1000) plus the millisecond remainder
+ *  stretched a 1500 ms timeout to 2.5 s.
+ */
+static void ping_wait_left(double deadline, struct timeval *timeout) {
+	double remaining = deadline - spine_monotonic_time();
+
+	if (remaining < 0) {
+		remaining = 0;
+	}
+
+	timeout->tv_sec  = (time_t) remaining;
+	timeout->tv_usec = (suseconds_t) ((remaining - (double) timeout->tv_sec) * 1000000);
+}
+
 #ifdef __CYGWIN__
 /*! \fn static void icmp_discard_reply(int icmp_socket, char *buffer)
  *  \brief consumes a datagram that ping_icmp() has only peeked at
@@ -649,7 +668,7 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 	icmp_waiter_t waiter;
 	int    waiting = FALSE;
 
-	double begin_time, end_time, total_time;
+	double begin_time, deadline, total_time;
 	double host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
@@ -757,7 +776,6 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 		if (init_sockaddr(&fromname, host->hostname, 7)) {
 			retry_count = 0;
 			total_time  = 0;
-			begin_time  = get_time_as_double();
 
 			if (icmp_use_shared) {
 				memset(&waiter, 0, sizeof(waiter));
@@ -807,9 +825,9 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 					continue;
 				}
 
-				/* decrement the timeout value by the total time */
-				timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-				timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+				begin_time = spine_monotonic_time();
+				deadline   = begin_time + host_timeout / one_thousand;
+				ping_wait_left(deadline, &timeout);
 
 				/* set the socket send and receive timeout */
 				setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
@@ -832,15 +850,18 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 					goto cleanup;
 				}
 				FD_SET(icmp_socket,&socket_fds);
+				/* a stray datagram must not restart the wait, and only Linux
+				 * writes the time left back into the timeval */
+				ping_wait_left(deadline, &timeout);
 				return_code = select(icmp_socket + 1, &socket_fds, NULL, NULL, &timeout);
 
-				/* record end time */
-				end_time = get_time_as_double();
+				if (return_code < 0 && errno == EINTR) {
+					goto keep_listening;
+				}
 
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
+				total_time = (spine_monotonic_time() - begin_time) * one_thousand;
 
-				if (total_time < host_timeout) {
+				if (return_code > 0 && total_time < host_timeout) {
 					#if !(defined(__CYGWIN__))
 					return_code = recvfrom(icmp_socket, socket_reply, BUFSIZE, MSG_WAITALL, (struct sockaddr *) &recvname, &fromlen);
 					#else
@@ -904,15 +925,10 @@ int ping_icmp(const host_t *host, ping_t *ping) {
 								rc = HOST_UP;
 								goto cleanup;
 							} else {
-								/* received a response other than an echo reply */
+								/* received a response other than an echo reply; the
+								 * echo reply may still arrive inside this deadline */
 								ICMP_DISCARD_PEEKED(icmp_socket, socket_reply);
-
-								if (total_time > host_timeout) {
-									retry_count++;
-									total_time = 0;
-								}
-
-								continue;
+								goto keep_listening;
 							}
 						} else {
 							/* another host responded */
@@ -1092,7 +1108,7 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 	icmp_waiter_t waiter;
 	int    waiting = FALSE;
 
-	double begin_time, end_time, total_time;
+	double begin_time, deadline, total_time;
 	double host_timeout;
 	double one_thousand = 1000.00;
 	struct timeval timeout;
@@ -1247,7 +1263,6 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 
 	retry_count = 0;
 	total_time  = 0;
-	begin_time  = get_time_as_double();
 
 	if (icmp_use_shared) {
 		memset(&waiter, 0, sizeof(waiter));
@@ -1298,9 +1313,9 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 			continue;
 		}
 
-		/* decrement the timeout value by the total time */
-		timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-		timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+		begin_time = spine_monotonic_time();
+		deadline   = begin_time + host_timeout / one_thousand;
+		ping_wait_left(deadline, &timeout);
 
 		/* set the socket send and receive timeout */
 		setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
@@ -1326,13 +1341,16 @@ static int ping_icmp_ipv6(const host_t *host, ping_t *ping) {
 			goto cleanup;
 		}
 		FD_SET(icmp_socket,&socket_fds);
+		/* a stray datagram must not restart the wait, and only Linux
+		 * writes the time left back into the timeval */
+		ping_wait_left(deadline, &timeout);
 		return_code = select(icmp_socket + 1, &socket_fds, NULL, NULL, &timeout);
 
-		/* record end time */
-		end_time = get_time_as_double();
+		if (return_code < 0 && errno == EINTR) {
+			goto keep_listening_ipv6;
+		}
 
-		/* calculate total time */
-		total_time = (end_time - begin_time) * one_thousand;
+		total_time = (spine_monotonic_time() - begin_time) * one_thousand;
 
 		if ((return_code > 0) && (total_time < host_timeout)) {
 			fromlen     = sizeof(recvname);
