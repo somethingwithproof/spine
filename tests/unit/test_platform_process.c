@@ -7,6 +7,8 @@
 #ifdef _WIN32
 #include <stdio.h>
 #include <windows.h>
+#else
+#include <signal.h>
 #endif
 
 static void test_platform_misc_helpers(void) {
@@ -52,14 +54,45 @@ static void test_platform_spawn_and_terminate(void) {
 	char cmd_body[] = "ping -n 3 127.0.0.1 >NUL";
 	char *argv[] = { cmd_path, cmd_flag, cmd_body, NULL };
 #else
-	/* Terminate the child itself. A shell may defer/ignore SIGTERM while
-	 * waiting for its sleep child and then report successful shell exit. */
+	/* Own the child signal policy as well as its PID. Test runners may
+	 * ignore/block SIGTERM, which posix_spawn otherwise passes to children. */
 	char sleep_path[] = "/bin/sleep";
 	char sleep_duration[] = "30";
 	char *argv[] = { sleep_path, sleep_duration, NULL };
+	posix_spawnattr_t attributes;
+	sigset_t defaults;
+	sigset_t mask;
+	struct sigaction ignored = {0};
+	struct sigaction previous;
+	ignored.sa_handler = SIG_IGN;
+	sigemptyset(&ignored.sa_mask);
+	int initialized = posix_spawnattr_init(&attributes);
+	ASSERT_INT_EQ(initialized, 0);
+	if (initialized != 0) return;
+	int policy_set = sigaction(SIGTERM, &ignored, &previous);
+	ASSERT_INT_EQ(policy_set, 0);
+	if (policy_set != 0) {
+		posix_spawnattr_destroy(&attributes);
+		return;
+	}
+	sigemptyset(&defaults);
+	sigaddset(&defaults, SIGTERM);
+	sigemptyset(&mask);
+	ASSERT_INT_EQ(posix_spawnattr_setsigdefault(&attributes, &defaults), 0);
+	ASSERT_INT_EQ(posix_spawnattr_setsigmask(&attributes, &mask), 0);
+	ASSERT_INT_EQ(posix_spawnattr_setflags(&attributes,
+		POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK), 0);
 #endif
 
+#ifdef _WIN32
 	ASSERT_INT_EQ(spine_process_spawn_retry(&pid, argv[0], NULL, NULL, argv, NULL, 1, 1000), 0);
+#else
+	int spawned = spine_process_spawn_retry(&pid, argv[0], NULL, &attributes, argv, NULL, 1, 1000);
+	ASSERT_INT_EQ(sigaction(SIGTERM, &previous, NULL), 0);
+	ASSERT_INT_EQ(posix_spawnattr_destroy(&attributes), 0);
+	ASSERT_INT_EQ(spawned, 0);
+	if (spawned != 0) return;
+#endif
 	ASSERT_INT_EQ(spine_process_terminate(pid), 0);
 	ASSERT_INT_EQ(spine_process_wait(pid, &status), 0);
 	ASSERT_TRUE(status != 0);
