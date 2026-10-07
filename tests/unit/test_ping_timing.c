@@ -276,6 +276,109 @@ static void test_icmpv6_wait_matches_the_device_timeout(void **state) {
 }
 #endif
 
+/* --- G6: what a UDP probe may take as proof of life ----------------------- */
+
+typedef struct {
+	int fd;
+	int reply;
+} udp_peer_t;
+
+/* Answers one probe, which is what makes the client socket readable.  The
+ * injected errno then decides what that readability meant. */
+static void *udp_peer(void *argument) {
+	udp_peer_t *peer = argument;
+	struct sockaddr_storage client;
+	socklen_t length = sizeof(client);
+	char buffer[64];
+	ssize_t received;
+
+	received = recvfrom(peer->fd, buffer, sizeof(buffer), 0, (struct sockaddr *) &client, &length);
+	if (received > 0 && peer->reply) {
+		sendto(peer->fd, "pong", 4, 0, (struct sockaddr *) &client, length);
+	}
+	return NULL;
+}
+
+static int run_udp_probe(int injected_errno, int reply, ping_t *ping) {
+	struct sockaddr_in address;
+	socklen_t length = sizeof(address);
+	udp_peer_t peer;
+	pthread_t thread;
+	host_t host;
+	int rc;
+
+	peer.fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	assert_true(peer.fd >= 0);
+	peer.reply = reply;
+	memset(&address, 0, sizeof(address));
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	assert_int_equal(bind(peer.fd, (struct sockaddr *) &address, sizeof(address)), 0);
+	assert_int_equal(getsockname(peer.fd, (struct sockaddr *) &address, &length), 0);
+	assert_int_equal(pthread_create(&thread, NULL, udp_peer, &peer), 0);
+
+	make_host(&host, "127.0.0.1", PING_UDP);
+	host.availability.port    = ntohs(address.sin_port);
+	host.availability.retries = 0;
+	host.availability.timeout = 500;
+	recv_errno = injected_errno;
+	memset(ping, 0, sizeof(*ping));
+
+	rc = ping_udp(&host, ping);
+
+	/* a peer still parked in recvfrom() would hang the join */
+	shutdown(peer.fd, SHUT_RDWR);
+	assert_int_equal(pthread_join(thread, NULL), 0);
+	close(peer.fd);
+	return rc;
+}
+
+/* Linux reports EHOSTUNREACH on a connected UDP socket only for host or
+ * admin prohibited, which a device's own firewall sends; cmd.php reads it as
+ * alive and spine has to agree. */
+static void test_udp_host_prohibited_is_alive(void **state) {
+	ping_t ping;
+
+	(void) state;
+	assert_int_equal(run_udp_probe(EHOSTUNREACH, 1, &ping), HOST_UP);
+	assert_true(recv_calls >= 1);
+	assert_string_equal(ping.ping_response, "UDP: Device is Alive");
+}
+
+static void test_udp_network_unreachable_is_down(void **state) {
+	ping_t ping;
+
+	(void) state;
+	assert_int_equal(run_udp_probe(ENETUNREACH, 1, &ping), HOST_DOWN);
+	assert_true(recv_calls >= 1);
+}
+
+#ifdef EHOSTDOWN
+static void test_udp_host_down_is_down(void **state) {
+	ping_t ping;
+
+	(void) state;
+	assert_int_equal(run_udp_probe(EHOSTDOWN, 1, &ping), HOST_DOWN);
+	assert_true(recv_calls >= 1);
+}
+#endif
+
+static void test_udp_port_unreachable_is_alive(void **state) {
+	ping_t ping;
+
+	(void) state;
+	assert_int_equal(run_udp_probe(ECONNREFUSED, 1, &ping), HOST_UP);
+	assert_string_equal(ping.ping_response, "UDP: Device is Alive");
+}
+
+static void test_udp_data_reply_is_alive(void **state) {
+	ping_t ping;
+
+	(void) state;
+	assert_int_equal(run_udp_probe(0, 1, &ping), HOST_UP);
+	assert_string_equal(ping.ping_response, "UDP: Device is Alive");
+}
+
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_icmp_retry_after_one_lost_probe_is_alive, timing_setup, timing_teardown),
@@ -284,6 +387,13 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_icmpv6_retry_after_one_lost_probe_is_alive, timing_setup, timing_teardown),
 		cmocka_unit_test_setup_teardown(test_icmpv6_wait_matches_the_device_timeout, timing_setup, timing_teardown),
 		#endif
+		cmocka_unit_test_setup_teardown(test_udp_host_prohibited_is_alive, timing_setup, timing_teardown),
+		cmocka_unit_test_setup_teardown(test_udp_network_unreachable_is_down, timing_setup, timing_teardown),
+		#ifdef EHOSTDOWN
+		cmocka_unit_test_setup_teardown(test_udp_host_down_is_down, timing_setup, timing_teardown),
+		#endif
+		cmocka_unit_test_setup_teardown(test_udp_port_unreachable_is_alive, timing_setup, timing_teardown),
+		cmocka_unit_test_setup_teardown(test_udp_data_reply_is_alive, timing_setup, timing_teardown),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);
