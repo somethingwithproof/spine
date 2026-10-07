@@ -264,6 +264,12 @@ void test_reindex_result_contracts(MYSQL *mysql) {
 	assert(errors == 1);
 	assert(reindex_count(mysql, "SELECT COUNT(*) FROM host_errors WHERE host_id=46 AND errors=1 AND local_data_ids=''") == 1);
 
+	/* An uptime that cannot be read is unknown, as an unreadable script is.
+	 * It must not queue a reindex, and "<" records U as Cacti does, not "". */
+	poll_reindex_result(mysql, POLLER_ACTION_SNMP, ".1.3.6.1.2.1.1.3.0", "<", "124");
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_command WHERE command='46:7'") == 0);
+	assert(reindex_count(mysql, "SELECT COUNT(*) FROM poller_reindex WHERE host_id=46 AND assert_value='U'") == 1);
+
 	assert(spine_permits_destroy(&available_scripts) == 0);
 	db_close_connection_pool(LOCAL);
 	db_pool_local = previous_pool;

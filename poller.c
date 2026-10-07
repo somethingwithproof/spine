@@ -643,7 +643,9 @@ static char *poll_reindex_snmp(host_t *host, reindex_t *reindex, int host_thread
 
 		// Use the primed uptime to repopulate the poll_result
 		// This ensures whichever response was valid gets used
-		poll_result = strdup(sysUptime);
+		/* With neither OID readable there is nothing to compare. An empty
+		 * value reads as 0, which looks like a reboot and queues a reindex. */
+		poll_result = strdup(sysUptime[0] != '\0' ? sysUptime : "U");
 		if (poll_result == NULL) {
 			die("ERROR: Fatal malloc error: poller.c uptime result");
 		}
