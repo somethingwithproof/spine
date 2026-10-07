@@ -146,7 +146,11 @@ static void after_real_poll(uv_work_t *req, int status) {
 	for (int candidate = 0; candidate < 2; candidate++) {
 		if (registered_requests[candidate] == req) index = candidate;
 	}
-	fixture_require(index >= 0 && original_after_callbacks[index] != NULL,
+	if (index < 0) {
+		fixture_require(0, "callback must belong to a registered native producer");
+		return;
+	}
+	fixture_require(original_after_callbacks[index] != NULL,
 		"every callback belongs to a registered native producer");
 	uv_after_work_cb callback = original_after_callbacks[index];
 	registered_requests[index] = NULL;
