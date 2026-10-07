@@ -953,6 +953,28 @@ static char *poll_reindex_snmp(spine_spine_host_t *host, const reindex_t *reinde
 	return poll_result;
 }
 
+static char *poll_reindex_script_count(spine_spine_host_t *host, reindex_t *reindex,
+	int spine_host_thread) {
+	char *poll_result;
+	if (!(poll_result = (char *) malloc(BUFSIZE))) {
+		die("ERROR: Fatal malloc error: poller.c poll_result");
+	}
+	poll_result[0] = '\0';
+
+	{
+		char *ep_result = exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ");
+		snprintf(poll_result, BUFSIZE, "%d", char_count(ep_result, '\n'));
+		free(ep_result);
+	}
+
+	if (is_debug_device(host->id)) {
+		SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, spine_host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+	} else {
+		SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, spine_host_thread, reindex->data_query_id, reindex->arg1, poll_result));
+	}
+	return poll_result;
+}
+
 static char *poll_reindex_source(spine_spine_host_t *host, reindex_t *reindex,
 	int spine_host_thread, char sysUptime[BUFSIZE], int *reindex_err) {
 	char *poll_result = NULL;
@@ -1006,23 +1028,7 @@ static char *poll_reindex_source(spine_spine_host_t *host, reindex_t *reindex,
 
 		break;
 	case POLLER_ACTION_SCRIPT_COUNT: /* script (popen); count items by counting line feeds */
-		if (!(poll_result = (char *) malloc(BUFSIZE))) {
-			die("ERROR: Fatal malloc error: poller.c poll_result");
-		}
-		poll_result[0] = '\0';
-
-		{
-			char *ep_result = exec_poll(host, reindex->arg1, reindex->data_query_id, "DQ");
-			snprintf(poll_result, BUFSIZE, "%d", char_count(ep_result, '\n'));
-			free(ep_result);
-		}
-
-		if (is_debug_device(host->id)) {
-			SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, spine_host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-		} else {
-			SPINE_LOG_MEDIUM(("Device[%i] HT[%i] DQ[%i] RECACHE CMD COUNT: %s, output: %s", host->id, spine_host_thread, reindex->data_query_id, reindex->arg1, poll_result));
-		}
-
+		poll_result = poll_reindex_script_count(host, reindex, spine_host_thread);
 		break;
 	case POLLER_ACTION_PHP_SCRIPT_SERVER_COUNT: /* script (php script server); count number of lines */
 		if (!(poll_result = (char *) malloc(BUFSIZE))) {
@@ -1062,7 +1068,7 @@ typedef struct {
 	MYSQL *remote;
 } reindex_assertion_t;
 
-static void queue_changed_reindex(spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
+static void queue_changed_reindex(const spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
 	if (is_debug_device(host->id) || set.spine_log_level == 2) {
 		SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s=%s'", host->id, state->spine_host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
 	} else {
@@ -1088,7 +1094,7 @@ static void queue_changed_reindex(spine_spine_host_t *host, reindex_t *reindex, 
 	(*state->previous_assert_failure) = TRUE;
 }
 
-static void queue_increasing_reindex(spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
+static void queue_increasing_reindex(const spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
 	if (is_debug_device(host->id) || set.spine_log_level == 2) {
 		SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s>%s'", host->id, state->spine_host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
 	} else {
@@ -1115,7 +1121,7 @@ static void queue_increasing_reindex(spine_spine_host_t *host, reindex_t *reinde
 		/* if uptime is set to '0' don't fail out */
 }
 
-static void queue_decreasing_reindex(spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
+static void queue_decreasing_reindex(const spine_spine_host_t *host, reindex_t *reindex, const reindex_assertion_t *state, const char *poll_result, char *query3) {
 	if (is_debug_device(host->id) || set.spine_log_level == 2) {
 		SPINE_LOG(("Device[%i] HT[%i] DQ[%i] RECACHE ASSERT FAILED: '%s<%s'", host->id, state->spine_host_thread, reindex->data_query_id, reindex->assert_value, poll_result));
 	} else {
@@ -1154,7 +1160,7 @@ static void record_reindex_spike(spine_spine_host_t *host, const reindex_asserti
 	}
 }
 
-static void persist_reindex_assertion(spine_spine_host_t *host, reindex_t *reindex,
+static void persist_reindex_assertion(spine_spine_host_t *host, const reindex_t *reindex,
 	const reindex_assertion_t *state, const char *poll_result, char *query3) {
 	char temp_poll_result[BUFSIZE];
 	char temp_arg1[BUFSIZE];
@@ -1162,7 +1168,7 @@ static void persist_reindex_assertion(spine_spine_host_t *host, reindex_t *reind
 	 * 1) the assert fails
 	 * 2) the OP code is > or < meaning the current value could have changed without causing
 	 *     the assert to fail */
-	if (((*state->assert_fail)) || (!strcmp(reindex->op, ">")) || (!strcmp(reindex->op, "<"))) {
+	if ((*state->assert_fail) || (!strcmp(reindex->op, ">")) || (!strcmp(reindex->op, "<"))) {
 		if (state->spine_host_thread == 1) {
 			db_escape(state->local, temp_poll_result, sizeof(temp_poll_result), poll_result);
 			db_escape(state->local, temp_arg1, sizeof(temp_arg1), reindex->arg1);
@@ -1173,7 +1179,7 @@ static void persist_reindex_assertion(spine_spine_host_t *host, reindex_t *reind
 
 		}
 
-		if (((*state->assert_fail)) &&
+		if ((*state->assert_fail) &&
 			((!strcmp(reindex->op, "<")) || (!strcmp(reindex->arg1,".1.3.6.1.2.1.1.3.0") || !strcmp(reindex->arg1, ".1.3.6.1.6.3.10.2.1.3.0")))) {
 			record_reindex_spike(host, state);
 		}
@@ -1364,7 +1370,7 @@ static void consume_full_batch_result(spine_spine_host_t *host, target_t *poller
 
 	if (!IS_UNDEFINED(poller_items[snmp_oids[j].array_position].result)) {
 		/* insert a NaN in place of the actual value if the snmp agent restarts */
-		if (((*context->spike_kill)) && (!strstr(poller_items[snmp_oids[j].array_position].result,":"))) {
+		if ((*context->spike_kill) && (!strstr(poller_items[snmp_oids[j].array_position].result,":"))) {
 			SET_UNDEFINED(poller_items[snmp_oids[j].array_position].result);
 		}
 	}
@@ -1437,7 +1443,7 @@ static void consume_final_batch_result(spine_spine_host_t *host, target_t *polle
 
 	if (!IS_UNDEFINED(poller_items[snmp_oids[j].array_position].result)) {
 		/* insert a NaN in place of the actual value if the snmp agent restarts */
-		if (((*context->spike_kill)) && (!strstr(poller_items[snmp_oids[j].array_position].result,":"))) {
+		if ((*context->spike_kill) && (!strstr(poller_items[snmp_oids[j].array_position].result,":"))) {
 			SET_UNDEFINED(poller_items[snmp_oids[j].array_position].result);
 		}
 	}
@@ -1740,7 +1746,7 @@ static void poll_script_item(spine_spine_host_t *host, target_t *poller_items, i
 
 	if (!IS_UNDEFINED(poller_items[i].result)) {
 		/* insert a NaN in place of the actual value if the snmp agent restarts */
-		if (((*context->spike_kill)) && (!strstr(poller_items[i].result,":"))) {
+		if ((*context->spike_kill) && (!strstr(poller_items[i].result,":"))) {
 			SET_UNDEFINED(poller_items[i].result);
 		}
 	}
@@ -1809,7 +1815,7 @@ static void poll_php_item(spine_spine_host_t *host, target_t *poller_items, int 
 
 	if (!IS_UNDEFINED(poller_items[i].result)) {
 		/* insert a NaN in place of the actual value if the snmp agent restarts */
-		if (((*context->spike_kill)) && (!strstr(poller_items[i].result,":"))) {
+		if ((*context->spike_kill) && (!strstr(poller_items[i].result,":"))) {
 			SET_UNDEFINED(poller_items[i].result);
 		}
 	}
@@ -1952,6 +1958,35 @@ typedef struct {
 	char **query12;
 } legacy_output_t;
 
+static void flush_legacy_output(const legacy_output_t *writer, MYSQL *mysqlt, int mode, size_t buf_length, int reset) {
+	/* append the suffix */
+	append_output_query((*writer->query3), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
+
+	/* insert the record */
+	db_insert(mysqlt, mode, (*writer->query3));
+
+	if (reset) {
+		/* re-initialize the query buffer */
+		memset((*writer->query3), 0, buf_length);
+
+		append_output_query((*writer->query3), buf_length, writer->queries->query8, writer->queries->query8_len);
+	}
+
+	/* insert the record for boost */
+	if (set.boost_redirect && set.boost_enabled) {
+		/* append the suffix */
+		append_output_query((*writer->query12), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
+
+		db_insert(mysqlt, mode, (*writer->query12));
+
+		if (reset) {
+			memset((*writer->query12), 0, buf_length);
+
+			append_output_query((*writer->query12), buf_length, writer->queries->query11, writer->queries->query11_len);
+		}
+	}
+}
+
 static void write_legacy_output(const legacy_output_t *writer) {
 	char result_string[(RESULTS_BUFFER * 2) + DBL_BUFSIZE + SMALL_BUFSIZE];
 	int result_length;
@@ -1978,7 +2013,7 @@ static void write_legacy_output(const legacy_output_t *writer) {
 	/* append data */
 	append_output_query((*writer->query3), buf_length, writer->queries->query8, writer->queries->query8_len);
 
-	out_buffer = strlen((*writer->query3));
+	out_buffer = strlen(*writer->query3);
 
 	if (set.boost_redirect && set.boost_enabled) {
 		/* insert the query results into the database */
@@ -2023,31 +2058,10 @@ static void write_legacy_output(const legacy_output_t *writer) {
 
 		/* if the next element to the buffer will overflow it, write to the database */
 		if (spine_output_buffer_needs_flush(out_buffer, (size_t)result_length, MAX_MYSQL_BUF_SIZE)) {
-			/* append the suffix */
-			append_output_query((*writer->query3), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
-
-			/* insert the record */
-			db_insert(&mysqlt, mode, (*writer->query3));
-
-			/* re-initialize the query buffer */
-			memset((*writer->query3), 0, buf_length);
-
-			append_output_query((*writer->query3), buf_length, writer->queries->query8, writer->queries->query8_len);
-
-			/* insert the record for boost */
-			if (set.boost_redirect && set.boost_enabled) {
-				/* append the suffix */
-				append_output_query((*writer->query12), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
-
-				db_insert(&mysqlt, mode, (*writer->query12));
-
-				memset((*writer->query12), 0, buf_length);
-
-				append_output_query((*writer->query12), buf_length, writer->queries->query11, writer->queries->query11_len);
-			}
+			flush_legacy_output(writer, &mysqlt, mode, buf_length, TRUE);
 
 			/* reset the output buffer length */
-			out_buffer = strlen((*writer->query3));
+			out_buffer = strlen(*writer->query3);
 
 			/* set binary, let the system know we are a new buffer */
 			new_buffer = TRUE;
@@ -2073,19 +2087,7 @@ static void write_legacy_output(const legacy_output_t *writer) {
 
 	/* perform the last insert if there is data to process */
 	if (out_buffer > strlen(writer->queries->query8)) {
-		/* append the suffix */
-		append_output_query((*writer->query3), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
-
-		/* insert records into database */
-		db_insert(&mysqlt, mode, (*writer->query3));
-
-		/* insert the record for boost */
-		if (set.boost_redirect && set.boost_enabled) {
-			/* append the suffix */
-			append_output_query((*writer->query12), buf_length, writer->queries->posuffix, writer->queries->posuffix_len);
-
-			db_insert(&mysqlt, mode, (*writer->query12));
-		}
+		flush_legacy_output(writer, &mysqlt, mode, buf_length, FALSE);
 	}
 }
 
@@ -2385,11 +2387,9 @@ static int load_legacy_poll_host(legacy_poll_t *poll) {
 				load_legacy_host_details(poll, row, result, &ignore_sysinfo);
 			} else {
 				SPINE_LOG(("Device[%i] HT[%i] ERROR: MySQL Returned a Null Device Result", poll->resources.host->id, poll->request.spine_host_thread));
-				num_rows = 0;
 				poll->resources.host->ignore_host = TRUE;
 			}
 		} else {
-			num_rows = 0;
 			poll->resources.host->ignore_host = TRUE;
 		}
 	} else {
