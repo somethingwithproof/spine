@@ -35,6 +35,12 @@ real compiler context:
 4. The SonarSource scanner uploads the analysis and waits for the quality
    gate.
 
+Each analysis names its branch context. A push or dispatch on the default
+branch reports to the SonarCloud main branch. Any other branch passes
+`sonar.branch.name`, and a PR passes the `sonar.pullrequest.*` keys, so a
+side-branch run never replaces the `develop` analysis. Tag refs and ref names
+outside `[A-Za-z0-9._/-]` are rejected before the build starts.
+
 ### Enabling analysis
 
 1. In SonarCloud, create a token under My Account > Security. A project
@@ -42,7 +48,8 @@ real compiler context:
 2. In GitHub, add it as the repository secret `SONAR_TOKEN`
    (Settings > Secrets and variables > Actions > Secrets).
 3. In SonarCloud, turn off Automatic Analysis under Administration >
-   Analysis Method. CI analysis fails while Automatic Analysis is on.
+   Analysis Method. CI analysis fails while Automatic Analysis is on. For
+   `somethingwithproof_spine` this is already done.
 4. In GitHub, add the repository variable `ENABLE_SONAR` with the value
    `true` (Settings > Secrets and variables > Actions > Variables).
 5. Push to `develop` or run the workflow by hand:
