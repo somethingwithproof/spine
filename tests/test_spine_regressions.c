@@ -1125,6 +1125,28 @@ static void test_script_timeout_kills_descendants(void) {
 	set.php.script_timeout = previous_timeout;
 }
 
+/* nft_pclose() kills a script that is still running after its output was
+ * read, and the kill must reach the script's descendants as well. */
+static void test_pclose_kills_descendants(void) {
+	int witness[2];
+	assert(pipe(witness) == 0);
+	int fd = nft_popen("printf 7; /bin/sleep 30 & /bin/sleep 30", "r");
+	assert(fd >= 0);
+	char byte;
+	assert(read(fd, &byte, 1) == 1 && byte == '7');
+	assert(nft_pclose(fd) == -1 && errno == ETIMEDOUT);
+	assert(close(witness[1]) == 0);
+	assert(witness[0] < FD_SETSIZE);
+	fd_set readable;
+	FD_ZERO(&readable);
+	FD_SET(witness[0], &readable);
+	struct timeval timeout = {3, 0};
+	int ready = select(witness[0] + 1, &readable, NULL, NULL, &timeout);
+	fprintf(stderr, "pclose descendants: ready=%d\n", ready);
+	assert(ready == 1 && read(witness[0], &byte, 1) == 0);
+	assert(close(witness[0]) == 0);
+}
+
 static void test_php_command(size_t length) {
 	char command[BUFSIZE];
 	assert(length <= sizeof(command) - 3);
@@ -2758,6 +2780,7 @@ int main(int argc, char **argv) {
 	test_host_status_transitions();
 	test_script_execution();
 	test_script_timeout_kills_descendants();
+	test_pclose_kills_descendants();
 	test_script_stream_contracts();
 	test_cli_alias_contracts();
 	test_privilege_contracts();
