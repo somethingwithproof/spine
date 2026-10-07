@@ -55,12 +55,13 @@ def check_run(path: str, step_name: str, run_value: str, violations: list[str]) 
 			violations.append(f"{path}:{step_name}: curl|sh is not allowlisted")
 
 
-def main() -> int:
-	root = Path(__file__).resolve().parents[2]
+def audit(root: Path) -> list[str]:
 	workflow_files = sorted(
 		p for p in root.glob(WORKFLOW_GLOB) if p.suffix in (".yml", ".yaml")
 	)
 	violations: list[str] = []
+	if not workflow_files:
+		return ["No workflow files found; policy cannot validate an empty repository."]
 
 	for wf in workflow_files:
 		rel = str(wf.relative_to(root))
@@ -71,12 +72,28 @@ def main() -> int:
 			continue
 
 		jobs = doc.get("jobs", {}) if isinstance(doc, dict) else {}
-		if not isinstance(jobs, dict):
+		if not isinstance(jobs, dict) or not jobs:
+			violations.append(f"{rel}: non-empty jobs mapping is required")
 			continue
+		permissions = doc.get("permissions")
+		if not isinstance(permissions, dict) or permissions.get("contents") != "read" or "write" in permissions.values():
+			violations.append(f"{rel}: default permissions must be contents: read, with writes scoped to jobs")
+		if not doc.get("concurrency"):
+			violations.append(f"{rel}: concurrency control is required")
+		events = doc.get("on", doc.get(True, {}))
+		if isinstance(events, dict) and "pull_request_target" in events:
+			violations.append(f"{rel}: pull_request_target requires a separately reviewed policy exception")
 
 		for job_name, job in jobs.items():
 			if not isinstance(job, dict):
+				violations.append(f"{rel}:{job_name}: job must be a mapping")
 				continue
+			if "uses" in job:
+				check_uses(rel, job_name, job["uses"], violations)
+			else:
+				limit = job.get("timeout-minutes")
+				if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 360:
+					violations.append(f"{rel}:{job_name}: explicit bounded timeout is required")
 
 			for idx, step in enumerate(normalize_steps(job), start=1):
 				if not isinstance(step, dict):
@@ -91,6 +108,11 @@ def main() -> int:
 				if isinstance(run_value, str):
 					check_run(rel, step_name, run_value, violations)
 
+	return violations
+
+
+def main() -> int:
+	violations = audit(Path(__file__).resolve().parents[2])
 	if violations:
 		print("Workflow policy violations:")
 		for v in violations:

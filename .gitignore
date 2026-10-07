@@ -34,6 +34,10 @@ libtool
 # Build directories (CMake out-of-source + local experiments)
 build/
 build-*/
+coverage/
+coverage.filtered.info
+.scannerwork/
+__pycache__/
 
 # Agent / tooling session state
 .omc/

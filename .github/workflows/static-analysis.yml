@@ -9,10 +9,9 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -35,6 +34,7 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -61,6 +61,7 @@ jobs:
   shell-lint:
     name: shellcheck + shfmt
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -80,6 +81,7 @@ jobs:
   codespell:
     name: codespell
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -104,13 +106,19 @@ jobs:
           if-no-files-found: ignore
 
   clang-tidy:
+    permissions:
+      contents: read
+      security-events: write
     name: clang-tidy
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     continue-on-error: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Install clang-tidy dependencies
         uses: ./.github/actions/install-apt-deps
@@ -126,11 +134,14 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Run clang-tidy
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            mapfile -t sources < <(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- '*.c')
+            git fetch --no-tags origin "$BASE_REF"
+            git diff --name-only "origin/$BASE_REF"...HEAD -- '*.c' > changed-c-sources.txt
+            mapfile -t sources < changed-c-sources.txt
           else
             mapfile -t sources < <(git ls-files '*.c')
           fi
@@ -144,8 +155,6 @@ jobs:
             -p build \
             -checks="${CLANG_TIDY_CHECKS}" \
             "${sources[@]}" \
-            -- \
-            -std=c17 -I. -Isrc -Isrc/platform -Ithird_party -I/usr/include/mysql \
             2>&1 | tee clang-tidy-report.txt
 
       - name: Upload clang-tidy report
@@ -164,7 +173,7 @@ jobs:
 
       - name: Upload clang-tidy SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: clang-tidy.sarif
           category: clang-tidy
@@ -172,6 +181,7 @@ jobs:
   scan-build:
     name: clang static analyzer (scan-build)
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -205,8 +215,12 @@ jobs:
           if-no-files-found: ignore
 
   cppcheck:
+    permissions:
+      contents: read
+      security-events: write
     name: cppcheck
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -275,7 +289,7 @@ jobs:
 
       - name: Upload cppcheck SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: cppcheck.sarif
           category: cppcheck
