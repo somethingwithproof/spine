@@ -180,6 +180,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). All commits must carry a DCO `Signed-off
 
 ## Documentation
 
+- [docs/ci.md](docs/ci.md) - CMake CI, coverage, selective Sonar and quality-gate setup
 - [docs/advanced-architecture.md](docs/advanced-architecture.md) - new asynchronous engine details
 - [docs/platforms.md](docs/platforms.md) - tier policy, install commands, CI coverage
 - [docs/systemd.md](docs/systemd.md) - unit installation, watchdog, hardening
