@@ -65,10 +65,21 @@ static credential_profile_t make_profile(const char *authentication, const char 
 }
 
 static void *open_profile(credential_profile_t *profile) {
-	return snmp_host_init(1, profile->hostname, 3, profile->community,
-		profile->username, profile->authentication, profile->auth_protocol,
-		profile->privacy, profile->priv_protocol, profile->context, profile->engine_id,
-		1161, 100);
+	return snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = 1,
+			.hostname = profile->hostname,
+			.snmp_version = 3,
+			.snmp_community = profile->community,
+			.snmp_username = profile->username,
+			.snmp_password = profile->authentication,
+			.snmp_auth_protocol = profile->auth_protocol,
+			.snmp_priv_passphrase = profile->privacy,
+			.snmp_priv_protocol = profile->priv_protocol,
+			.snmp_context = profile->context,
+			.snmp_engine_id = profile->engine_id,
+			.snmp_port = 1161,
+			.snmp_timeout = 100,
+		});
 }
 
 static void test_repeated_authpriv_creation(void) {
@@ -127,6 +138,7 @@ static void test_failed_key_derivation_preserves_profile(void) {
 }
 
 int main(void) {
+	ASSERT_TRUE(snmp_host_init(NULL) == NULL);
 	const int platform_status = spine_platform_init();
 	ASSERT_TRUE(platform_status == 0);
 	if (platform_status != 0) return finish_tests("SNMP platform initialization");

@@ -145,7 +145,8 @@ uint32_t spine_governor_get_throttled_hosts(void) {
     if (!governor_initialized) return 0;
     uint32_t count = 0;
     uv_mutex_lock(&governor_lock);
-    const host_throttle_t *current, *tmp;
+    const host_throttle_t *current;
+    const host_throttle_t *tmp;
     HASH_ITER(hh, host_stats, current, tmp) {
         if (current->inflight >= current->max_concurrency) {
             count++;

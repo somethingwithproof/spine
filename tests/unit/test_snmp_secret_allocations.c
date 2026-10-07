@@ -107,8 +107,21 @@ static void test_owned_copy_allocation(int failing_index) {
 	faults_observed = 0;
 	failure_index = failing_index;
 	capture_active = 1;
-	void *handle = snmp_host_init(1, hostname, 3, community, username,
-		authentication, auth_protocol, privacy, priv_protocol, context, engine_id, 1161, 100);
+	void *handle = snmp_host_init(&(spine_snmp_profile_t){
+			.host_id = 1,
+			.hostname = hostname,
+			.snmp_version = 3,
+			.snmp_community = community,
+			.snmp_username = username,
+			.snmp_password = authentication,
+			.snmp_auth_protocol = auth_protocol,
+			.snmp_priv_passphrase = privacy,
+			.snmp_priv_protocol = priv_protocol,
+			.snmp_context = context,
+			.snmp_engine_id = engine_id,
+			.snmp_port = 1161,
+			.snmp_timeout = 100,
+		});
 	ASSERT_TRUE(copy_attempts == 2);
 	ASSERT_TRUE(faults_observed == (failing_index < 0 ? 0 : 1));
 	ASSERT_TRUE(copies_released == (failing_index < 0 ? 2 : 1));
