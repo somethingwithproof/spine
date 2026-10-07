@@ -91,6 +91,35 @@ int db_insert(MYSQL *mysql, int type, const char *query) {
 	return TRUE;
 }
 
+/*! \fn int db_set_session_mode(MYSQL *mysql)
+ *  \brief relaxes the session sql_mode to what Cacti's schema needs.
+ *
+ *  Uses mysql_query() directly so a failure here never recurses into the
+ *  reconnect path. Every new session needs it, including one opened by a
+ *  reconnect, since the server starts each session at its default mode.
+ *  SQL_readonly does not skip it: it changes no data.
+ *
+ *  \return TRUE when every statement succeeded
+ */
+int db_set_session_mode(MYSQL *mysql) {
+	static const char *const modes[] = {
+		"NO_ZERO_DATE", "NO_ZERO_IN_DATE", "ONLY_FULL_GROUP_BY", "NO_AUTO_VALUE_ON_ZERO",
+		"TRADITIONAL", "STRICT_ALL_TABLES", "STRICT_TRANS_TABLES"
+	};
+	char query[BUFSIZE];
+	size_t i;
+
+	for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+		snprintf(query, sizeof(query), "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'%s', ''))", modes[i]);
+		if (mysql_query(mysql, query) != 0) {
+			SPINE_LOG(("ERROR: Unable to set the session sql_mode: %s", mysql_error(mysql)));
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
 /* Returns TRUE after a reconnect, FALSE when the session was still alive, and
  * -1 when the server could not be reached. After -1 the handle is initialized
  * but unconnected, so the next attempt closes and reconnects it again. */
@@ -106,12 +135,8 @@ int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
 		SPINE_LOG(("WARNING: Connection Broken in Function %s with Error %i.  Reconnect via mysql_ping() successful.", function, error));
 		snprintf(query, 100, "KILL %lu;", mysql_thread);
 		mysql_query(mysql, query);
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-		mysql_query(mysql, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
+
+		if (!db_set_session_mode(mysql)) return -1;
 
 		sleep(1);
 
@@ -128,7 +153,7 @@ int db_reconnect(MYSQL *mysql, int type, int error, const char *function) {
 
 	mysql_close(mysql);
 
-	if (db_connect(type, mysql) && mysql_thread_id(mysql) > 0) {
+	if (db_connect(type, mysql) && mysql_thread_id(mysql) > 0 && db_set_session_mode(mysql)) {
 		SPINE_LOG(("WARNING: Explicit reconnect successful in Function %s.", function));
 		return TRUE;
 	}
@@ -362,13 +387,7 @@ void db_create_connection_pool(int type) {
 
 			if (!db_connect(type, &db_pool_local[id].mysql)) die("FATAL: Unable to create the local connection pool");
 
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
-			db_insert(&db_pool_local[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
+			if (!db_set_session_mode(&db_pool_local[id].mysql)) die("FATAL: Unable to configure the local connection pool");
 
 			db_pool_local[id].free = TRUE;
 			db_pool_local[id].id   = id;
@@ -381,13 +400,7 @@ void db_create_connection_pool(int type) {
 
 			if (!db_connect(type, &db_pool_remote[id].mysql)) die("FATAL: Unable to create the remote connection pool");
 
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_AUTO_VALUE_ON_ZERO', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'TRADITIONAL', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_ALL_TABLES', ''))");
-			db_insert(&db_pool_remote[id].mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES', ''))");
+			if (!db_set_session_mode(&db_pool_remote[id].mysql)) die("FATAL: Unable to configure the remote connection pool");
 
 			db_pool_remote[id].free = TRUE;
 			db_pool_remote[id].id   = id;

@@ -325,6 +325,33 @@ static void assert_database_failures_return(void) {
 	assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
 
+static bool session_mode_contains(MYSQL *mysql, const char *mode) {
+	MYSQL_RES *result = db_query(mysql, LOCAL, "SELECT @@SESSION.sql_mode");
+	assert(result != NULL);
+	MYSQL_ROW row = mysql_fetch_row(result);
+	assert(row != NULL && row[0] != NULL);
+	bool found = strstr(row[0], mode) != NULL;
+	db_free_result(result);
+	return found;
+}
+
+/* Pooled sessions run with Cacti's relaxed sql_mode. A reconnect opens a new
+ * session with the server default, so it must apply the same policy again. */
+static void assert_reconnect_restores_session_mode(MYSQL *mysql) {
+	MYSQL victim;
+	assert(db_connect(LOCAL, &victim));
+	/* The fixture server's default mode is strict; otherwise this proves nothing. */
+	assert(session_mode_contains(&victim, "STRICT_TRANS_TABLES"));
+	char query[100];
+	snprintf(query, sizeof(query), "KILL CONNECTION %lu", mysql_thread_id(&victim));
+	assert(mysql_query(mysql, query) == 0);
+	bool strict = session_mode_contains(&victim, "STRICT_TRANS_TABLES");
+	bool zero_date = session_mode_contains(&victim, "NO_ZERO_DATE");
+	fprintf(stderr, "reconnected session mode: strict=%d no_zero_date=%d\n", strict, zero_date);
+	assert(!strict && !zero_date);
+	db_disconnect(&victim);
+}
+
 void test_additional_database_contracts(MYSQL *mysql) {
 	assert(db_column_exists(mysql, LOCAL, "host", "id") == TRUE);
 	assert(db_column_exists(mysql, LOCAL, "host", "regression_missing_column") == FALSE);
@@ -371,4 +398,5 @@ void test_additional_database_contracts(MYSQL *mysql) {
 	db_disconnect(&victim);
 	assert_stale_interrupt_is_retried();
 	assert_database_failures_return();
+	assert_reconnect_restores_session_mode(mysql);
 }

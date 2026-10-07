@@ -920,9 +920,9 @@ static int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr) {
 		SPINE_LOG_DEBUG(("DEBUG: poller_item.output_regex column detected"));
 	}
 
-	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti */
-	db_insert(mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE', ''))");
-	db_insert(mysql, LOCAL, "SET SESSION sql_mode = (SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY', ''))");
+	/* Since MySQL 5.7 the sql_mode defaults are too strict for cacti. The
+	 * same policy as the pool, which a reconnect of this handle reapplies. */
+	if (!db_set_session_mode(mysql)) die("FATAL: Unable to configure the database session");
 
 	return mode;
 
