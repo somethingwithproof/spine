@@ -1282,10 +1282,9 @@ static void evaluate_reindex_result(spine_spine_host_t *host, reindex_t *reindex
 		queue_changed_reindex(host, reindex, state, poll_result, query3);
 	} else if ((!strcmp(reindex->op, ">")) && (atoll(reindex->assert_value) < atoll(poll_result))) {
 		queue_increasing_reindex(host, reindex, state, poll_result, query3);
-	} else if (strcmp(reindex->assert_value, "0")) {
-		if ((!strcmp(reindex->op, "<")) && (atoll(reindex->assert_value) > atoll(poll_result))) {
-			queue_decreasing_reindex(host, reindex, state, poll_result, query3);
-		}
+	} else if (strcmp(reindex->assert_value, "0") && (!strcmp(reindex->op, "<")) &&
+		(atoll(reindex->assert_value) > atoll(poll_result))) {
+		queue_decreasing_reindex(host, reindex, state, poll_result, query3);
 	}
 
 	persist_reindex_assertion(host, reindex, state, poll_result, query3);
@@ -1521,11 +1520,10 @@ static void load_legacy_host_system(spine_spine_host_t *host, MYSQL_ROW row, MYS
 }
 
 static void refresh_legacy_system_information(spine_spine_host_t *host, MYSQL *mysql, int *ignore_sysinfo) {
-	if ((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE)) {
-		if (host->snmp_session != NULL && set.mibs) {
-			get_system_information(host, mysql, 1);
-			*ignore_sysinfo = FALSE;
-		}
+	if ((host->availability_method != AVAIL_PING) && (host->availability_method != AVAIL_NONE) &&
+		host->snmp_session != NULL && set.mibs) {
+		get_system_information(host, mysql, 1);
+		*ignore_sysinfo = FALSE;
 	}
 }
 
@@ -1785,7 +1783,7 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 	if ((*state->k) == 0) {
 		capture_snmp_item_profile(state->profile, &poller_items[i]);
 
-		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = host->id,
 			.hostname = poller_items[i].hostname,
 			.snmp_version = poller_items[i].snmp_version,
@@ -1840,7 +1838,7 @@ static void poll_snmp_item(spine_spine_host_t *host, target_t *poller_items, snm
 
 		SNMP_FREE(host->snmp_session);
 
-		host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = host->id,
 			.hostname = poller_items[i].hostname,
 			.snmp_version = poller_items[i].snmp_version,
@@ -2267,7 +2265,7 @@ static void load_legacy_host_details(legacy_poll_t *poll, MYSQL_ROW row, MYSQL_R
 	if (((poll->resources.host->snmp_version >= 1) && (poll->resources.host->snmp_version <= 2) &&
 		(strlen(poll->resources.host->snmp_community) > 0)) ||
 		(poll->resources.host->snmp_version == 3)) {
-		poll->resources.host->snmp_session = snmp_host_init(&(spine_snmp_profile_t){
+		poll->resources.host->snmp_session = spine_snmp_profile_open(&(spine_snmp_profile_t){
 			.host_id = poll->resources.host->id,
 			.hostname = poll->resources.host->hostname,
 			.snmp_version = poll->resources.host->snmp_version,
