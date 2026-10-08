@@ -19,6 +19,25 @@ Write commit titles as [Conventional Commits](https://www.conventionalcommits.or
 for example `fix(poller): ...`, `test(ping): ...`, `ci: ...` or `docs: ...`.
 Keep one logical change per commit.
 
+## Pre-commit hooks
+
+`.pre-commit-config.yaml` runs the cheap CI checks before each commit:
+whitespace and end-of-file fixes, YAML syntax, shellcheck, actionlint,
+codespell with `.codespell-ignore-words.txt`, and clang-format on the lines
+you changed. Install [pre-commit](https://pre-commit.com/) and enable the
+hooks once per clone:
+
+```sh
+pre-commit install
+pre-commit run --all-files
+```
+
+The clang-format hook checks staged lines against `HEAD` and prints the
+change it wants; apply it with `git clang-format`. The actionlint hook
+builds actionlint with Go, which pre-commit downloads if it is missing.
+Hook versions are pinned to commit SHAs; `pre-commit autoupdate --freeze`
+updates them.
+
 ## Building and testing
 
 Spine uses Autotools. You need a C compiler, Autoconf, Automake, Libtool,
@@ -111,6 +130,19 @@ to the existing ones.
 - Never log SNMP communities, SNMPv3 passphrases, database passwords or
   script arguments.
 - Keep changes focused. Do not reformat or rename code you are not changing.
+
+`.clang-format` describes this style as closely as clang-format can. It is
+not applied to the whole tree, because hand-aligned tables and assignment
+blocks would churn. The `clang-format` job in the static analysis workflow
+checks only the lines a pull request changes, with clang-format 18. To fix
+those lines before you push:
+
+```sh
+git clang-format origin/develop
+```
+
+Use clang-format 18 for this. Other major versions format some constructs
+differently.
 
 ## Pull requests
 

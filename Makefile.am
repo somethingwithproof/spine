@@ -87,6 +87,8 @@ EXTRA_DIST = spine.1 spine.conf.dist \
 	tests/integration/test_concurrency.sh \
 	tests/integration/test_network_faults.sh
 
+EXTRA_DIST += tests/integration/test_memory_soak.sh
+
 EXTRA_DIST += tests/tools/run_snmpv3.sh tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
  tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
 .PHONY: coverage-source-list coverage-test-source-list
