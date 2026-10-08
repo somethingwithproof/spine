@@ -252,7 +252,7 @@ tests_unit_test_php_runtime_SOURCES = tests/unit/test_php_runtime.c tests/suppor
 tests_unit_test_php_runtime_LDADD = $(CMOCKA_LIBS) $(LIBS)
 tests_unit_test_php_runtime_LDFLAGS = \
 	-Wl,--wrap=posix_spawn -Wl,--wrap=dup -Wl,--wrap=fcntl \
-	-Wl,--wrap=pthread_sigmask -Wl,--wrap=write \
+	-Wl,--wrap=write \
 	-Wl,--wrap=posix_spawnattr_setsigdefault -Wl,--wrap=posix_spawnattr_destroy
 tests_unit_test_php_runtime_CPPFLAGS = $(AM_CPPFLAGS) \
 	-DPHP_TEST_SERVER_PATH='"$(abs_builddir)/tests/support/php_test_server"' \
