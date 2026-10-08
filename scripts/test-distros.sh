@@ -14,7 +14,8 @@
 # assert what spine does after dropping root, which cannot hold when the
 # whole suite already runs as root.
 #
-# Logs land in $LOG_DIR (default: a new directory under ${TMPDIR:-/tmp}).
+# Logs land in $LOG_DIR (default: a new directory under ${TMPDIR:-/tmp}),
+# with a directory per image holding the test logs of a failed make check.
 # Plain POSIX sh: Alpine has no bash until the packages are installed.
 set -eu
 
@@ -31,8 +32,17 @@ install_packages() {
 		return
 		;;
 	NetBSD)
-		pkgin -y install autoconf automake libtool-base gmake pkgconf \
-			bash net-snmp mariadb-client cmocka
+		# pkgsrc builds one binary set per major release on its .0
+		# release, and pkg_install refuses those packages on 10.1
+		# unless the OS ABI check is relaxed.
+		if ! grep -q '^CHECK_OSABI=no' /etc/pkg_install.conf 2>/dev/null; then
+			echo CHECK_OSABI=no >> /etc/pkg_install.conf
+		fi
+		if ! pkgin -y install autoconf automake libtool-base gmake \
+			pkgconf bash net-snmp mariadb-client cmocka; then
+			cat /var/db/pkgin/pkg_install-err.log >&2 || true
+			exit 1
+		fi
 		return
 		;;
 	OpenBSD)
@@ -116,6 +126,10 @@ build_and_check() {
 	./spine --version
 	if ! "$make_cmd" -j"$jobs" check; then
 		cat test-suite.log >&2 || true
+		if [ -n "${ARTIFACT_DIR:-}" ]; then
+			find . -name '*.log' -newer configure \
+				-exec cp -p {} "$ARTIFACT_DIR/" \; || true
+		fi
 		exit 1
 	fi
 }
@@ -134,7 +148,11 @@ in_container() {
 	work=$(mktemp -d)
 	cp -R /src/. "$work/"
 	chown -R "$build_user" "$work"
-	su "$build_user" -s /bin/sh -c "sh /src/scripts/test-distros.sh --build '$work'"
+	if [ -d /artifacts ]; then
+		chown "$build_user" /artifacts
+	fi
+	su "$build_user" -s /bin/sh -c \
+		"ARTIFACT_DIR=/artifacts sh /src/scripts/test-distros.sh --build '$work'"
 }
 
 run_images() {
@@ -152,12 +170,15 @@ run_images() {
 			;;
 		esac
 
-		log="$log_dir/$(printf '%s' "$image" | tr '/:@' '---').log"
-		status_file="$log.status"
+		lane="$log_dir/$(printf '%s' "$image" | tr '/:@' '---')"
+		log="$lane.log"
+		status_file="$lane.status"
+		mkdir -p "$lane"
 		echo "=== $image"
 		{
 			rc=0
-			docker run --rm --volume "$root:/src:ro" "$image" \
+			docker run --rm --volume "$root:/src:ro" \
+				--volume "$lane:/artifacts" "$image" \
 				sh /src/scripts/test-distros.sh --in-container || rc=$?
 			echo "$rc" > "$status_file"
 		} 2>&1 | tee "$log"
