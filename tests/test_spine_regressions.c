@@ -1133,13 +1133,26 @@ static void test_script_execution(void) {
 	free(result);
 	assert(spine_permits_available(&available_scripts) == 0);
 	assert(spine_permits_release(&available_scripts) == 0);
+	/* exec_poll() reads a script's answer once, so the script must write it
+	 * in one call. printf(1) does not promise that: the uutils printf in
+	 * Ubuntu 26.04 writes 1024 bytes at a time. dd copies its single input
+	 * block with one write(). */
 	char output_command[128];
+	char output_path[] = "spine-script-output-XXXXXX";
+	char output[RESULTS_BUFFER + 1];
+	memset(output, 'x', sizeof(output));
 	for (int excess = 0; excess <= 1; excess++) {
-		spine_snprintf(output_command, sizeof(output_command), "/usr/bin/printf '%%%ds' x", RESULTS_BUFFER - 1 + excess);
+		int output_fd = mkstemp(output_path);
+		assert(output_fd >= 0);
+		assert(write(output_fd, output, RESULTS_BUFFER - 1 + excess) == RESULTS_BUFFER - 1 + excess);
+		assert(close(output_fd) == 0);
+		spine_snprintf(output_command, sizeof(output_command), "/bin/dd if=%s bs=%d count=1 2>/dev/null", output_path, 2 * RESULTS_BUFFER);
 		result = exec_poll(&host, output_command, 1, "DS");
 		assert(strlen(result) == RESULTS_BUFFER - 1);
 		assert(result[RESULTS_BUFFER - 1] == '\0');
 		free(result);
+		assert(unlink(output_path) == 0);
+		memcpy(output_path + sizeof(output_path) - 7, "XXXXXX", 6);
 		assert(spine_permits_available(&available_scripts) == 1);
 	}
 	char empty[] = "/usr/bin/printf ''";
