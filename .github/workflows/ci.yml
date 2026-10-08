@@ -39,13 +39,17 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
+        # libmysqlclient is deprecated (docs/adr/0003). Drop its lanes in the
+        # release that removes --with-mysql-client=mysql.
         client:
           - name: MariaDB Connector/C
             package: libmariadb-dev
             config: mariadb_config
-          - name: MySQL Connector/C
+            choice: mariadb
+          - name: libmysqlclient (deprecated)
             package: libmysqlclient-dev
             config: mysql_config
+            choice: mysql
     env:
       CC: ${{ matrix.compiler }}
       MYSQL_CONFIG: ${{ matrix.client.config }}
@@ -58,6 +62,7 @@ jobs:
       - uses: ./.github/actions/build-spine
         with:
           mysql-client-package: ${{ matrix.client.package }}
+          configure-args: --with-mysql-client=${{ matrix.client.choice }}
           cflags: ${{ env.STRICT_CFLAGS }}
 
       - name: Build Spine
@@ -201,6 +206,43 @@ jobs:
               cd /home/builder/spine
               runuser -u builder -- ./bootstrap
               runuser -u builder -- ./configure --enable-warnings
+              grep "^CFLAGS = .*-std=gnu17" Makefile
+              runuser -u builder -- make --jobs "$(nproc)"
+              runuser -u builder -- make check
+            '
+
+  # The Clang counterpart of newest-gcc. Pin the major version so a Fedora
+  # update cannot change the compiler under a green lane; raise it on purpose.
+  newest-clang:
+    name: Newest Clang (Fedora 44)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CLANG_MAJOR: "22"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and test with the newest Clang
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --env CLANG_MAJOR \
+            --volume "$GITHUB_WORKSPACE:/src:ro" \
+            fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 \
+            bash -euo pipefail -c '
+              dnf -y install "clang-${CLANG_MAJOR}.*" make autoconf automake \
+                libtool help2man mariadb-connector-c-devel net-snmp-devel \
+                openssl-devel libcmocka-devel shadow-utils util-linux
+              clang --version
+              test "$(clang -dumpversion | cut -d. -f1)" = "$CLANG_MAJOR"
+              useradd --create-home builder
+              cp -a /src/. /home/builder/spine
+              chown -R builder: /home/builder/spine
+              cd /home/builder/spine
+              runuser -u builder -- ./bootstrap
+              runuser -u builder -- ./configure CC=clang --enable-warnings
               grep "^CFLAGS = .*-std=gnu17" Makefile
               runuser -u builder -- make --jobs "$(nproc)"
               runuser -u builder -- make check
@@ -404,6 +446,7 @@ jobs:
       - macos
       - cppcheck
       - newest-gcc
+      - newest-clang
       - shellcheck
       - coverage
       - flawfinder

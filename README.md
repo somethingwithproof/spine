@@ -75,7 +75,7 @@ chmod +s /usr/local/spine/bin/spine
    * gzip
    * help2man
    * inetutils-src
-   * libmariadb-devel (preferred) or libmysqlclient
+   * libmariadb-devel (libmysqlclient is deprecated)
    * libssl-devel
    * libtool
    * m4

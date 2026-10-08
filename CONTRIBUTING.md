@@ -41,7 +41,7 @@ updates them.
 ## Building and testing
 
 Spine uses Autotools. You need a C compiler, Autoconf, Automake, Libtool,
-help2man, the Net-SNMP, MariaDB or MySQL client and OpenSSL development
+help2man, the Net-SNMP, MariaDB Connector/C and OpenSSL development
 packages, and cmocka for the unit tests. On Debian or Ubuntu:
 
 ```sh
@@ -55,6 +55,14 @@ make check
 
 `bootstrap` regenerates tracked files such as `Makefile.in`. Do not commit
 that output; build in a separate copy if you want a clean tree.
+
+`configure` uses MariaDB Connector/C (`mariadb_config`) when it finds it.
+Building against MySQL's `libmysqlclient` still works, with
+`--with-mysql-client=mysql` and `MYSQL_CONFIG` set to MySQL's
+`mysql_config`, but it is deprecated and will be removed in the next
+release; `configure` prints a warning when it is used. Connector/C connects
+to both MariaDB and MySQL servers. See
+[ADR 0003](docs/adr/0003-mariadb-connector.md).
 
 ### Regression tests in Docker
 
