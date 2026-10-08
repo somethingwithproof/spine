@@ -168,7 +168,7 @@ extern int spine_permits_available(spine_permits_t *permits);
  * buffers, rounded up to 64 KiB so the size is a page multiple everywhere:
  * 384 KiB with the default 2048-byte results buffer. */
 #define SPINE_THREAD_STACK_SIZE \
-	(((size_t) 2 * (180 * 1024 + 5 * (size_t) RESULTS_BUFFER) + 65535) & ~(size_t) 65535)
+	(((size_t) 2 * ((size_t) 180 * 1024 + 5 * (size_t) RESULTS_BUFFER) + 65535) & ~(size_t) 65535)
 
 /*! \fn int spine_thread_attr_init(pthread_attr_t *attributes)
  *  \brief initialize thread attributes with at least SPINE_THREAD_STACK_SIZE
