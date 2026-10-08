@@ -238,3 +238,5 @@ SH_LOG_COMPILER = $(SHELL)
 TESTS += tests/regression/test_remote_push.sh tests/integration/test_alloc_failure.sh tests/regression/test_child_process_safety.sh tests/regression/test_setuid_privilege_drop.sh
 TESTS_ENVIRONMENT = top_builddir='$(abs_top_builddir)'
 EXTRA_DIST += tests/regression/test_remote_push.sh tests/integration/test_alloc_failure.sh tests/regression/test_child_process_safety.sh tests/regression/test_setuid_privilege_drop.sh
+
+EXTRA_DIST += tests/fixtures/c17_develop_behavior_baseline.json
