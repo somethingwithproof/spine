@@ -157,8 +157,13 @@ jobs:
         run: sudo sh scripts/test-distros.sh --deps
 
       - name: Build and test
-        shell: cpa.sh {0} --sync-files vm-to-runner
+        shell: cpa.sh {0} --sync-files none
         run: sh scripts/test-distros.sh --build .
+
+      # cpa.sh skips its own copy back when the command fails.
+      - name: Copy test logs out of the VM
+        if: failure()
+        run: cpa.sh --sync-files vm-to-runner
 
       - name: Upload test logs
         if: failure()
