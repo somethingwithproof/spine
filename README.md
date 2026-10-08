@@ -1,5 +1,10 @@
 # Spine: a poller for Cacti
 
+[![CI](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml)
+[![Production regressions](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml)
+[![CodeQL](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/github/license/somethingwithproof/spine)](LICENSE)
+
 Spine is a high speed poller replacement for `cmd.php`. It is almost 100%
 compatible with the legacy cmd.php processor and provides much more flexibility,
 speed and concurrency than `cmd.php`.
