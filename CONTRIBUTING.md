@@ -125,7 +125,7 @@ to the existing ones.
 
 ## C style
 
-- C99. Declare variables at the top of a block. No variable-length arrays.
+- C17. Declare variables at the top of a block. No variable-length arrays.
 - Indent with tabs and match the file you are editing.
 - Put opening braces on the same line as the statement or function
   declaration, as the existing code does.

@@ -11,7 +11,7 @@ updates:
     labels: [dependencies, github-actions]
     commit-message: {prefix: ci, include: scope}
   - package-ecosystem: docker
-    directories: ["/", "/tests/snmpv3/snmpd"]
+    directories: ["/", "/tests/snmpv3", "/tests/snmpv3/snmpd"]
     target-branch: develop
     schedule: {interval: weekly, day: friday}
     open-pull-requests-limit: 5

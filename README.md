@@ -1,5 +1,10 @@
 # Spine: a poller for Cacti
 
+[![CI](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml)
+[![Production regressions](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml)
+[![CodeQL](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/github/license/somethingwithproof/spine)](LICENSE)
+
 Spine is a high speed poller replacement for `cmd.php`. It is almost 100%
 compatible with the legacy cmd.php processor and provides much more flexibility,
 speed and concurrency than `cmd.php`.
@@ -148,3 +153,21 @@ chmod +s /usr/local/spine/bin/spine
 
 -----------------------------------------------------------------------------
 Copyright (c) 2004-2026 - The Cacti Group, Inc.
+
+## Repository layout
+
+Production code uses responsibility-focused C modules under `src/`, with the
+program entry point and subsystem coordinators at the checkout root. See
+[source module boundaries](docs/architecture/source-modules.md) for the layout.
+Autotools builds the same modules for production and linked regression tests.
+
+- `tests/unit/`: unit suites.
+- `tests/support/`: shared runtime stubs and the local PHP protocol fixture.
+- `tests/fixtures/`: database/agent fixtures and captured behavior.
+- `tests/regression/`: shell regression checks.
+- `tests/fuzz/`: fuzz targets and their input corpus.
+- `scripts/`: developer tools, including `debug.sh` and `package.sh`.
+- `docs/`: architecture decisions and operational documentation.
+
+Run helper scripts from the checkout root. Use `bash scripts/package.sh --help`
+for archive-builder usage; `scripts/debug.sh` expects a configured Makefile build.

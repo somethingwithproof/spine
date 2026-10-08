@@ -9,7 +9,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 Spine is Cacti's multithreaded C poller, not a PHP web application.
 `spine.c` is the entry point; `poller.c`, `snmp.c`, `sql.c`, `ping.c` and related
-headers implement polling, SNMP, database access and reachability. `spine.conf.dist`
+headers coordinate polling, SNMP, database access and reachability.
+Implementation modules live under src/; see docs/architecture/source-modules.md. `spine.conf.dist`
 is a sample configuration, not permission to contact a live Cacti installation.
 
 `configure.ac`, `Makefile.am`, `bootstrap` and tracked distribution inputs define
@@ -35,9 +36,10 @@ mise exec -- make
 
 `bootstrap` regenerates files and can normalize source line endings; review the
 diff and retain legitimate tracked release inputs such as `Makefile.in`.
-The repository does not currently define a comprehensive unit-test suite or a
-CI build matrix. Report compiler/build results as build validation, not polling
-acceptance. Consult `.github/workflows/codeql.yml` for existing static analysis.
+Run make check for production-linked regression contracts and unit tests.
+CI also exercises multiple compilers, platforms, sanitizers and local SNMPv3
+fixtures. Report build validation separately from live polling acceptance.
+Consult `.github/workflows/codeql.yml` for CodeQL analysis.
 
 ## Poller safety and review
 
@@ -50,7 +52,7 @@ concurrency defaults as a workaround for a test failure.
 Do not run `make install`, enable setuid, change Cacti poller settings or execute
 polling against live devices/databases during ordinary validation. Runtime tests
 need an explicitly selected disposable Cacti database and test endpoints.
-The tracked `debug` file is a helper script, not disposable debug output.
+The tracked `scripts/debug.sh` file is a helper script, not disposable debug output.
 Preserve GPL notices and distinguish this fork's `develop` work from `1.2.x`.
 
 ## Working rules
