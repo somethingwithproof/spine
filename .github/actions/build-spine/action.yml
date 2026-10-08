@@ -5,7 +5,7 @@ inputs:
   mysql-client-package:
     description: MySQL-compatible client development package to install.
     required: false
-    default: libmysqlclient-dev
+    default: libmariadb-dev
   extra-packages:
     description: Additional apt packages, beyond the set every Spine build needs.
     required: false
