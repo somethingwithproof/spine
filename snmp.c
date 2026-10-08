@@ -34,7 +34,6 @@
 #include "common.h"
 #include "spine.h"
 #include <limits.h>
-#define OIDSIZE(p) (sizeof(p)/sizeof(oid))
 
 typedef struct {
 	struct snmp_pdu *response;

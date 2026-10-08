@@ -42,7 +42,6 @@
 #define NETSNMP_DS_LIB_DONT_PERSIST_STATE 32
 #endif
 
-#define OIDSIZE(p) (sizeof(p) / sizeof(oid))
 
 /*! \fn int spine_snmpv3_protocol_is_set(const char *value)
  *  \brief Whether a Cacti-supplied SNMPv3 protocol field selects anything.
