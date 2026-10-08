@@ -436,7 +436,7 @@ int strpos(const char *haystack, const char *needle) {
  */
 int char_count(const char *str, int chr) {
 	const unsigned char *my_str = (const unsigned char *) str;
-	const unsigned char my_chr = (unsigned char)chr;
+	const unsigned char my_chr = (unsigned char) chr;
 	int count = 0;
 
 	if (!my_chr) return 1;

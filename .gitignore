@@ -26,7 +26,7 @@ Makefile.in
 configure
 config.*
 autom4te.cache/
-config/
+/config/
 libtool
 /spine
 *.o
