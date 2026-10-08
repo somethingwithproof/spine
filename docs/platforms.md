@@ -30,10 +30,14 @@ only reports; it opens no issue or pull request.
 | openSUSE Leap | 16.0 | container |
 | Alpine Linux | 3.24 | container, failures do not block (see below) |
 | FreeBSD | 14.5, 15.1 | VM via `cross-platform-actions/action` |
-| NetBSD | 10.1, 11.0 | VM via `cross-platform-actions/action` |
-| OpenBSD | 7.9 | VM via `cross-platform-actions/action` |
+| NetBSD | 10.1, 11.0 | VM, best effort (Tier 3) |
+| OpenBSD | 7.9 | VM, best effort (Tier 3) |
 
 macOS is built and tested by the `macos` job in `.github/workflows/ci.yml`.
+
+Linux is Tier 1 and FreeBSD and macOS are Tier 2: their lanes must pass.
+NetBSD and OpenBSD are Tier 3. Their lanes run but do not block merges, and
+the workflow names each test that fails there and why.
 
 The dependencies are a C compiler, Autoconf, Automake, Libtool, Net-SNMP,
 a MariaDB or MySQL client library, OpenSSL, and cmocka for the unit tests.
@@ -45,6 +49,13 @@ On Alpine (musl), `make check` fails. `poll_host()` in `poller.c` uses about
 145 KiB of stack, and musl gives new threads 128 KiB by default, so a worker
 thread overflows its stack. The Alpine lane does not block merges until that
 is fixed.
+
+On NetBSD and OpenBSD, `nft_pclose()` spends about a second, not 20 ms,
+reaping a script that outlives its pipe, because each of its 100 short
+sleeps is rounded up to a 10 ms clock tick. On OpenBSD, a missing PHP
+binary is reported by the child's exit status rather than by
+`posix_spawn()`, so `php_init()` leaves the server slot busy instead of
+failing.
 
 ## Running the Linux lanes locally
 

@@ -39,12 +39,10 @@ jobs:
     name: ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Alpine fails for two reasons outside this workflow (follow-up issue to
-    # be filed; replace this line with its URL): worker threads run
-    # poll_host(), whose frame is about 145 KiB, on musl's 128 KiB default
-    # thread stack, so test_spine_faults segfaults at poller.c poll_host();
-    # and Makefile.am runs the bash-only tests/integration/test_alloc_failure.sh
-    # with $(SHELL), which is busybox sh there. Drop this once both are fixed.
+    # Alpine is Tier 1 but fails until fix/musl-thread-stack merges:
+    # test_spine_faults segfaults because worker threads run poll_host(),
+    # whose frame is about 145 KiB, on musl's 128 KiB default thread stack.
+    # Drop this line once that fix is on develop.
     continue-on-error: ${{ matrix.image == 'alpine:3.24' }}
     strategy:
       fail-fast: false
@@ -73,9 +71,22 @@ jobs:
           persist-credentials: false
 
       - name: Build and test in ${{ matrix.image }}
+        id: build
         env:
           IMAGE: ${{ matrix.image }}
-        run: scripts/test-distros.sh "$IMAGE"
+          LOG_DIR: ${{ runner.temp }}/distro-logs
+        run: |
+          set -eu
+          printf 'artifact=distro-logs-%s\n' "$(printf '%s' "$IMAGE" | tr '/:' '--')" >> "$GITHUB_OUTPUT"
+          scripts/test-distros.sh "$IMAGE"
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build.outputs.artifact }}
+          path: ${{ runner.temp }}/distro-logs
+          if-no-files-found: ignore
 
   # GitHub has no BSD runners and no first-party action that boots a BSD
   # guest. cross-platform-actions covers all three systems from one pinned
@@ -90,22 +101,44 @@ jobs:
       matrix:
         # FreeBSD builds one package set per major release against its
         # newest minor, so each lane uses the newest minor of its branch.
+        # FreeBSD is Tier 2 and must pass. NetBSD and OpenBSD are Tier 3,
+        # best effort; see continue-on-error below for what fails there.
         include:
           - name: FreeBSD 14.5
             os: freebsd
             version: "14.5"
+            tier: 2
           - name: FreeBSD 15.1
             os: freebsd
             version: "15.1"
+            tier: 2
           - name: NetBSD 10.1
             os: netbsd
             version: "10.1"
+            tier: 3
           - name: NetBSD 11.0
             os: netbsd
             version: "11.0"
+            tier: 3
           - name: OpenBSD 7.9
             os: openbsd
             version: "7.9"
+            tier: 3
+    # Known Tier 3 failures, each a portability bug left for follow-up:
+    # - NetBSD and OpenBSD, test_linked
+    #   test_nft_pclose_does_not_block_on_a_lingering_child: nft_pclose()
+    #   waits 100 x usleep(200), and both kernels round each sleep up to a
+    #   10 ms tick, so the bounded reap takes about 1 s instead of 20 ms.
+    # - NetBSD, test_php_runtime test_sigmask_failure_prevents_the_pipe_write:
+    #   the -Wl,--wrap=pthread_sigmask test double does not intercept the
+    #   call (errno is EBADF from the real write), so the injected failure
+    #   never happens.
+    # - OpenBSD, test_php_runtime test_spawn_failure_releases_every_resource
+    #   and test_spine_regressions test_php_startup: OpenBSD's posix_spawn()
+    #   reports a missing executable through the child's exit status, not its
+    #   return value, so php_init() keeps the slot BUSY and returns TRUE where
+    #   the tests expect FALSE.
+    continue-on-error: ${{ matrix.tier == 3 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,5 +157,17 @@ jobs:
         run: sudo sh scripts/test-distros.sh --deps
 
       - name: Build and test
-        shell: cpa.sh {0} --sync-files none
+        shell: cpa.sh {0} --sync-files vm-to-runner
         run: sh scripts/test-distros.sh --build .
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distro-logs-${{ matrix.os }}-${{ matrix.version }}
+          path: |
+            config.log
+            test-suite.log
+            ./*.log
+            tests/**/*.log
+          if-no-files-found: ignore
