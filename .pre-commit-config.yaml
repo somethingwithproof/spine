@@ -27,7 +27,10 @@ repos:
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: 745eface02aef23e168a8afb6b5737818efbea95 # v0.11.0.1
     hooks:
+      # Commits often stage one script without tests/test-harness.sh, which
+      # the integration scripts source.
       - id: shellcheck
+        args: [--external-sources]
         exclude: ^(package|debug|copyright_year\.sh)$
 
   - repo: https://github.com/rhysd/actionlint
