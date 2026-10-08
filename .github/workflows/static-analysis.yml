@@ -72,10 +72,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # Analyse an unfortified build. With _FORTIFY_SOURCE, glibc routes
+      # vsnprintf through __builtin___vsnprintf_chk, and the analyzer then
+      # reports every va_list as uninitialized on x86-64. The hardened build
+      # is still exercised by the build, sanitizer and coverage jobs.
       - uses: ./.github/actions/build-spine
         with:
           mysql-client-package: libmariadb-dev
           extra-packages: clang clang-tidy bear
+          configure-args: --disable-hardening
 
       - name: Record the compile database
         run: |
@@ -141,7 +146,8 @@ jobs:
         run: |
           set -euo pipefail
           ./bootstrap
-          scan-build --use-cc=clang ./configure
+          # Unfortified for the same reason as the clang-tidy job.
+          scan-build --use-cc=clang ./configure --disable-hardening
           scan-build --use-cc=clang --status-bugs -o scan-build-report \
             -disable-checker deadcode.DeadStores make -j"$(nproc)"
 
