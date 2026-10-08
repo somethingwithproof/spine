@@ -85,7 +85,7 @@ fi
 
 # Copy repository
 mkdir -p "${TMP_DIR}/cacti-spine-${VERSION}"
-if ! tar -cf - --exclude 'scripts/package.sh' --exclude '.svn' --exclude '.travis.yml' -- * | (
+if ! tar -cf - --exclude '.svn' --exclude '.travis.yml' -- * | (
   cd "${TMP_DIR}/cacti-spine-${VERSION}" || exit 1
   tar -xf -
 ); then
