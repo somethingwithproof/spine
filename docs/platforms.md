@@ -28,7 +28,7 @@ only reports; it opens no issue or pull request.
 | Debian | 12, 13 | container |
 | Fedora | 44 | container |
 | openSUSE Leap | 16.0 | container |
-| Alpine Linux | 3.24 | container, failures do not block (see below) |
+| Alpine Linux | 3.24 | container |
 | FreeBSD | 14.5, 15.1 | VM via `cross-platform-actions/action` |
 | NetBSD | 10.1, 11.0 | VM, best effort (Tier 3) |
 | OpenBSD | 7.9 | VM, best effort (Tier 3) |
@@ -44,11 +44,6 @@ a MariaDB or MySQL client library, OpenSSL, and cmocka for the unit tests.
 `scripts/test-distros.sh` holds the package list for each platform.
 
 ## Known problems
-
-On Alpine (musl), `make check` fails. `poll_host()` in `poller.c` uses about
-145 KiB of stack, and musl gives new threads 128 KiB by default, so a worker
-thread overflows its stack. The Alpine lane does not block merges until that
-is fixed.
 
 On NetBSD and OpenBSD, `nft_pclose()` spends about a second, not 20 ms,
 reaping a script that outlives its pipe, because each of its 100 short
