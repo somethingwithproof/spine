@@ -66,6 +66,12 @@ AC_ARG_WITH(mysql,
   [MYSQL_DIR=$withval]
 )
 
+AC_ARG_WITH([mysql-client],
+  AS_HELP_STRING([--with-mysql-client=mariadb|mysql],[Database client library: MariaDB Connector/C, or the deprecated libmysqlclient (default: MariaDB Connector/C, then libmysqlclient)]),
+  [spine_db_client=$withval],
+  [spine_db_client=auto]
+)
+
 # snmp
 AC_ARG_WITH(snmp,
   AS_HELP_STRING([--with-snmp],[SNMP base directory [[/usr/(local/)include]]
@@ -277,10 +283,33 @@ else
 fi
 
 # ****************** MySQL-compatible client checks ***********************
+dnl MariaDB Connector/C is the default client (docs/adr/0003). libmysqlclient
+dnl still builds for one release, with a deprecation warning.
 AC_ARG_VAR([MYSQL_CONFIG], [path to mariadb_config or mysql_config])
 
+case $spine_db_client in
+  mariadb)
+    spine_db_config_tools=mariadb_config
+    spine_db_include_dirs="include/mariadb include include/mysql mysql"
+    spine_db_libs=mariadb
+    ;;
+  mysql)
+    spine_db_config_tools=mysql_config
+    spine_db_include_dirs="include/mysql include mysql"
+    spine_db_libs="mysqlclient perconaserverclient"
+    ;;
+  auto)
+    spine_db_config_tools="mariadb_config mysql_config"
+    spine_db_include_dirs="include/mariadb include include/mysql mysql"
+    spine_db_libs="mariadb mysqlclient perconaserverclient"
+    ;;
+  *)
+    AC_MSG_ERROR([--with-mysql-client must be mariadb or mysql, not $spine_db_client])
+    ;;
+esac
+
 if test -n "$MYSQL_DIR" && test -z "$MYSQL_CONFIG"; then
-  for mysql_config_candidate in mariadb_config mysql_config; do
+  for mysql_config_candidate in $spine_db_config_tools; do
     if test -x "$MYSQL_DIR/bin/$mysql_config_candidate"; then
       MYSQL_CONFIG="$MYSQL_DIR/bin/$mysql_config_candidate"
       break
@@ -289,7 +318,7 @@ if test -n "$MYSQL_DIR" && test -z "$MYSQL_CONFIG"; then
 fi
 
 if test -z "$MYSQL_CONFIG"; then
-  AC_PATH_PROGS([MYSQL_CONFIG], [mariadb_config mysql_config])
+  AC_PATH_PROGS([MYSQL_CONFIG], [$spine_db_config_tools])
 fi
 
 if test -n "$MYSQL_CONFIG"; then
@@ -308,7 +337,7 @@ else
   mysql_header_prefix=
 
   for mysql_prefix in $MYSQL_DIR /usr /usr/local /opt /opt/mysql /usr/pkg /usr/local/mysql; do
-    for mysql_include_dir in include include/mysql include/mariadb mysql; do
+    for mysql_include_dir in $spine_db_include_dirs; do
       if test -f "$mysql_prefix/$mysql_include_dir/mysql.h"; then
         CFLAGS="-I$mysql_prefix/$mysql_include_dir $CFLAGS"
         mysql_header_prefix=$mysql_prefix
@@ -338,10 +367,37 @@ fi
 AC_CHECK_HEADER([mysql.h], [],
   [AC_MSG_ERROR([Cannot find mysql.h. Install MariaDB Connector/C or MySQL Connector/C development files.])])
 
-AC_SEARCH_LIBS([mysql_init], [mariadb mysqlclient perconaserverclient],
+AC_SEARCH_LIBS([mysql_init], [$spine_db_libs],
   [AC_DEFINE([HAVE_MYSQL], [1], [MySQL-compatible Client API])
    HAVE_MYSQL=yes],
   [AC_MSG_ERROR([Cannot link a MySQL-compatible client library.])])
+
+dnl Ask the library rather than the tool name: Debian and Homebrew install a
+dnl mysql_config that belongs to MariaDB Connector/C.
+AC_CACHE_CHECK([whether the client library is MariaDB Connector/C],
+  [spine_cv_mariadb_connector],
+  [AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#include <stddef.h>
+#include <mysql.h>
+]], [[
+size_t version = 0;
+return mariadb_get_infov(NULL, MARIADB_CLIENT_VERSION_ID, &version);
+]])],
+    [spine_cv_mariadb_connector=yes],
+    [spine_cv_mariadb_connector=no])])
+
+spine_db_client_deprecated=no
+if test "x$spine_cv_mariadb_connector" = xyes; then
+  if test "x$spine_db_client" = xmysql; then
+    AC_MSG_ERROR([--with-mysql-client=mysql was given, but ${MYSQL_CONFIG:-the client library found} is MariaDB Connector/C. Set MYSQL_CONFIG to the mysql_config of the MySQL client.])
+  fi
+else
+  if test "x$spine_db_client" = xmariadb; then
+    AC_MSG_ERROR([--with-mysql-client=mariadb was given, but the client library found is not MariaDB Connector/C. Install libmariadb development files or set MYSQL_CONFIG to mariadb_config.])
+  fi
+  spine_db_client_deprecated=yes
+  AC_MSG_WARN([Building against libmysqlclient, which is deprecated and will be removed in the next release. Use MariaDB Connector/C; it connects to MySQL servers too. See docs/adr/0003-mariadb-connector.md.])
+fi
 
 # ****************** Net-SNMP Checks ***********************
 if test "x$SNMP_DIR" != "x"; then
@@ -724,3 +780,8 @@ AM_CONDITIONAL([HAVE_CMOCKA], [test "x$have_cmocka" = xyes])
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
+
+dnl Repeat the warning where it cannot scroll past unseen.
+if test "x$spine_db_client_deprecated" = xyes; then
+  AC_MSG_WARN([libmysqlclient is deprecated and will be removed in the next release. Use MariaDB Connector/C (--with-mysql-client=mariadb).])
+fi
