@@ -881,6 +881,28 @@ static void test_command_rejects_a_writable_poisoned_slot(void **state) {
 	php_processes[0].php_read_fd = php_processes[0].php_write_fd = -1;
 }
 
+static void test_readpipe_rejects_invalid_slots(void **state) {
+	const int slots[] = {-1, MAX_PHP_SERVERS, set.php.php_servers};
+	size_t index;
+	php_t *saved_processes;
+	char *result;
+
+	(void) state;
+	for (index = 0; index < sizeof(slots) / sizeof(slots[0]); index++) {
+		result = php_readpipe(slots[index], "test");
+		assert_non_null(result);
+		assert_string_equal(result, "U");
+		free(result);
+	}
+	saved_processes = php_processes;
+	php_processes = NULL;
+	result = php_readpipe(0, "test");
+	php_processes = saved_processes;
+	assert_non_null(result);
+	assert_string_equal(result, "U");
+	free(result);
+}
+
 static void test_readpipe_rejects_fd_at_fd_setsize(void **state) {
 	char command[] = "test";
 	char *result;
@@ -1101,6 +1123,7 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_init_timeout_does_not_recurse, php_setup, php_teardown),
 		cmocka_unit_test_setup_teardown(test_spawn_failure_releases_every_resource, php_setup, php_teardown),
 		cmocka_unit_test_setup_teardown(test_command_rejects_a_writable_poisoned_slot, php_setup, php_teardown),
+		cmocka_unit_test_setup_teardown(test_readpipe_rejects_invalid_slots, php_setup, php_teardown),
 		cmocka_unit_test_setup_teardown(test_readpipe_rejects_fd_at_fd_setsize, php_setup, php_teardown),
 		cmocka_unit_test_setup_teardown(test_startup_read_rejects_fd_at_fd_setsize_without_restart, php_setup, php_teardown),
 		cmocka_unit_test_setup_teardown(test_command_retires_fd_at_fd_setsize, php_setup, php_teardown),

@@ -1588,7 +1588,7 @@ static bool log_to_file(const char *message) {
 	 * message preserves log rotation. */
 	int oldstate;
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
-	int fd = open(set.logging.path_logfile, O_WRONLY | O_CREAT | O_APPEND, 0666);
+	int fd = open(set.logging.path_logfile, O_WRONLY | O_CREAT | O_APPEND, 0640);
 	bool success = FALSE;
 	if (fd >= 0) {
 		size_t length = strlen(message);
@@ -1697,7 +1697,7 @@ int all_digits(const char *string) {
 	/* empty string is not all digits */
 	if ( *string == '\0' ) return FALSE;
 
-	while ( isdigit((int)*string) )
+	while (isdigit((unsigned char) *string))
 		string++;
 
 	return *string == '\0';
@@ -1715,7 +1715,7 @@ int all_digits(const char *string) {
  */
 int is_ipaddress(const char *string) {
 	while (*string) {
-		if ((isdigit((int)*string)) ||
+		if ((isdigit((unsigned char) *string)) ||
 			(*string == '.') ||
 			(*string == ':')) {
 			string++;

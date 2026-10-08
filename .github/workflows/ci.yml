@@ -309,7 +309,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          python3 -m pip install --break-system-packages diff-cover==10.5.1
+          python3 -m pip install --break-system-packages --require-hashes -r .github/requirements-coverage.txt
           diff-cover coverage.xml \
             --compare-branch="origin/${BASE_REF}" \
             --fail-under=70
@@ -336,7 +336,7 @@ jobs:
           python-version: "3.x"
 
       - name: Install flawfinder
-        run: pip install flawfinder==2.0.19
+        run: python3 -m pip install --require-hashes -r .github/requirements-analysis.txt
 
       # Note: flawfinder will light up like a christmas tree on this codebase.
       # error-level=5 means only critical hits fail the build — the rest is
