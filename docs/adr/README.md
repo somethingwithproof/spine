@@ -21,3 +21,4 @@ Name a record `NNNN-short-title.md` and give it these sections:
 
 - [0001: C17 language standard](0001-c17-language-standard.md)
 - [0002: Upstream tracking](0002-upstream-tracking.md)
+- [0003: MariaDB Connector/C as the database client](0003-mariadb-connector.md)

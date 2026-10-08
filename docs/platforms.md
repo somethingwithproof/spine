@@ -40,7 +40,11 @@ NetBSD and OpenBSD are Tier 3. Their lanes run but do not block merges, and
 the workflow names each test that fails there and why.
 
 The dependencies are a C compiler, Autoconf, Automake, Libtool, Net-SNMP,
-a MariaDB or MySQL client library, OpenSSL, and cmocka for the unit tests.
+MariaDB Connector/C, OpenSSL, and cmocka for the unit tests. MySQL's
+`libmysqlclient` still builds with `--with-mysql-client=mysql` but is
+deprecated and will be removed in the next release
+([ADR 0003](adr/0003-mariadb-connector.md)). Spine works with MariaDB and
+MySQL servers through either library.
 `scripts/test-distros.sh` holds the package list for each platform.
 
 ## Known problems
