@@ -20,3 +20,4 @@ Name a record `NNNN-short-title.md` and give it these sections:
 ## Records
 
 - [0001: C17 language standard](0001-c17-language-standard.md)
+- [0002: Upstream tracking](0002-upstream-tracking.md)
