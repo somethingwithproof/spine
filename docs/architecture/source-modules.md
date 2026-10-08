@@ -19,7 +19,8 @@ unit tests retain their syscall interception by including the moved sources.
 
 The root translation units remain the entry points and subsystem coordinators.
 Automake source groups are shared by production and linked tests. The fuzz
-build lists the same implementation modules. Autotools remains the build system.
+build includes the shared runtime sources used by its targets. Autotools remains
+the build system.
 
 The split keeps the original function bodies and public signatures. Private
 helpers that collaborate across translation units have declarations in internal
