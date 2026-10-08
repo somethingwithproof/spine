@@ -50,7 +50,7 @@ concurrency defaults as a workaround for a test failure.
 Do not run `make install`, enable setuid, change Cacti poller settings or execute
 polling against live devices/databases during ordinary validation. Runtime tests
 need an explicitly selected disposable Cacti database and test endpoints.
-The tracked `debug` file is a helper script, not disposable debug output.
+The tracked `scripts/debug.sh` file is a helper script, not disposable debug output.
 Preserve GPL notices and distinguish this fork's `develop` work from `1.2.x`.
 
 ## Working rules

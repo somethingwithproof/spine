@@ -148,3 +148,19 @@ chmod +s /usr/local/spine/bin/spine
 
 -----------------------------------------------------------------------------
 Copyright (c) 2004-2026 - The Cacti Group, Inc.
+
+## Repository layout
+
+Production sources remain in the Autotools layout: the main polling modules are
+at the checkout root, with shared keyword and locking code in `src/core/`.
+
+- `tests/unit/`: unit suites.
+- `tests/support/`: shared runtime stubs and the local PHP protocol fixture.
+- `tests/fixtures/`: database/agent fixtures and captured behavior.
+- `tests/regression/`: shell regression checks.
+- `tests/fuzz/`: fuzz targets and their input corpus.
+- `scripts/`: developer tools, including `debug.sh` and `package.sh`.
+- `docs/`: architecture decisions and operational documentation.
+
+Run helper scripts from the checkout root. Use `bash scripts/package.sh --help`
+for archive-builder usage; `scripts/debug.sh` expects a configured Makefile build.

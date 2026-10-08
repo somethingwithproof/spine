@@ -4,7 +4,7 @@
  * replicate its predicate, so they compile standalone.  That keeps them cheap
  * but means a fix can land in util.c while the test still passes against the
  * old copy.  This binary links the real translation units instead, with
- * tests/fuzz/stubs.c supplying the globals that spine.c would otherwise define,
+ * tests/support/spine_runtime.c supplying the globals that spine.c would otherwise define,
  * so what runs here is what ships.
  */
 #include <stdarg.h>
@@ -35,7 +35,7 @@
 #define ICMP_DEST_UNREACH ICMP_UNREACH
 #endif
 
-/* provided by tests/fuzz/stubs.c, as spine.c would */
+/* provided by tests/support/spine_runtime.c, as spine.c would */
 extern int *debug_devices;
 
 #ifdef SPINE_TEST_WRAP_WAITPID
