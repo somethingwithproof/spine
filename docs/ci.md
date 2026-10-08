@@ -59,3 +59,29 @@ If `ENABLE_SONAR` is `true` and the secret is missing, the job stops at
 `Verify analysis credential` with an error rather than skipping. To turn
 analysis off again, unset `ENABLE_SONAR`; re-enable Automatic Analysis in
 SonarCloud only if CI analysis is no longer wanted.
+
+## Security scanning
+
+`.github/workflows/security-scanning.yml` runs three jobs. Every action is
+pinned to a commit, and every downloaded tool to a digest or checksum.
+
+- `OpenSSF Scorecard` runs on pushes to `develop` and on the weekly
+  schedule. It publishes results to the OpenSSF API and uploads SARIF to
+  code scanning. The API rejects results unless the workflow has no
+  top-level `env` or `defaults`, no workflow-level write permission, and
+  `id-token: write` only on the Scorecard job, and unless that job uses only
+  its allowed actions. Keep those rules when editing the file.
+- `Secret scan (full history)` checks out every branch and tag and runs
+  TruffleHog over all commits. The release tarball is checked against a
+  pinned SHA-256. Only secrets that TruffleHog verifies as live fail the
+  job.
+- `Semgrep` runs the `p/c` and `p/secrets` rule sets in the official
+  `semgrep/semgrep` image, pinned by digest, and uploads SARIF to code
+  scanning. Any finding fails the job. The rule sets are fetched from the
+  Semgrep registry at run time, so new rules can appear without a change
+  here.
+
+To update TruffleHog, take the new SHA-256 from the release's
+`checksums.txt` after verifying that file's cosign signature. To update
+Semgrep, pin the new image index digest
+(`docker buildx imagetools inspect semgrep/semgrep:<version>`).
