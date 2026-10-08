@@ -142,6 +142,56 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
      AC_MSG_ERROR([__STDC_VERSION__ is below 201710L under -std=gnu17])
    fi])
 
+# ****************** 64-bit time_t ***********************
+dnl A 32-bit time_t overflows in January 2038. 64-bit hosts already have a
+dnl 64-bit time_t. On 32-bit targets glibc 2.34 and later provide one under
+dnl _TIME_BITS=64, which glibc accepts only with _FILE_OFFSET_BITS=64.
+AC_ARG_ENABLE([y2038-check],
+  AS_HELP_STRING([--disable-y2038-check],[Allow a build whose time_t is narrower than 64 bits]),
+  [enable_y2038_check=$enableval],
+  [enable_y2038_check=yes])
+
+m4_define([SPINE_TIME_T_64_PROGRAM], [AC_LANG_PROGRAM([[
+#include <time.h>
+]], [[
+static int time_t_is_64_bit[sizeof(time_t) >= 8 ? 1 : -1];
+return time_t_is_64_bit[0];
+]])])
+
+AC_CACHE_CHECK([whether time_t is 64 bits], [spine_cv_time_t_64],
+  [AC_COMPILE_IFELSE([SPINE_TIME_T_64_PROGRAM],
+    [spine_cv_time_t_64=yes],
+    [spine_cv_time_t_64=no])])
+
+spine_time_t_64=$spine_cv_time_t_64
+if test "x$spine_time_t_64" = xno; then
+  AC_CACHE_CHECK([whether glibc offers _TIME_BITS=64], [spine_cv_glibc_time_bits],
+    [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <limits.h>
+#if !defined(__GLIBC__) || __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 34)
+#error glibc 2.34 or later is needed
+#endif
+]], [])],
+      [spine_cv_glibc_time_bits=yes],
+      [spine_cv_glibc_time_bits=no])])
+
+  if test "x$spine_cv_glibc_time_bits" = xyes; then
+    CPPFLAGS="$CPPFLAGS -D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64"
+    AC_MSG_CHECKING([whether time_t is 64 bits with _TIME_BITS=64])
+    AC_COMPILE_IFELSE([SPINE_TIME_T_64_PROGRAM],
+      [spine_time_t_64=yes],
+      [spine_time_t_64=no])
+    AC_MSG_RESULT([$spine_time_t_64])
+  fi
+fi
+
+if test "x$spine_time_t_64" = xno; then
+  if test "x$enable_y2038_check" != xno; then
+    AC_MSG_ERROR([time_t is narrower than 64 bits, so Spine would stop working in January 2038. Build on a 64-bit target or with glibc 2.34 or later, or pass --disable-y2038-check to build anyway.])
+  fi
+  AC_MSG_WARN([time_t is narrower than 64 bits; timestamps will overflow in January 2038])
+fi
+
 AC_PROG_CPP
 AC_PROG_INSTALL
 AC_PROG_LN_S

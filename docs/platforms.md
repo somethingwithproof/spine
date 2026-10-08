@@ -47,6 +47,20 @@ deprecated and will be removed in the next release
 MySQL servers through either library.
 `scripts/test-distros.sh` holds the package list for each platform.
 
+## 32-bit platforms
+
+32-bit platforms are unsupported. Every CI lane is 64-bit: x86-64 for Linux
+and the BSDs, arm64 for macOS.
+
+A 32-bit `time_t` overflows on 19 January 2038, so `configure` stops when
+`time_t` is narrower than 64 bits. On a 32-bit target with glibc 2.34 or
+later it first adds `-D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64`, which gives a
+64-bit `time_t`. No CI lane covers that build. Every library Spine links,
+including Net-SNMP and the database client, must be built with the same
+`time_t` width, or values passed between them are misread.
+`--disable-y2038-check` lets `configure` continue with a 32-bit `time_t`;
+the result is unsupported.
+
 ## Known problems
 
 On NetBSD and OpenBSD, `nft_pclose()` spends about a second, not 20 ms,
