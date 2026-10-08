@@ -49,6 +49,8 @@ not made mandatory.
 that ratio; approvals must not be fabricated for past changesets.
 3252 requires an actual OpenSSF Best Practices assessment. A README badge cannot
 truthfully be added before the project has completed that assessment.
+The [assessment evidence worksheet](openssf-assessment.md) records available
+evidence, owner-only attestations, and the independent-review limitation.
 
 The changes are included in the final module refactor PR #38; PR #39 records
 the initial independent security review. Function locations now follow

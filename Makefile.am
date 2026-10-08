@@ -283,3 +283,4 @@ noinst_HEADERS += src/process/process_internal.h
 EXTRA_DIST += docs/architecture/source-modules.md
 
 EXTRA_DIST += docs/security/2026-10-code-scanning-review.md
+EXTRA_DIST += docs/security/openssf-assessment.md

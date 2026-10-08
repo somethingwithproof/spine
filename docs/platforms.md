@@ -57,9 +57,9 @@ sanitizer, coverage or live-server jobs.
 
 Tier 3 is NetBSD, OpenBSD and Windows, built and tested on a best-effort
 basis. The NetBSD and OpenBSD lanes run with `continue-on-error`, so a
-failure there does not block a merge, and `distro-matrix.yml` names each
-test that fails there and why. Windows has no lane until the planned port
-lands.
+failure there does not block a merge. Portability failures are fixed rather
+than skipped; existing platform prerequisites still govern integration checks.
+Windows has no lane until the planned port lands.
 
 A platform moves up a tier when its lane has been green for a full release.
 
@@ -82,14 +82,28 @@ including Net-SNMP and the database client, must be built with the same
 `--disable-y2038-check` lets `configure` continue with a 32-bit `time_t`;
 the result is unsupported.
 
-## Known problems
+## BSD portability
 
-On NetBSD and OpenBSD, `nft_pclose()` spends about a second, not 20 ms,
-reaping a script that outlives its pipe, because each of its 100 short
-sleeps is rounded up to a 10 ms clock tick. On OpenBSD, a missing PHP
-binary is reported by the child's exit status rather than by
-`posix_spawn()`, so `php_init()` leaves the server slot busy instead of
-failing.
+Child cleanup bounds elapsed monotonic time as well as syscall attempts.
+This prevents coarse NetBSD/OpenBSD sleep ticks from turning the intended
+20 ms grace period into roughly a second. Kernel scheduling can still
+delay a wakeup beyond the deadline.
+
+PHP signal-mask fault injection uses a test-only function rather than a
+linker wrapper that NetBSD's libc aliases can bypass. Spawn tests distinguish
+a parent-side failure from a child-side exec failure: OpenBSD can return
+success from `posix_spawn()` while the child exits unsuccessfully. In that
+case, `php_init()` retains its existing busy-slot behavior; tests verify that
+the slot never becomes ready and that closing it releases its resources.
+
+The packaging helper uses portable tar arguments and removes obsolete
+metadata from the staged copy, supporting native OpenBSD tar.
+
+[Native validation of commit 0514e936](https://github.com/somethingwithproof/spine/actions/runs/37860340116)
+passed on both FreeBSD releases, both NetBSD releases and OpenBSD 7.9.
+Each NetBSD/OpenBSD lane reported 16 passed, two skipped and zero failed
+suites. The existing skips cover allocation-fault injection and setuid
+testing; the previously failing process, PHP and helper suites all passed.
 
 ## Running the Linux lanes locally
 

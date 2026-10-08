@@ -97,7 +97,7 @@ jobs:
         # FreeBSD builds one package set per major release against its
         # newest minor, so each lane uses the newest minor of its branch.
         # FreeBSD is Tier 2 and must pass. NetBSD and OpenBSD are Tier 3,
-        # best effort; see continue-on-error below for what fails there.
+        # best effort until their lanes have been green for a full release.
         include:
           - name: FreeBSD 14.5
             os: freebsd
@@ -119,20 +119,8 @@ jobs:
             os: openbsd
             version: "7.9"
             tier: 3
-    # Known Tier 3 failures, each a portability bug left for follow-up:
-    # - NetBSD and OpenBSD, test_linked
-    #   test_nft_pclose_does_not_block_on_a_lingering_child: nft_pclose()
-    #   waits 100 x usleep(200), and both kernels round each sleep up to a
-    #   10 ms tick, so the bounded reap takes about 1 s instead of 20 ms.
-    # - NetBSD, test_php_runtime test_sigmask_failure_prevents_the_pipe_write:
-    #   the -Wl,--wrap=pthread_sigmask test double does not intercept the
-    #   call (errno is EBADF from the real write), so the injected failure
-    #   never happens.
-    # - OpenBSD, test_php_runtime test_spawn_failure_releases_every_resource
-    #   and test_spine_regressions test_php_startup: OpenBSD's posix_spawn()
-    #   reports a missing executable through the child's exit status, not its
-    #   return value, so php_init() keeps the slot BUSY and returns TRUE where
-    #   the tests expect FALSE.
+    # Retain the documented platform tier policy. Tests still run in full;
+    # Tier 3 promotion requires a full release of green lanes.
     continue-on-error: ${{ matrix.tier == 3 }}
     steps:
       - name: Check out source
