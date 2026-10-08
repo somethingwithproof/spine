@@ -156,8 +156,10 @@ Copyright (c) 2004-2026 - The Cacti Group, Inc.
 
 ## Repository layout
 
-Production sources remain in the Autotools layout: the main polling modules are
-at the checkout root, with shared keyword and locking code in `src/core/`.
+Production code uses responsibility-focused C modules under `src/`, with the
+program entry point and subsystem coordinators at the checkout root. See
+[source module boundaries](docs/architecture/source-modules.md) for the layout.
+Autotools builds the same modules for production and linked regression tests.
 
 - `tests/unit/`: unit suites.
 - `tests/support/`: shared runtime stubs and the local PHP protocol fixture.

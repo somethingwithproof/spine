@@ -16,3 +16,9 @@
 /snmp.c                        @Cacti/cacti-developers @Cacti/cacti-security
 /ping.c                        @Cacti/cacti-developers @Cacti/cacti-security
 /poller.c                      @Cacti/cacti-developers @Cacti/cacti-security
+
+# Reachability and polling implementation modules.
+/src/ping/                     @Cacti/cacti-developers @Cacti/cacti-security
+/src/poller/                   @Cacti/cacti-developers @Cacti/cacti-security
+/src/php/                      @Cacti/cacti-developers @Cacti/cacti-security
+/src/process/                  @Cacti/cacti-developers @Cacti/cacti-security
