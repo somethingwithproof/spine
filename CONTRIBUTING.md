@@ -112,6 +112,19 @@ to the existing ones.
   script arguments.
 - Keep changes focused. Do not reformat or rename code you are not changing.
 
+`.clang-format` describes this style as closely as clang-format can. It is
+not applied to the whole tree, because hand-aligned tables and assignment
+blocks would churn. The `clang-format` job in the static analysis workflow
+checks only the lines a pull request changes, with clang-format 18. To fix
+those lines before you push:
+
+```sh
+git clang-format origin/develop
+```
+
+Use clang-format 18 for this. Other major versions format some constructs
+differently.
+
 ## Pull requests
 
 Open pull requests against `develop`. A pull request can merge only when:

@@ -52,6 +52,36 @@ jobs:
             configure.ac Makefile.am \
             | xargs -0 codespell --ignore-words=.codespell-ignore-words.txt
 
+  # Only lines the pull request changes are checked. The existing tree does
+  # not match .clang-format exactly and is not meant to be reformatted. The
+  # major version is pinned because formatting differs between releases.
+  clang-format:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check formatting of changed lines
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+          base=$(git merge-base "origin/$BASE_REF" HEAD)
+          status=0
+          git clang-format-18 --binary clang-format-18 --diff --extensions c,h \
+            "$base" HEAD -- ':(exclude)uthash.h' > clang-format.diff || status=$?
+          cat clang-format.diff
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Changed lines do not match .clang-format. Run 'git clang-format origin/$BASE_REF' and commit the result."
+            exit 1
+          fi
+
   # Findings are compared with a reviewed baseline, without line numbers so
   # unrelated edits do not churn it. A new finding fails the job; fix it, or
   # add it to the baseline in the same pull request with the reason it is
