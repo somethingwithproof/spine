@@ -280,4 +280,6 @@ noinst_HEADERS += src/php/php_internal.h
 
 noinst_HEADERS += src/process/process_internal.h
 
-EXTRADIST += docs/architecture/source-modules.md
+EXTRA_DIST += docs/architecture/source-modules.md
+
+EXTRA_DIST += docs/security/2026-10-code-scanning-review.md
