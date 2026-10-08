@@ -825,7 +825,7 @@ static void prepare_worker_storage(MYSQL_RES *result, int *rows,
 			die("ERROR: Fatal malloc error: spine.c threads!");
 		}
 
-		if (!(details = calloc((size_t) num_rows, sizeof(*details)))) {
+		if (!(details = (poller_thread_t **) calloc((size_t) num_rows, sizeof(poller_thread_t *)))) {
 			die("ERROR: Fatal malloc error: spine.c details!");
 		}
 
