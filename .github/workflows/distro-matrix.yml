@@ -39,11 +39,6 @@ jobs:
     name: ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Alpine is Tier 1 but fails until fix/musl-thread-stack merges:
-    # test_spine_faults segfaults because worker threads run poll_host(),
-    # whose frame is about 145 KiB, on musl's 128 KiB default thread stack.
-    # Drop this line once that fix is on develop.
-    continue-on-error: ${{ matrix.image == 'alpine:3.24' }}
     strategy:
       fail-fast: false
       matrix:
