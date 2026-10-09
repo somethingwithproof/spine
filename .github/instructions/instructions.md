@@ -59,7 +59,7 @@ GNU autotools.
 - `etc/spine.conf.dist` is the authoritative reference. When adding a new
   setting, add it to the header comment block AND as a commented example
   line in the settings section.
-- Parse new keys in `src/internal/util.c:read_spine_config()`. Add the field to
+- Parse new keys in `src/config/file.c:read_spine_config()`. Add the field to
   `config_struct` in `spine.h`.
 
 ## Testing and CI

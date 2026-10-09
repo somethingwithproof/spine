@@ -36,6 +36,7 @@ static void *capture_snmp_sess_open(struct snmp_session *session);
 #define snmp_sess_open capture_snmp_sess_open
 #include "../../src/snmp/session.c"
 #include "../../src/snmp/requests.c"
+#include "../../src/snmp/response.c"
 #undef snmp_sess_open
 
 static void *capture_snmp_sess_open(struct snmp_session *session) {

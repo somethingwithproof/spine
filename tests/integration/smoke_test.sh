@@ -160,7 +160,7 @@ else
 	fail "memory cleanup did not complete"
 fi
 
-# Check DB close ran (validates get_cacti_version MYSQL_RES fix in src/internal/util.c)
+# Check DB close ran (validates get_cacti_version MYSQL_RES ownership)
 if echo "$poll_output" | grep -q "MYSQL Free & Close Completed"; then
 	pass "database close completed (MYSQL_RES fix validated)"
 else

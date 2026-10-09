@@ -63,7 +63,10 @@
 
 #define PTHREAD_MUTEXATTR_DEFAULT ((pthread_mutexattr_t *) 0)
 
+#ifndef SPINE_BUILD_CONFIG_H_INCLUDED
+#define SPINE_BUILD_CONFIG_H_INCLUDED
 #include "config/config.h"
+#endif
 
 #if STDC_HEADERS
 #include <stdlib.h>

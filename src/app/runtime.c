@@ -97,12 +97,10 @@
 
 #include "internal/common.h"
 #include "app/spine.h"
+#include "app/runtime.h"
 #include "app/startup_internal.h"
 #include <limits.h>
 
-#ifdef SPINE_TEST_PROGRAM_ENTRY
-#define main spine_program_main
-#endif
 
 /* Global Variables */
 int entries = 0;
@@ -124,7 +122,7 @@ poller_thread_t **details = NULL;
 
 #include "app/cli_internal.h"
 
-int main(int argc, char *argv[]) {
+_Noreturn void spine_run(int argc, char *argv[]) {
 	char *conf_file = NULL;
 	double begin_time;
 	int num_rows = 0;

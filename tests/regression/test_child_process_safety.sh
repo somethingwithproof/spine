@@ -20,8 +20,8 @@ fail() {
 	exit 1
 }
 
-# The close-on-exec helper lives in src/process/fd.c and both callers share it.
-grep -q 'FD_CLOEXEC' src/process/fd.c ||
+# Descriptor flags are platform behavior; process/fd.c owns pipe cleanup.
+grep -q 'FD_CLOEXEC' src/platform/descriptor.c ||
 	fail "src/process/nft_popen.c must use the close-on-exec descriptor helpers"
 
 grep -q 'spine_open_pipe_cloexec(pdes)' src/process/nft_popen.c ||

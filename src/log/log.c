@@ -36,20 +36,7 @@
 
 /* Preserve printable device output while keeping each log record on one line.
  * Also remove terminal controls and Unicode line/paragraph separators. */
-void spine_sanitize_log_message(char *message) {
-	for (unsigned char *p = (unsigned char *) message; *p != 0; p++) {
-		if (*p < 0x20 || *p == 0x7f) {
-			*p = ' ';
-		} else if (p[0] == 0xc2 && p[1] == 0x85) {
-			p[0] = ' ';
-			p[1] = ' ';
-		} else if (p[0] == 0xe2 && p[1] == 0x80 && (p[2] == 0xa8 || p[2] == 0xa9)) {
-			p[0] = ' ';
-			p[1] = ' ';
-			p[2] = ' ';
-		}
-	}
-}
+
 
 /*! \fn void die(const char *format, ...)
  *  \brief a method to end Spine while returning the fatal error to stderr

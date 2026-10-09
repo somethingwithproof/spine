@@ -17,7 +17,7 @@
 #include <sys/un.h>
 #include <limits.h>
 
-extern int spine_program_main(int argc, char **argv);
+#include "app/runtime.h"
 extern void test_output_write_contracts(MYSQL *mysql);
 extern void test_additional_contracts(void);
 extern void test_cli_alias_contracts(void);
@@ -125,7 +125,7 @@ static void test_cli_case(const char *flag, const char *input, int expected, con
 		char value[64];
 		strncopy(value, input, sizeof(value));
 		char *args[] = {program, option, value, version, NULL};
-		spine_program_main(4, args);
+		spine_run(4, args);
 		_exit(99);
 	}
 	assert(close(errors[1]) == 0);

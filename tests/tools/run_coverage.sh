@@ -59,7 +59,7 @@ gcov --version > "$coverage_dir/gcov.txt"
 lcov --version > "$coverage_dir/lcov.txt"
 mkdir -p config m4
 autoreconf -fi > "$coverage_dir/build.log" 2>&1
-./configure CC=gcc CFLAGS="-std=gnu11 -g -O0 -UNDEBUG --coverage -fprofile-update=atomic -include $source_dir/tests/tools/coverage_process_exit.h" LDFLAGS='--coverage' >> "$coverage_dir/build.log" 2>&1
+./configure CC=gcc CFLAGS="-std=gnu17 -g -O0 -UNDEBUG --coverage -fprofile-update=atomic -include $source_dir/tests/tools/coverage_process_exit.h" LDFLAGS='--coverage' >> "$coverage_dir/build.log" 2>&1
 make --no-print-directory coverage-source-list > "$coverage_dir/production-sources.txt"
 make --no-print-directory coverage-test-source-list > "$coverage_dir/test-sources.txt"
 make --no-print-directory coverage-fault-source-list > "$coverage_dir/fault-sources.txt"
@@ -69,33 +69,30 @@ mapfile -t fault_sources < "$coverage_dir/fault-sources.txt"
 [[ "${#production_sources[@]}" -gt 0 ]]
 [[ "${#test_sources[@]}" -gt "${#production_sources[@]}" ]]
 [[ "${#fault_sources[@]}" -gt 0 ]]
-# subdir-objects places each object beside its source, so a producer is the
-# source directory plus the per-target object prefix and the unit name.
-producer_path() {
-    local directory
-    directory="$(dirname "$1")"
-    if [[ "$directory" = . ]]; then printf '%s%s' "$2" "$(basename "${1%.c}")"
-    else printf '%s/%s%s' "$directory" "$2" "$(basename "${1%.c}")"; fi
-}
-producer_units=()
+# All runtime sources must be in both linked test builds. main.c is exercised
+# by the standalone --help/--version smoke runs, not by linking another main.
 for source in "${production_sources[@]}"; do
     case "$source" in *.c) ;; *) printf 'Unsupported production source: %s\n' "$source" >&2; exit 1;; esac
     [[ -s "$source" ]]
-    producer_units+=("$(producer_path "$source" "")")
-    grep -Fxq "$source" "$coverage_dir/test-sources.txt"
-    # The fault binary reuses the registered renamed spine globals object.
-    if [[ "$source" != src/app/runtime.c ]]; then grep -Fxq "$source" "$coverage_dir/fault-sources.txt"; fi
+    if [[ "$source" != src/app/main.c ]]; then
+        grep -Fxq "$source" "$coverage_dir/test-sources.txt"
+        grep -Fxq "$source" "$coverage_dir/fault-sources.txt"
+    fi
 done
 for source in "${test_sources[@]}"; do
     case "$source" in *.c) ;; *) printf 'Unsupported test source: %s\n' "$source" >&2; exit 1;; esac
     [[ -s "$source" ]]
-    producer_units+=("$(producer_path "$source" test_spine_regressions-)")
 done
 for source in "${fault_sources[@]}"; do
     case "$source" in *.c) ;; *) printf 'Unsupported fault source: %s\n' "$source" >&2; exit 1;; esac
     [[ -s "$source" ]]
-    producer_units+=("$(producer_path "$source" test_spine_faults-)")
 done
+producer_units=()
+make --no-print-directory coverage-object-list > "$coverage_dir/object-manifest.txt"
+while IFS= read -r object; do
+    case "$object" in *.o) producer_units+=("${object%.o}");; *) exit 1;; esac
+done < "$coverage_dir/object-manifest.txt"
+[[ "${#producer_units[@]}" -gt 0 ]]
 printf '%s\n' "${producer_units[@]}" > "$coverage_dir/producers.txt"
 [[ "$(sort -u "$coverage_dir/producers.txt" | wc -l)" -eq "${#producer_units[@]}" ]]
 make clean >> "$coverage_dir/build.log" 2>&1
@@ -110,6 +107,8 @@ notes=()
 for producer in "${producer_units[@]}"; do [[ -s "$producer.gcno" ]]; notes+=("$producer.gcno"); done
 tests/tools/verify_coverage.sh --producers "$source_dir" "$coverage_dir/producers.txt" gcno
 sha256sum "${notes[@]}" > "$coverage_dir/notes.sha256"
+./spine --version > "$coverage_dir/entry-version.log" 2>&1
+./spine --help > "$coverage_dir/entry-help.log" 2>&1
 ./test_spine_regressions > "$coverage_dir/default.log" 2>&1
 grep -Fq 'production regression tests passed' "$coverage_dir/default.log"
 grep -Fq 'production SNMPv3 key and timeout boundary regressions passed' "$coverage_dir/default.log"
@@ -177,6 +176,6 @@ cp -- spine test_spine_regressions test_spine_faults "$coverage_dir/bin/"
     sha256sum --check "$coverage_dir/notes.sha256"
 } > "$coverage_dir/source-verification.log"
 printf '%s\n' default numeric-error-boundaries config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome output-write-failure-retry output-recollection-new-timestamp simultaneous-output-failure-ordering remote-output-destination-failure-recollection output-sql-batch-boundary nullable-snmp-profile live-reindex snmp local-silent-udp-snmp-multi-timeout snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry fault-ping-only-session worker-launch-admitted worker-launch-rejected worker-launch-eagain-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
-(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt worktree-status.txt compiler.txt dependencies.txt gcov.txt lcov.txt source-Makefile.in generated-Makefile.in generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
+(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt worktree-status.txt compiler.txt dependencies.txt gcov.txt lcov.txt object-manifest.txt entry-help.log entry-version.log source-Makefile.in generated-Makefile.in generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1

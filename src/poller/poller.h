@@ -33,20 +33,7 @@
 
 #ifndef SPINE_POLLER_H
 #define SPINE_POLLER_H
-typedef struct {
-	char items[BUFSIZE];
-	char host[BIG_BUFSIZE];
-	char reindex[BUFSIZE];
-	char due_items[BUFSIZE];
-	char schedule[BUFSIZE];
-	char output[BUFSIZE];
-	char agents[BUFSIZE];
-	char due_agents[BUFSIZE];
-	char boost_output[BUFSIZE];
-	char suffix[BUFSIZE];
-} poller_queries_t;
-
-extern void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thread, int host_data_ids);
+#include "database/cacti_query.h"
 
 extern void *child(void *arg);
 extern void child_cleanup(void *arg);

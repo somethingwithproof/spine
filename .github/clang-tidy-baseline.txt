@@ -39,11 +39,11 @@ src/config/options.c: Call to function 'strcat' is insecure as it does not provi
 src/config/options.c: Call to function 'strcat' is insecure as it does not provide bounding of the memory buffer. Replace unbounded copy functions with analogous functions that support length arguments such as 'strlcat'. CWE-119 [clang-analyzer-security.insecureAPI.strcpy]
 src/config/options.c: Call to function 'strcat' is insecure as it does not provide bounding of the memory buffer. Replace unbounded copy functions with analogous functions that support length arguments such as 'strlcat'. CWE-119 [clang-analyzer-security.insecureAPI.strcpy]
 src/config/options.c: Call to function 'strcat' is insecure as it does not provide bounding of the memory buffer. Replace unbounded copy functions with analogous functions that support length arguments such as 'strlcat'. CWE-119 [clang-analyzer-security.insecureAPI.strcpy]
-# src/internal/util.c and src/log/log.c: every vsnprintf call directly follows va_start on the same
+# src/app/buffer.c and src/log/log.c: every vsnprintf call directly follows va_start on the same
 # va_list (spine_snprintf, die, spine_log, the bounded append helper). The
 # checker reports them on x86-64, where va_list is an array type, since the
 # build moved to -std=gnu17; it does not report them on arm64.
-src/internal/util.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]
-src/internal/util.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]
+src/app/buffer.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]
+src/app/buffer.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]
 src/log/log.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]
 src/log/log.c: Function 'vsnprintf' is called with an uninitialized va_list argument [clang-analyzer-valist.Uninitialized]

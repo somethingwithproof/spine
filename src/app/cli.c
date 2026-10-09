@@ -449,7 +449,3 @@ static char *getarg(char *opt, char ***pargv) {
 
 	die("ERROR: option %s requires a parameter", optname);
 }
-
-#ifdef SPINE_TEST_PROGRAM_ENTRY
-#undef main
-#endif

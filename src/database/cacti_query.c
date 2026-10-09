@@ -33,7 +33,7 @@
 
 #include "internal/common.h"
 #include "app/spine.h"
-#include "poller/poller_internal.h"
+#include "database/cacti_query.h"
 #include <limits.h>
 
 static void poller_item_query(char *buffer, size_t capacity, const char *columns, const poller_query_filter_t *filter) {
@@ -94,4 +94,39 @@ void poller_prepare_queries(poller_queries_t *queries, int host_id, int host_thr
 	/* The cached upsert capability describes the local connection, while output can
 	 * go to the remote one. VALUES() is accepted by both MySQL and MariaDB. */
 	strncopy(queries->suffix, " ON DUPLICATE KEY UPDATE output=VALUES(output)", sizeof(queries->suffix));
+}
+
+MYSQL_RES *select_poll_items(MYSQL *mysql, const poller_queries_t *queries,
+	const host_t *host, const poller_thread_t *work, int *num_rows) {
+	const char *query = set.poller.poller_interval == 0 ? queries->items : queries->due_items;
+	MYSQL_RES *result = db_query(mysql, LOCAL, query);
+	*num_rows = 0;
+	if (result != NULL) {
+		*num_rows = spine_count_to_int(mysql_num_rows(result));
+	} else {
+		SPINE_LOG(("Device[%i] HT[%i] ERROR: Unable to Retrieve Rows due to Null Result!", host->id, work->host_thread));
+	}
+	return result;
+}
+
+MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
+	char querybuf[MEGA_BUFSIZE];
+	char *qp = querybuf;
+	/* obtain the list of hosts to poll */
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " WHERE disabled = ''");
+
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
+
+	if (!strlen(set.hosts.host_id_list)) {
+		qp += append_hostrange(qp, sizeof(querybuf) - (size_t) (qp - querybuf), "h.id"); /* AND id BETWEEN a AND b */
+	} else {
+		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND h.id IN(%s)", set.hosts.host_id_list);
+	}
+
+	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND h.poller_id = %i", set.poller.poller_id);
+	spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " ORDER BY picount DESC");
+
+	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
+	return db_query(mysql, LOCAL, querybuf);
 }

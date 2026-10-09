@@ -100,6 +100,7 @@
 
 #include "internal/common.h"
 #include "app/spine.h"
+#include "database/persistence.h"
 extern int *debug_devices;
 extern int entries;
 extern int num_hosts;
@@ -119,12 +120,10 @@ void prepare_worker_storage(MYSQL_RES *result, int *rows,
 void free_worker_storage(int num_rows, pthread_t *threads, int *ids,
 	char *conf_file, char *host_time);
 char *load_startup_configuration(char *conf_file);
-MYSQL_RES *select_poll_hosts(MYSQL *mysql);
 void report_startup(int mode);
 double initialize_process_defaults(void);
 int initialize_main_database(MYSQL *mysql, MYSQL *mysqlr);
 void initialize_main_php(void);
-void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode);
 void close_main_php(void);
 void report_poll_statistics(double begin_time, int num_rows);
 #endif

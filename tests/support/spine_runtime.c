@@ -1,8 +1,8 @@
 /* Spine runtime for the fuzz targets.
  *
- * Every translation unit except spine.c is linked as built, so the code under
- * test is the code that ships.  This file supplies only the globals that
- * spine.c would define, plus php_close, which lives beside main().
+ * Production helper objects are linked as built. This supplies process-wide
+ * globals in place of app/runtime.c for unit tests and fuzz targets; the
+ * production-linked regression/fault binaries use the real runtime objects.
  */
 #include "internal/common.h"
 #include "app/spine.h"

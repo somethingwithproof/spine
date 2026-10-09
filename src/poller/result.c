@@ -46,15 +46,7 @@
  *  \return TRUE if not alpha or special characters found, FALSE if non numeric found
  *
  */
-int all_digits(const char *string) {
-	/* empty string is not all digits */
-	if (*string == '\0') return FALSE;
 
-	while (isdigit((unsigned char) *string))
-		string++;
-
-	return *string == '\0';
-}
 
 /*! \fn is_ipaddress(const char *string)
  *  \brief verifies that a string is an ip address either v4 or v6
@@ -66,21 +58,7 @@ int all_digits(const char *string) {
  *  \return TRUE if an ip address, or FALSE if non
  *
  */
-int is_ipaddress(const char *string) {
-	while (*string) {
-		if ((isdigit((unsigned char) *string)) ||
-			(*string == '.') ||
-			(*string == ':')) {
-			string++;
 
-			continue;
-		}
-
-		return FALSE;
-	}
-
-	return TRUE;
-}
 
 /* Cacti's prepare_validate_result() trims quotes and line ends; Spine has
  * always trimmed blanks, tabs and backslashes as well. */

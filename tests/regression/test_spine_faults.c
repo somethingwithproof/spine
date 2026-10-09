@@ -43,7 +43,7 @@ extern char *__real_strdup(const char *);
 extern void *__real_snmp_sess_open(netsnmp_session *);
 extern int __real_snmp_sess_close(void *);
 extern int __real_pthread_create(pthread_t *, const pthread_attr_t *, void *(*) (void *), void *);
-extern int spine_program_main(int, char **);
+#include "app/runtime.h"
 extern poller_thread_t **details;
 
 static int format_failures;
@@ -1213,7 +1213,7 @@ static int execute_fake_main_case(char *config) {
 	char interval[] = "poller_interval:5";
 	char *arguments[] = {"spine", "-C", "/nonexistent/spine-fault.conf", "--conf", config,
 		"-p", "2", "-t", "1", "-O", interval, "-S", "-V", "1", NULL};
-	return spine_program_main((int) (sizeof(arguments) / sizeof(arguments[0]) - 1), arguments);
+	spine_run((int) (sizeof(arguments) / sizeof(arguments[0]) - 1), arguments);
 }
 
 static void test_fake_database_main(void) {
@@ -1513,7 +1513,7 @@ static int execute_worker_launch_case(const char *scenario, char *config) {
 	char *arguments[] = {"spine", "-C", "/nonexistent/spine-fault.conf", "--conf", config,
 		"-p", "1", "-t", "1", "-H", "902", "-O", interval, "-O", profiles,
 		"-O", boost, "-O", redirect, "-S", "-V", "2", NULL};
-	return spine_program_main((int) (sizeof(arguments) / sizeof(arguments[0]) - 1), arguments);
+	spine_run((int) (sizeof(arguments) / sizeof(arguments[0]) - 1), arguments);
 }
 
 static pid_t run_worker_launch_case(const char *scenario, const char *config, int expected) {

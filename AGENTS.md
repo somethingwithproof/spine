@@ -8,7 +8,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 ## Project and architecture
 
 Spine is Cacti's multithreaded C poller, not a PHP web application.
-`src/app/runtime.c` is the entry point. Subsystem coordinators and implementation
+`src/app/main.c` is the entry point; `src/app/runtime.c` owns runtime initialization
+and shutdown. Subsystem coordinators and implementation
 modules live under `src/`; headers stay beside their implementations.
 `include/spine/` is reserved for supported external interfaces, not internal
 sharing. Legacy compatibility headers live under `src/internal/` while focused

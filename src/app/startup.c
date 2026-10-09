@@ -138,27 +138,7 @@ char *load_startup_configuration(char *conf_file) {
 	return conf_file;
 }
 
-MYSQL_RES *select_poll_hosts(MYSQL *mysql) {
-	char querybuf[MEGA_BUFSIZE];
-	char *qp = querybuf;
-	/* obtain the list of hosts to poll */
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), "SELECT SQL_NO_CACHE id, device_threads, picount, picount/device_threads AS tppi FROM host AS h LEFT JOIN (SELECT host_id, COUNT(*) AS picount FROM poller_item GROUP BY host_id) AS pi ON h.id = pi.host_id");
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " WHERE disabled = ''");
 
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND availability_method != %d", AVAIL_STREAM);
-
-	if (!strlen(set.hosts.host_id_list)) {
-		qp += append_hostrange(qp, sizeof(querybuf) - (size_t) (qp - querybuf), "h.id"); /* AND id BETWEEN a AND b */
-	} else {
-		qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND h.id IN(%s)", set.hosts.host_id_list);
-	}
-
-	qp += spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " AND h.poller_id = %i", set.poller.poller_id);
-	spine_snprintf(qp, sizeof(querybuf) - (size_t) (qp - querybuf), " ORDER BY picount DESC");
-
-	SPINE_LOG_DEVDBG(("DEVDBG: Host SQL:%s", querybuf));
-	return db_query(mysql, LOCAL, querybuf);
-}
 
 static void report_startup_version(int mode) {
 	if (set.logging.log_level == POLLER_VERBOSITY_DEBUG) {
@@ -327,36 +307,7 @@ void initialize_main_php(void) {
 	}
 }
 
-void persist_poll_completion(MYSQL *mysql, MYSQL *mysqlr, int mode) {
-	char querybuf[MEGA_BUFSIZE];
-	/* push data back to the main server */
-	if (set.poller.poller_id > 1 && set.poller.mode == REMOTE_ONLINE && !set.poller.SQL_readonly) {
-		poller_push_data_to_main();
-	}
 
-	/* update the db for |data_time| on graphs */
-	if (!set.availability.ping_only) {
-		if (set.poller.poller_id == 1) {
-			db_insert(mysql, LOCAL, "REPLACE INTO settings (name,value) VALUES ('date',NOW())");
-		}
-
-		snprintf(querybuf, BIG_BUFSIZE, "UPDATE poller_time SET end_time=NOW() WHERE poller_id=%i AND pid=%i", set.poller.poller_id, getpid());
-
-		if (mode == REMOTE) {
-			db_insert(mysqlr, REMOTE, querybuf);
-		} else {
-			db_insert(mysql, LOCAL, querybuf);
-		}
-	}
-
-	if (db_pool_local) {
-		db_close_connection_pool(LOCAL);
-	}
-
-	if (db_pool_remote) {
-		db_close_connection_pool(REMOTE);
-	}
-}
 
 void close_main_php(void) {
 	/* close the php script server */

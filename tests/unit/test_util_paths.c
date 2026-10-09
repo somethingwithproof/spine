@@ -170,13 +170,22 @@ void php_close(int php_process) {}
 int ping_icmp_open_shared(void) { return 0; }
 int ping_icmp_shared_available(void) { return 0; }
 
-#include "../../src/internal/util.c"
+#include "../../src/app/buffer.c"
+#include "../../src/platform/clock.c"
+#include "../../src/platform/socket.c"
+#include "../../src/platform/thread.c"
+#include "../../src/config/text.c"
+#include "../../src/log/debug.c"
+#include "../../src/script/escape.c"
+#include "../../src/platform/descriptor.c"
+#include "../../src/log/sanitize.c"
 #include "../../src/config/settings.c"
 #include "../../src/config/options.c"
 #include "../../src/config/file.c"
 #include "../../src/database/transfer.c"
 #include "../../src/log/log.c"
 #include "../../src/poller/result.c"
+#include "../../src/config/validate.c"
 #include "../../src/platform/privileges.c"
 #include "../../src/poller/regex.c"
 
