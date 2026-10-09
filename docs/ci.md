@@ -115,6 +115,9 @@ does not cache mutable OS package state. Coverage and flawfinder use a selected
 Python 3.12 runtime, hash-verified tool locks and download caches keyed by those
 locks. This avoids mixing distro and pip coverage-tool versions or modifying
 the system Python environment.
+The standalone Rocky lane uses the same unprivileged distro runner and cmocka
+suite as the matrix, with a pinned official Rocky image and failure artifacts;
+it no longer installs an entire development-tool group or builds as root.
 
 All checkouts disable persisted credentials, jobs have explicit timeouts, and
 tokens default to read-only permissions. SARIF/OIDC permissions stay scoped to
