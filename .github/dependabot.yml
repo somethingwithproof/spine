@@ -17,7 +17,7 @@ updates:
     commit-message: {prefix: ci, include: scope}
 
   - package-ecosystem: docker
-    # /docker is introduced by the layout PR; root and test contexts remain.
+    # Track root, development/coverage and SNMP fixture image contexts.
     directories: ["/", "/docker", "/tests/snmpv3", "/tests/snmpv3/snmpd"]
     schedule: {interval: weekly, day: friday, time: "05:10", timezone: Etc/UTC}
     open-pull-requests-limit: 5

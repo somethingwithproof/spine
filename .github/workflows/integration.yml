@@ -12,7 +12,6 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'tests/integration/**'
-      - 'tests/test-harness.sh'
       - 'tests/support/test-harness.sh'
       - 'tests/snmpv3/**'
       - '.github/actions/**'
