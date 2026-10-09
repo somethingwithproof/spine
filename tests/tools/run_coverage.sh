@@ -29,7 +29,7 @@ finish() {
     fi
 }
 trap finish EXIT
-for tool in gcc gcov lcov sha256sum tar; do command -v "$tool" >/dev/null; done
+for tool in gcc gcov lcov sha256sum tar python3; do command -v "$tool" >/dev/null; done
 # Exclude only the owned evidence directory, never an untested production unit.
 coverage_find_path='/not-in-source-tree'
 [[ "$coverage_base" != "$source_dir" ]]
@@ -163,6 +163,13 @@ grep -Fq 'production ICMP loopback regression passed' "$coverage_dir/icmp-capabi
 lcov_args=()
 for source in "${production_sources[@]}"; do lcov_args+=(--include "$source_dir/$source"); done
 lcov --capture --directory . --output-file "$coverage_dir/production.info" --rc branch_coverage=1 "${lcov_args[@]}" > "$coverage_dir/capture.log" 2>&1
+# LCOV omits BRF/BRH for a source with no branches. Keep the verifier strict:
+# obtain gcov's explicit branch arrays and prove the executed main is branchless
+# before supplying its measured zero totals. Never infer zeros from absent data.
+gcov -b -j -t src/app/main.gcda > "$coverage_dir/entry-gcov.json"
+python3 tests/tools/normalize_entry_coverage.py "$coverage_dir/production.info" \
+    "$coverage_dir/entry-gcov.json" "$source_dir/src/app/main.c"
+python3 tests/tools/test_entry_coverage.py > "$coverage_dir/entry-verifier-self-test.log" 2>&1
 tests/tools/test_coverage_verifier.sh > "$coverage_dir/verifier-self-test.log"
 tests/tools/verify_coverage.sh "$coverage_dir/production.info" "$source_dir" "$coverage_dir/production-sources.txt"
 lcov --summary "$coverage_dir/production.info" --rc branch_coverage=1 > "$coverage_dir/summary.txt" 2>&1
@@ -179,6 +186,6 @@ cp -- spine test_spine_regressions test_spine_faults "$coverage_dir/bin/"
     sha256sum --check "$coverage_dir/notes.sha256"
 } > "$coverage_dir/source-verification.log"
 printf '%s\n' default numeric-error-boundaries config-bindings script-streams cli-aliases additional-contracts database settings-write-outcome output-write-failure-retry output-recollection-new-timestamp simultaneous-output-failure-ordering remote-output-destination-failure-recollection output-sql-batch-boundary nullable-snmp-profile live-reindex snmp local-silent-udp-snmp-multi-timeout snmpv3-key-timeout snmpv3-live fault-default fault-logger fault-process fault-database-retry fault-ping-only-session worker-launch-admitted worker-launch-rejected worker-launch-eagain-retry icmp-denied icmp-capability > "$coverage_dir/scenarios.txt"
-(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt worktree-status.txt compiler.txt dependencies.txt gcov.txt lcov.txt object-manifest.txt entry-help.log entry-version.log source-Makefile.in generated-Makefile.in generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
+(cd "$coverage_dir" && sha256sum default.log database.log snmp.log snmpv3.log snmpv3-agent.log fault-default.log fault-database.log icmp-denied.log icmp-capability.log scenarios.txt production.info summary.txt source.sha256 generated-config.sha256 binaries.sha256 notes.sha256 profiles.sha256 production-sources.txt test-sources.txt fault-sources.txt producers.txt revision.txt worktree-status.txt compiler.txt dependencies.txt gcov.txt lcov.txt object-manifest.txt entry-help.log entry-version.log entry-gcov.json entry-verifier-self-test.log source-Makefile.in generated-Makefile.in generated-config.h source-inputs.nul source-inputs.tar.gz saved-producers.sha256) > "$coverage_dir/evidence.sha256"
 cat "$coverage_dir/summary.txt"
 coverage_complete=1

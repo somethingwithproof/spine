@@ -1159,6 +1159,8 @@ EXTRA_DIST = docs/man/spine.1 etc/spine.conf.dist CONTRIBUTORS.md \
 	tests/tools/coverage_process_exit.h \
 	tests/tools/verify_coverage.sh \
 	tests/tools/test_coverage_verifier.sh \
+	tests/tools/normalize_entry_coverage.py \
+	tests/tools/test_entry_coverage.py \
 	tests/regression/test_remote_push.sh \
 	tests/integration/test_alloc_failure.sh \
 	tests/regression/test_child_process_safety.sh \

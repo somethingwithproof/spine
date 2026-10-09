@@ -105,7 +105,8 @@ EXTRA_DIST = docs/man/spine.1 etc/spine.conf.dist \
 EXTRA_DIST += tests/integration/test_memory_soak.sh
 
 EXTRA_DIST += tests/tools/run_snmpv3.sh tests/tools/run_coverage.sh tests/tools/coverage_process_exit.h \
- tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh
+ tests/tools/verify_coverage.sh tests/tools/test_coverage_verifier.sh \
+ tests/tools/normalize_entry_coverage.py tests/tools/test_entry_coverage.py
 .PHONY: coverage-source-list coverage-test-source-list
 coverage-source-list:
 	@printf '%s\n' $(spine_SOURCES)
