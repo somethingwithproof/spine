@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: LGPL-2.1-only
+#
+# Fork maintenance: Thomas Vincent.
+# Project contributor history: CONTRIBUTORS.md.
 """Fail when a distro-matrix lane has reached its vendor end of life.
 
 The release data comes from https://endoflife.date. A lane whose release is
