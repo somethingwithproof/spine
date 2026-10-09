@@ -28,7 +28,7 @@ Supporting both has costs that grow with the roadmap:
   is waiting for, so an external event loop can drive it. `libmysqlclient`
   has a different non-blocking API, added in MySQL 8.0.16. Supporting both
   would mean two event-loop integrations.
-- The two libraries configure TLS differently. `sql.c` already sets options
+- The two libraries configure TLS differently. `src/database/sql.c` already sets options
   under `HAS_MYSQL_OPT_SSL_KEY` and `HAS_MYSQL_OPT_SSL_VERIFY_SERVER_CERT`,
   which `configure` probes because the libraries disagree. Phase 1 must prove
   database TLS and server identity checks end to end, and one library means

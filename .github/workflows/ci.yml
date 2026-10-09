@@ -173,7 +173,8 @@ jobs:
             --suppress=redundantAssignment \
             --suppress=toomanyconfigs \
             --library=scripts/cppcheck/spine.cfg \
-            ./*.c ./*.h
+            -I. -Isrc -Ivendor/uthash \
+            src
 
   # GCC 15 and later default to gnu23. Build with the newest Fedora GCC to
   # show that configure still selects gnu17 there.
@@ -259,7 +260,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          find scripts tests -type f -name '*.sh' -print0 \
+          find scripts tests -type f -name '*.sh' ! -path scripts/copyright_year.sh -print0 \
             | xargs -0 shellcheck
 
   # Preserve the measured baseline and require stronger coverage on changed

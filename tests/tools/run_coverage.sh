@@ -34,7 +34,7 @@ case "$coverage_base" in
     "$source_dir"/*) coverage_find_path="./${coverage_base#"$source_dir"/}";;
     *) ;;
 esac
-find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'configure.ac' -o -name 'copyright_year.sh' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/*.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
+find . -path "$coverage_find_path" -prune -o -type f \( -name '*.c' -o -name '*.h' -o -name 'Makefile.am' -o -name 'configure.ac' -o -path './scripts/copyright_year.sh' -o -path './tests/fixtures/*' -o -path './tests/tools/*' -o -path './.github/workflows/*.yml' \) -not -path './.git/*' -not -path './config/config.h' -print0 | sort -z > "$coverage_dir/source-inputs.nul"
 xargs -0 sha256sum < "$coverage_dir/source-inputs.nul" > "$coverage_dir/source.sha256"
 tar -czf "$coverage_dir/source-inputs.tar.gz" --null -T "$coverage_dir/source-inputs.nul"
 # Autoreconf replaces this tracked template. Preserve its original bytes and
@@ -84,7 +84,7 @@ for source in "${production_sources[@]}"; do
     producer_units+=("$(producer_path "$source" "")")
     grep -Fxq "$source" "$coverage_dir/test-sources.txt"
     # The fault binary reuses the registered renamed spine globals object.
-    if [[ "$source" != spine.c ]]; then grep -Fxq "$source" "$coverage_dir/fault-sources.txt"; fi
+    if [[ "$source" != src/app/runtime.c ]]; then grep -Fxq "$source" "$coverage_dir/fault-sources.txt"; fi
 done
 for source in "${test_sources[@]}"; do
     case "$source" in *.c) ;; *) printf 'Unsupported test source: %s\n' "$source" >&2; exit 1;; esac

@@ -89,7 +89,7 @@ sudo make install
 
 With the default prefix, the binary is `/usr/local/spine/bin/spine` and the
 configuration is `/usr/local/spine/etc/spine.conf`. Installation seeds a missing
-configuration from [spine.conf.dist](spine.conf.dist) and preserves an existing
+configuration from [spine.conf.dist](etc/spine.conf.dist) and preserves an existing
 one. Edit it for your Cacti database, replace the sample credentials, and restrict
 access to the account that runs the poller.
 
@@ -117,7 +117,7 @@ For a deliberate diagnostic poll of selected Cacti device IDs:
 Replace `1,2` with the IDs you intend to poll. `--readonly` suppresses database
 output; it still connects to the database, contacts devices and executes the
 configured scripts. Without a host list or first/last range, Spine processes
-all hosts. See the [manual](spine.1) for the command-line interface.
+all hosts. See the [manual](docs/man/spine.1) for the command-line interface.
 
 Once configuration and polling work, set Cacti's **Paths** setting to the Spine
 binary and select **Spine** as its **Poller Type**. Cacti then invokes Spine in
@@ -210,17 +210,23 @@ fixtures, and [docs/ci.md](docs/ci.md) for CI details.
 
 ### Source layout
 
-Root C files coordinate subsystems; modules under `src/` separate configuration,
-startup, logging, database access, reachability, polling, process lifecycle and
-SNMP sessions. Public headers retain the existing interfaces; private headers
-connect implementation modules. See [source module boundaries](docs/architecture/source-modules.md).
+All production C files live under `src/`, grouped by responsibility. Module
+headers stay beside their implementations. `include/spine/` is reserved for
+deliberately supported external interfaces; this executable currently exposes
+no installed SDK. See [source module boundaries](docs/architecture/source-modules.md).
 
 | Location | Contents |
 | --- | --- |
+| `src/` | Application, configuration, poller, SNMP, ping, database, script, process, platform and logging modules |
+| `vendor/uthash/` | Unmodified third-party hash-table header |
+| `etc/`, `docs/man/` | Configuration template and command-line manual |
+| `tests/contracts/` | Production-linked behavior contracts |
 | `tests/unit/`, `tests/regression/` | Unit suites and shell regression checks |
 | `tests/support/`, `tests/fixtures/` | Shared test support, PHP protocol fixture and database/agent fixtures |
 | `tests/fuzz/` | Fuzz targets and input corpus |
 | `scripts/` | Build, distribution, debugging and packaging helpers |
+| `docker/`, `packaging/` | Development/coverage images and distribution packaging |
+| `.github/` | Workflows, reusable actions, issue/PR templates and review routing |
 | `docs/` | Architecture decisions, CI and operational documentation |
 
 Run helper scripts from the checkout root. `bash scripts/package.sh --help`

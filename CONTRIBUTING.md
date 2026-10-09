@@ -119,7 +119,7 @@ python3 -m pip install --user --break-system-packages diff-cover==10.5.1
 ```
 
 New or changed behaviour needs a test. Unit tests use cmocka under
-`tests/unit`; contract tests live in `tests/test_spine_*_contracts.c`; shell
+`tests/unit`; contract tests live in `tests/contracts/`; shell
 regressions live in `tests/regression`. Add new tests to `Makefile.am` next
 to the existing ones.
 
@@ -134,7 +134,7 @@ to the existing ones.
   result to a temporary pointer first.
 - Use `snprintf` and check its return value for truncation. Do not add
   `sprintf` or `strcpy`.
-- Use the `db_*` wrappers in `sql.c` for database access.
+- Use the `db_*` wrappers in `src/database/sql.c` for database access.
 - Never log SNMP communities, SNMPv3 passphrases, database passwords or
   script arguments.
 - Keep changes focused. Do not reformat or rename code you are not changing.

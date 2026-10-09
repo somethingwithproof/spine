@@ -31,9 +31,9 @@
  +-------------------------------------------------------------------------+
 */
 
-#include "common.h"
-#include "spine.h"
-#include "src/poller/poller_internal.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "poller/poller_internal.h"
 #include <limits.h>
 
 static void poller_item_query(char *buffer, size_t capacity, const char *columns, const poller_query_filter_t *filter) {

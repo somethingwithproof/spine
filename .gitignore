@@ -37,3 +37,8 @@ test-artifacts/
 # Local assistant sessions and isolated worktrees
 .omc/
 .worktrees/
+
+# Keep the reviewed dependency tracked even when a global ignore hides vendor/.
+!vendor/
+!vendor/uthash/
+!vendor/uthash/uthash.h

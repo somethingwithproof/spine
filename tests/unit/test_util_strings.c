@@ -7,8 +7,8 @@
 #include <stdio.h>
 
 #define UNIT_TESTING
-#include "../../common.h"
-#include "../../spine.h"
+#include "../../src/internal/common.h"
+#include "../../src/app/spine.h"
 
 /* Define globals that Spine expects */
 config_t set;
@@ -31,15 +31,15 @@ int ping_icmp_open_shared(void) { return 0; }
 int ping_icmp_shared_available(void) { return 0; }
 
 /* Include the actual source file */
-#include "../../util.c"
+#include "../../src/internal/util.c"
 #include "../../src/config/settings.c"
 #include "../../src/config/options.c"
 #include "../../src/config/file.c"
 #include "../../src/database/transfer.c"
-#include "../../src/core/log.c"
-#include "../../src/core/result.c"
-#include "../../src/core/privileges.c"
-#include "../../src/core/regex.c"
+#include "../../src/log/log.c"
+#include "../../src/poller/result.c"
+#include "../../src/platform/privileges.c"
+#include "../../src/poller/regex.c"
 
 
 static void test_strpos_found(void **state) {

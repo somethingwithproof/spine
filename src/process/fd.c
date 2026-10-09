@@ -84,9 +84,9 @@
  * SUCH DAMAGE.
  */
 
-#include "common.h"
-#include "spine.h"
-#include "src/process/process_internal.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "process/process_internal.h"
 #include <spawn.h>
 #include <fcntl.h>
 #include <sys/wait.h>

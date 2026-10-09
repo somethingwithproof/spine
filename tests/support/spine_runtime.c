@@ -4,9 +4,9 @@
  * test is the code that ships.  This file supplies only the globals that
  * spine.c would define, plus php_close, which lives beside main().
  */
-#include "common.h"
-#include "spine.h"
-#include "php.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "script/server.h"
 
 spine_permits_t available_threads;
 spine_permits_t available_scripts;

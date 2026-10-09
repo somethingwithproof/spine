@@ -18,9 +18,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#include "common.h"
-#include "spine.h"
-#include "ping.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "ping/ping.h"
 
 extern int *debug_devices;
 
@@ -52,7 +52,7 @@ static ssize_t test_recv(int fd, void *buffer, size_t length, int flags);
 #define select test_select
 #define recvfrom test_recvfrom
 #define recv test_recv
-#include "../../ping.c"
+#include "../../src/ping/ping.c"
 #include "../../src/ping/icmp_shared.c"
 #include "../../src/ping/icmp4.c"
 #include "../../src/ping/icmp6.c"

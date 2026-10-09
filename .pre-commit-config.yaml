@@ -16,22 +16,22 @@ repos:
       # whitespace-only line that will go when the file is next edited for a
       # real change.
       - id: trailing-whitespace
-        exclude: &exact-bytes ^(tests/fuzz/corpus/|LICENSE$|Makefile\.in$|spine\.conf\.dist$|tests/unit/test_util_strings\.c$)
+        exclude: &exact-bytes ^(tests/fuzz/corpus/|vendor/|LICENSE$|Makefile\.in$|etc/spine\.conf\.dist$|tests/unit/test_util_strings\.c$)
       - id: end-of-file-fixer
         exclude: *exact-bytes
       - id: check-yaml
 
   # shellcheck-py ships the binary as a wheel, so the hook needs no Docker.
-  # copyright_year.sh is an upstream release helper outside the CI shellcheck
+  # scripts/copyright_year.sh is an upstream release helper outside the CI shellcheck
   # file set. The moved debug/package helpers now run under the normal checks.
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: 745eface02aef23e168a8afb6b5737818efbea95 # v0.11.0.1
     hooks:
-      # Commits often stage one script without tests/test-harness.sh, which
+      # Commits often stage one script without tests/support/test-harness.sh, which
       # the integration scripts source.
       - id: shellcheck
         args: [--external-sources]
-        exclude: ^copyright_year\.sh$
+        exclude: ^scripts/copyright_year\.sh$
 
   - repo: https://github.com/rhysd/actionlint
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
@@ -46,6 +46,7 @@ repos:
       - id: codespell
         args: [--ignore-words=.codespell-ignore-words.txt]
         files: '(\.(c|h|md|sh|ya?ml)|^configure\.ac|^Makefile\.am)$'
+        exclude: ^vendor/
 
   # Formats only the lines that differ from HEAD, which during a commit are
   # the staged lines. Running clang-format on whole files would reformat
@@ -57,6 +58,6 @@ repos:
         language: python
         additional_dependencies: [clang-format==18.1.8]
         entry: git-clang-format --diff --extensions c,h
-        args: ["--", ":(exclude)uthash.h"]
+        args: ["--", ":(exclude)vendor/uthash/uthash.h"]
         pass_filenames: false
         files: '\.[ch]$'

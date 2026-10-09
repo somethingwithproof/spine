@@ -34,8 +34,8 @@
 #ifndef SPINE_PING_INTERNAL_H
 #define SPINE_PING_INTERNAL_H
 
-#include "common.h"
-#include "spine.h"
+#include "internal/common.h"
+#include "app/spine.h"
 typedef struct {
 	int fd;
 	int reading;

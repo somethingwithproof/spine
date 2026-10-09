@@ -21,13 +21,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "common.h"
-#include "spine.h"
-#include "util.h"
-#include "ping.h"
-#include "poller.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "internal/util.h"
+#include "ping/ping.h"
+#include "poller/poller.h"
 
-#include "nft_popen.h"
+#include "process/nft_popen.h"
 
 #include <fcntl.h>
 
