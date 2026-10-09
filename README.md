@@ -1,173 +1,249 @@
-# Spine: a poller for Cacti
+# Spine: Cacti's multithreaded poller
 
 [![CI](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml)
 [![Production regressions](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml)
 [![CodeQL](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/github/license/somethingwithproof/spine)](LICENSE)
 
-Spine is a high speed poller replacement for `cmd.php`. It is almost 100%
-compatible with the legacy cmd.php processor and provides much more flexibility,
-speed and concurrency than `cmd.php`.
+Spine is a multithreaded C poller for [Cacti](https://www.cacti.net/). It replaces
+`cmd.php` as the polling engine, collects device data through SNMP and scripts,
+checks availability, and writes results to the Cacti database. Worker threads
+allow multiple devices to be polled concurrently.
 
-Make sure that you have the proper development environment to compile Spine.
-This includes compilers, header files and things such as libtool. If you have
-questions please consult the forums and/or online documentation.
+This fork modernizes Spine while preserving its Cacti database, command-line
+and script-server interfaces. Current `develop` uses C17, pthreads and Autotools,
+with implementation modules grouped by responsibility. The fork has not yet
+published a release; the source version is `1.3.0`.
 
------------------------------------------------------------------------------
+## Capabilities
 
-## Unix Installation
+- SNMP polling and ICMP, UDP and TCP availability checks.
+- External script execution and reusable PHP script-server processes.
+- Database connection pools, batched result writes and remote-poller modes.
+- Production-linked regression tests for polling, result formatting, process
+  cleanup and failure handling, alongside sanitizer and fuzz checks.
 
-These instructions assume the default install location for spine of
-`/usr/local/spine`. If you choose to use another prefix, make sure you update
-the commands as required for that new path.
+Spine supplies the polling engine. Cacti manages devices, data sources,
+scheduling and the rest of the monitoring application.
 
-To compile and install Spine using MySQL versions 5.5 or higher please do the
-following:
+## Requirements and compatibility
 
-```shell
-./bootstrap
-./configure
-make
-make install
-chown root:root /usr/local/spine/bin/spine
-chmod u+s /usr/local/spine/bin/spine
+Build dependencies are a C compiler, Make, Autoconf, Automake, Libtool,
+Net-SNMP, MariaDB Connector/C and OpenSSL development files. Tests also use
+cmocka; GNU help2man is included in the documented development prerequisites.
+
+| Requirement | Current develop |
+| --- | --- |
+| Language | C17 with GNU extensions (`-std=gnu17`) and POSIX/BSD APIs; documented compiler floor: GCC 8 or Clang 6 |
+| Platforms | Linux, macOS and FreeBSD have CI lanes; NetBSD and OpenBSD are tested on a best-effort basis; Windows/Cygwin has no CI lane |
+| Architecture | Supported builds are 64-bit; configure checks for a 64-bit `time_t` |
+| Database client | MariaDB Connector/C is preferred and connects to both MariaDB and MySQL servers |
+
+See [platform releases and support tiers](docs/platforms.md) and
+[the C17 decision](docs/adr/0001-c17-language-standard.md).
+MySQL's `libmysqlclient` remains available through `--with-mysql-client=mysql`,
+but is deprecated. See [the client-library decision](docs/adr/0003-mariadb-connector.md).
+The old MySQL 5.0/5.1 instructions used `--with-reentrant`; that option is no
+longer provided by this branch.
+
+## Build from source
+
+On Debian or Ubuntu, install the development prerequisites:
+
+```sh
+sudo apt-get update
+sudo apt-get install build-essential autoconf automake libtool help2man \
+  libmariadb-dev libsnmp-dev libssl-dev libcmocka-dev
 ```
 
-Spine is setuid root only so that it can send ICMP pings. Before it reads any
-option or file it opens its raw ICMP sockets, or with `--enable-lcap` keeps only
-`CAP_NET_RAW`, and then drops root for good. If it cannot get ICMP that way it
-still drops root and keeps polling: ICMP pings use datagram sockets where
-`net.ipv4.ping_group_range` allows them, and otherwise fall back to UDP with a
-warning. Spine exits only if it cannot confirm that root is gone. When root
-itself runs spine, for example from root's crontab, it keeps root as before.
-Without the setuid bit, ICMP works where `net.ipv4.ping_group_range` covers the
-poller user, or where the binary has `CAP_NET_RAW`
-(`setcap cap_net_raw+ep`).
+Clone this fork and build `develop`:
 
-To compile and install Spine using MySQL versions previous to 5.5 please do the
-following:
-
-```shell
+```sh
+git clone --branch develop https://github.com/somethingwithproof/spine.git
+cd spine
 ./bootstrap
-./configure --with-reentrant
-make
-make install
-chown root:root /usr/local/spine/bin/spine
-chmod +s /usr/local/spine/bin/spine
+./configure --prefix=/usr/local/spine --with-mysql-client=mariadb --enable-warnings
+make -j2
+make check
+./spine --version
+./spine --help
 ```
 
-## Windows Installation
+Build and test as an ordinary user. `bootstrap` regenerates Autotools files and
+can normalize line endings; build in a disposable copy when you need to preserve
+an unchanged checkout. For other platforms, consult the package lists in
+[scripts/test-distros.sh](scripts/test-distros.sh).
 
-### CYGWIN Prerequisite
+The prefix defaults to `/usr/local/spine`. Set `--prefix` to change it, and use
+`./configure --help` for build options. If selecting `libmysqlclient`, point
+`MYSQL_CONFIG` at that library's `mysql_config`; some systems provide a tool
+with that name from MariaDB Connector/C instead.
 
-1. Download Cygwin for Window from [https://www.cygwin.com/](https://www.cygwin.com/)
+## Install and configure
 
-2. Install Cygwin by executing the downloaded setup program
+After building and testing, install into the selected prefix:
 
-3. Select _Install from Internet_
+```sh
+sudo make install
+```
 
-4. Select Root Directory:  _C:\cygwin_
+With the default prefix, the binary is `/usr/local/spine/bin/spine` and the
+configuration is `/usr/local/spine/etc/spine.conf`. Installation seeds a missing
+configuration from [spine.conf.dist](spine.conf.dist) and preserves an existing
+one. Edit it for your Cacti database, replace the sample credentials, and restrict
+access to the account that runs the poller.
 
-5. Select a mirror which is close to your location
+| Configuration | Purpose |
+| --- | --- |
+| `DB_Host`, `DB_Port`, `DB_Database` | Cacti database endpoint and name |
+| `DB_User`, `DB_Pass` | Database credentials |
+| `DB_UseSSL`, `DB_SSL_Key`, `DB_SSL_Cert`, `DB_SSL_CA` | Database TLS settings |
+| `RDB_*` | Remote database endpoint, credentials and TLS settings |
+| `SNMP_Clientaddr` | Optional source address for SNMP requests |
+| `Cacti_Log` | Optional Cacti log path |
 
-6. Once on the package selection section make sure to select the following (TIP:
-   use the search!):
+Runtime polling settings come from Cacti's `settings` table. Use `-C` to select
+configuration explicitly. Without it, Spine searches the current directory,
+`/etc`, `/etc/cacti` and `../etc` in that order; it does not automatically search
+all installation prefixes.
 
-   * autoconf
-   * automake
-   * dos2unix
-   * gcc-core
-   * gzip
-   * help2man
-   * inetutils-src
-   * libmariadb-devel (libmysqlclient is deprecated)
-   * libssl-devel
-   * libtool
-   * m4
-   * make
-   * net-snmp-devel
-   * openssl-devel
-   * wget
+For a deliberate diagnostic poll of selected Cacti device IDs:
 
-7. Wait for installation to complete, coffee time!
+```sh
+/usr/local/spine/bin/spine -C /usr/local/spine/etc/spine.conf \
+  --hostlist=1,2 --readonly --stdout --verbosity=3
+```
 
-8. Move the cygwin setup to the C:\cygwin\ folder for future usage.
+Replace `1,2` with the IDs you intend to poll. `--readonly` suppresses database
+output; it still connects to the database, contacts devices and executes the
+configured scripts. Without a host list or first/last range, Spine processes
+all hosts. See the [manual](spine.1) for the command-line interface.
 
-### Compile Spine
+Once configuration and polling work, set Cacti's **Paths** setting to the Spine
+binary and select **Spine** as its **Poller Type**. Cacti then invokes Spine in
+place of `cmd.php`.
 
-1. Open Cygwin shell prompt (C:\Cygwin\cygwin.bat) and brace yourself to use
-   unix commands on Windows.
+### ICMP privileges
 
-2. Download the Spine source to the current directory:
+For ICMP access on Linux, prefer `CAP_NET_RAW` on the binary or an appropriately
+configured `net.ipv4.ping_group_range` for unprivileged ICMP sockets. Without
+ICMP access, Spine falls back to UDP with a warning.
 
-   [http://www.cacti.net/spine_download.php](http://www.cacti.net/spine_download.php)
+For installations that still require setuid root, the historical setup is:
 
-3. Extract Spine into C:\Cygwin\usr\src\<spineversion>:
+```sh
+sudo chown root:root /usr/local/spine/bin/spine
+sudo chmod u+s /usr/local/spine/bin/spine
+```
 
-   `tar xzvf cacti-spine-*.tar.gz`
+This is an alternative installation choice, not a required build step. When
+started setuid, Spine opens its ICMP sockets before reading configuration and
+drops root permanently; with `--enable-lcap`, it retains only `CAP_NET_RAW`.
+It exits if it cannot confirm that root was dropped. A process launched directly
+by root retains root. See [SECURITY.md](SECURITY.md) for the privilege model.
 
-4. Change into the Spine directory:
+## Operational considerations
 
-   `cd /usr/src/cacti-spine-*`
+**Database connections.** Each Spine process opens a main connection and a
+pool with one connection per worker thread. Remote polling can open another
+main connection and pool against the remote database. PHP scripts may open
+additional connections; include those and Cacti's other workloads in capacity
+planning.
 
-5. Run bootstrap to prepare Spine for compilation:
+The previous README's example remains useful when each PHP server also needs
+one connection: four processes, ten threads and five PHP servers per process
+imply approximately `4 × (1 + 10 + 5) = 64` connections. This is a planning
+estimate, not a fixed connection count guaranteed by Spine.
 
-   `./bootstrap`
+**Trusted configuration.** Spine executes script commands stored in the Cacti
+database as the poller account. Protect database write access and the
+credential-bearing configuration file. New poller log files use mode `0640`,
+subject to the caller's umask; existing file permissions are preserved.
 
-6. Follow the instruction which bootstrap outputs.
+## Windows / Cygwin notes
 
-7. Update the spine.conf file for your installation of Cacti. You can optionally
-   move it to a better location if you choose to do so, make sure to copy the
-   spine.conf as well.
+These notes preserve the historical workflow. This branch has no Windows CI
+lane, so they are a starting point rather than a verified support claim. Native
+Windows work is described in the [roadmap](ROADMAP.md).
 
-8. Ensure that Spine runs well by running with `/usr/local/spine/spine -R -S -V 3`
+Use the [Cygwin installer](https://www.cygwin.com/) and its **Install from
+Internet** option, then select a mirror. The older default root was `C:\cygwin`;
+a 64-bit installation commonly uses `C:\cygwin64`. The previously documented
+Spine build packages are:
 
-9. Update Cacti `Paths` Setting to point to the Spine binary and update the
-   `Poller Type` to Spine. For the spine binary on Windows x64, and using default
-   locations, that would be `C:\cygwin64\usr\local\spine\bin\spine.exe`
+```text
+autoconf automake dos2unix gcc-core gzip help2man inetutils-src
+libmariadb-devel libssl-devel libtool m4 make net-snmp-devel openssl-devel wget
+```
 
-10. If all is good Spine will be run from the poller in place of cmd.php.
+Open a Cygwin shell, obtain this fork's source and follow the build steps above.
+For an archive, extract it under `/usr/src` with
+`tar xzvf cacti-spine-<version>.tar.gz`, enter the extracted directory and run
+`./bootstrap`. [Cacti's Spine downloads](https://www.cacti.net/spine_download.php)
+contain upstream releases, not this fork's changes.
 
-## Known Issues
+Configure `spine.conf`, test with the explicit configuration and diagnostic
+flags above, and set Cacti's executable path. For a 64-bit Cygwin installation
+with the default prefix, the path is
+`C:\cygwin64\usr\local\spine\bin\spine.exe`.
 
-1. On Windows, Microsoft does not support a TCP Socket send timeout. Therefore,
-   if you are using TCP ping on Windows, spine will not perform a second or
-   subsequent retries to connect and the host will be assumed down on the first
-   failure.
+The Cygwin TCP-ping path currently makes only one connection attempt, even when
+retries are configured. If that affects availability checks, select another
+reachability method or use a tested Unix platform.
 
-   If this is a problem it is suggested to use another Availability/Reachability
-   method, or moving to Linux/UNIX.
+## Development and testing
 
-2. Spine takes quite a few MySQL connections. The number of connections is
-   calculated as follows: (1 for main poller + 1 per each thread + 1 per each
-   script server)
+`make check` runs unit and regression suites. CI also exercises GCC and Clang,
+macOS, Linux distributions, native BSD guests, database/SNMP integration,
+coverage, static analysis, sanitizers and fuzz targets.
 
-   Therefore, if you have 4 processes, with 10 threads each, and 5 script
-   servers each your spine will take approximately:
+Build and test one Linux distribution in an isolated Docker container with:
 
-   `total connections = 4 * ( 1 + 10 + 5 ) = 64`
+```sh
+scripts/test-distros.sh debian:13
+```
 
-3. On older MySQL versions, different libraries had to be used to make MySQL
-   thread safe. MySQL versions 5.0 and 5.1 require this flag. If you are using
-   these version of MySQL, you must use the --with-reentrant configure flag.
+The script copies the checkout into the container and builds as an unprivileged
+user. See [CONTRIBUTING.md](CONTRIBUTING.md) for local build and review
+requirements, [tests/README.md](tests/README.md) for disposable integration
+fixtures, and [docs/ci.md](docs/ci.md) for CI details.
 
------------------------------------------------------------------------------
-Copyright (c) 2004-2026 - The Cacti Group, Inc.
+### Source layout
 
-## Repository layout
+Root C files coordinate subsystems; modules under `src/` separate configuration,
+startup, logging, database access, reachability, polling, process lifecycle and
+SNMP sessions. Public headers retain the existing interfaces; private headers
+connect implementation modules. See [source module boundaries](docs/architecture/source-modules.md).
 
-Production code uses responsibility-focused C modules under `src/`, with the
-program entry point and subsystem coordinators at the checkout root. See
-[source module boundaries](docs/architecture/source-modules.md) for the layout.
-Autotools builds the same modules for production and linked regression tests.
+| Location | Contents |
+| --- | --- |
+| `tests/unit/`, `tests/regression/` | Unit suites and shell regression checks |
+| `tests/support/`, `tests/fixtures/` | Shared test support, PHP protocol fixture and database/agent fixtures |
+| `tests/fuzz/` | Fuzz targets and input corpus |
+| `scripts/` | Build, distribution, debugging and packaging helpers |
+| `docs/` | Architecture decisions, CI and operational documentation |
 
-- `tests/unit/`: unit suites.
-- `tests/support/`: shared runtime stubs and the local PHP protocol fixture.
-- `tests/fixtures/`: database/agent fixtures and captured behavior.
-- `tests/regression/`: shell regression checks.
-- `tests/fuzz/`: fuzz targets and their input corpus.
-- `scripts/`: developer tools, including `debug.sh` and `package.sh`.
-- `docs/`: architecture decisions and operational documentation.
+Run helper scripts from the checkout root. `bash scripts/package.sh --help`
+describes the archive builder; `scripts/debug.sh` expects a configured Makefile
+build and launches the debugger.
 
-Run helper scripts from the checkout root. Use `bash scripts/package.sh --help`
-for archive-builder usage; `scripts/debug.sh` expects a configured Makefile build.
+## Direction and contributions
+
+The [roadmap](ROADMAP.md) covers planned configuration validation, a CMake build,
+native Windows support and an event-driven poller. Current `develop` still uses
+Autotools and pthreads. [Architecture decisions](docs/adr/README.md) explain the
+language, database client and upstream-tracking choices.
+
+Report bugs and propose changes through this repository's
+[issues](https://github.com/somethingwithproof/spine/issues) and
+[pull requests](https://github.com/somethingwithproof/spine/pulls). Contributions
+target `develop`, include relevant tests, and require a DCO sign-off; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately through
+[SECURITY.md](SECURITY.md).
+
+## License
+
+See [LICENSE](LICENSE) for the repository's license text and the notices in
+individual source files for their licensing terms.
+
+Copyright © 2004–2026 The Cacti Group, Inc.
