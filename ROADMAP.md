@@ -273,7 +273,7 @@ supported combination passes CI.
 
 ## Risks and dependencies
 
-- The event-driven poller rewrites `poller.c`, so upstream poller changes
+- The event-driven poller rewrites `src/poller/poller.c`, so upstream poller changes
   will no longer merge. From Phase 4 the fork keeps the Cacti database and
   output contract identical but ports upstream poller fixes by hand. The
   Phase 0 ADR must say so.

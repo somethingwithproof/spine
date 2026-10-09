@@ -1,3 +1,10 @@
+/*
+ * SPDX-License-Identifier: LGPL-2.1-only
+ *
+ * Fork maintenance: Thomas Vincent.
+ * Project contributor history: CONTRIBUTORS.md.
+ */
+
 /* Production-linked PHP Script Server runtime tests.
  *
  * These use a real child, real close-on-exec pipes and the shipped php.c.
@@ -21,9 +28,9 @@
 #include <unistd.h>
 #include <poll.h>
 
-#include "common.h"
-#include "spine.h"
-#include "php.h"
+#include "internal/common.h"
+#include "app/spine.h"
+#include "script/server.h"
 
 static pthread_mutex_t spawn_barrier_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t spawn_barrier_cond = PTHREAD_COND_INITIALIZER;

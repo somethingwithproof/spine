@@ -1,4 +1,8 @@
 #!/bin/sh
+# SPDX-License-Identifier: LGPL-2.1-only
+#
+# Fork maintenance: Thomas Vincent.
+# Project contributor history: CONTRIBUTORS.md.
 # Structural guards for the remote push path's cross-vendor and batching rules.
 set -eu
 
@@ -12,11 +16,11 @@ fail() {
 
 queries_body=$(awk '/^static void transfer_queries\(/{f=1} f{print} f&&/^\}/{exit}' src/database/transfer.c)
 table_body=$(awk '/^static bool transfer_table\(/{f=1} f{print} f&&/^\}/{exit}' src/database/transfer.c)
-prepare_body=$(awk '/^void poller_prepare_queries\(/{f=1} f{print} f&&/^\}/{exit}' src/poller/query.c)
+prepare_body=$(awk '/^void poller_prepare_queries\(/{f=1} f{print} f&&/^\}/{exit}' src/database/cacti_query.c)
 
 [ -n "$queries_body" ] || fail "could not find transfer_queries() in src/database/transfer.c"
 [ -n "$table_body" ] || fail "could not find transfer_table() in src/database/transfer.c"
-[ -n "$prepare_body" ] || fail "could not find poller_prepare_queries() in src/poller/query.c"
+[ -n "$prepare_body" ] || fail "could not find poller_prepare_queries() in src/database/cacti_query.c"
 
 printf '%s\n' "$queries_body" | grep -q 'AS rs' &&
 	fail "remote pushes must not use row-alias syntax selected from the local server"

@@ -24,7 +24,7 @@ fork's larger changes made many of them conflict.
 The roadmap commits the fork to two changes upstream does not share. Phase 2
 replaces autotools with CMake, so upstream changes to `configure.ac` and
 `Makefile.am` will no longer apply. Phase 4 replaces the threaded poller with
-an event-driven poller on libuv, so upstream changes to `poller.c` will no
+an event-driven poller on libuv, so upstream changes to `src/poller/poller.c` will no
 longer apply either. Both are needed for the roadmap's goals: a portable
 build, Windows support and a poller that keeps many requests in flight.
 

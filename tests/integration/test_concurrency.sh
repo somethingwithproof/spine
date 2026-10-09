@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: LGPL-2.1-only
+#
+# Fork maintenance: Thomas Vincent.
+# Project contributor history: CONTRIBUTORS.md.
 # Exercise Spine against many independent hosts while sweeping worker counts.
 # This is deliberately backend-neutral so the same contract can exercise the
 # legacy pthread poller and the future sharded libuv reactor.
@@ -40,8 +44,8 @@ esac
 
 mkdir -p "$ARTIFACT_ROOT"
 export SPINE_TEST_ARTIFACT_DIR=$ARTIFACT_ROOT
-# shellcheck source=tests/test-harness.sh
-source "$REPO_ROOT/tests/test-harness.sh"
+# shellcheck source=tests/support/test-harness.sh
+source "$REPO_ROOT/tests/support/test-harness.sh"
 harness_init "Spine concurrency integration"
 
 cleanup() {

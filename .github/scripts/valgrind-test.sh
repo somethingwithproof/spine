@@ -1,4 +1,8 @@
 #!/bin/sh
+# SPDX-License-Identifier: LGPL-2.1-only
+#
+# Fork maintenance: Thomas Vincent.
+# Project contributor history: CONTRIBUTORS.md.
 # Run one test program under Valgrind for the nightly workflow, either as the
 # make check LOG_COMPILER or directly. VALGRIND_TOOL selects memcheck or
 # helgrind.

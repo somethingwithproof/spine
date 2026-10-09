@@ -1,3 +1,10 @@
+/*
+ * SPDX-License-Identifier: LGPL-2.1-only
+ *
+ * Fork maintenance: Thomas Vincent.
+ * Project contributor history: CONTRIBUTORS.md.
+ */
+
 /* spine_log() stack use and the spine.conf tokenizer.
  *
  * Poller threads run on the platform's default stack: 128 KiB on musl,
@@ -19,8 +26,8 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 
-#include "common.h"
-#include "spine.h"
+#include "internal/common.h"
+#include "app/spine.h"
 
 #define MUSL_DEFAULT_STACK (128 * 1024)
 

@@ -75,7 +75,7 @@ jobs:
           base=$(git merge-base "origin/$BASE_REF" HEAD)
           status=0
           git clang-format-18 --binary clang-format-18 --diff --extensions c,h \
-            "$base" HEAD -- ':(exclude)uthash.h' > clang-format.diff || status=$?
+            "$base" HEAD -- ':(exclude)vendor/uthash/uthash.h' > clang-format.diff || status=$?
           cat clang-format.diff
           if [ "$status" -ne 0 ]; then
             echo "::error::Changed lines do not match .clang-format. Run 'git clang-format origin/$BASE_REF' and commit the result."

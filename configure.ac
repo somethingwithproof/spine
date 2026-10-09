@@ -1,23 +1,8 @@
-# +-------------------------------------------------------------------------+
-# | Copyright (C) 2004-2026 The Cacti Group                                 |
-# |                                                                         |
-# | This program is free software; you can redistribute it and/or           |
-# | modify it under the terms of the GNU General Public License             |
-# | as published by the Free Software Foundation; either version 2          |
-# | of the License, or (at your option) any later version.                  |
-# |                                                                         |
-# | This program is distributed in the hope that it will be useful,         |
-# | but WITHOUT ANY WARRANTY; without even the implied warranty of          |
-# | MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the           |
-# | GNU General Public License for more details.                            |
-# +-------------------------------------------------------------------------+
-# | Cacti: The Complete RRDtool-based Graphing Solution                     |
-# +-------------------------------------------------------------------------+
-# | This code is designed, written, and maintained by the Cacti Group. See  |
-# | about.php and/or the AUTHORS file for specific developer information.   |
-# +-------------------------------------------------------------------------+
-# | http://www.cacti.net/                                                   |
-# +-------------------------------------------------------------------------+
+# SPDX-FileCopyrightText: 2004-2026 The Cacti Group
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Fork maintenance: Thomas Vincent.
+# Project contributor history: CONTRIBUTORS.md.
 
 AC_PREREQ([2.69])
 AC_INIT([Spine Poller],[1.3.0],[http://www.cacti.net/issues.php])
@@ -26,7 +11,7 @@ AC_CONFIG_AUX_DIR(config)
 AC_SUBST(ac_aux_dir)
 
 AC_CANONICAL_HOST
-AC_CONFIG_SRCDIR(spine.c)
+AC_CONFIG_SRCDIR(src/app/main.c)
 AC_PREFIX_DEFAULT(/usr/local/spine)
 AC_LANG(C)
 
