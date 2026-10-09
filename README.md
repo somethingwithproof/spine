@@ -3,6 +3,8 @@
 [![CI](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/ci.yml)
 [![Production regressions](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/regressions.yml)
 [![CodeQL](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml/badge.svg?branch=develop)](https://github.com/somethingwithproof/spine/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/somethingwithproof/spine/badge)](https://scorecard.dev/viewer/?uri=github.com/somethingwithproof/spine)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15323/badge)](https://www.bestpractices.dev/en/projects/15323)
 [![License](https://img.shields.io/github/license/somethingwithproof/spine)](LICENSE)
 
 Spine is a multithreaded C poller for [Cacti](https://www.cacti.net/). It replaces
