@@ -1,14 +1,19 @@
 # OpenSSF assessment evidence
 
-Prepared on 2026-10-08 for `https://github.com/somethingwithproof/spine`.
-This is an evidence worksheet, not a published assessment or certification.
-Source changes cited from PR #38 are pending merge into `develop`.
+Updated on 2026-10-09 for `https://github.com/somethingwithproof/spine`.
+The evidence-based questionnaire was submitted through the owner's authenticated
+Chrome session as [project 15323](https://www.bestpractices.dev/en/projects/15323).
+Its published passing-level progress is 69%, **in progress**, not a passing
+certification. All 67 criteria have answers and justifications. Unknown answers
+remain where an audit or personal owner attestation is required.
+PRs #38 and #40 are merged; the assessment records published `develop` revision
+`2794f31790818df899595dcbe56923529eeafec4`. Pending layout, SPDX and scanner
+changes are distinguished from merged evidence.
 
 The [OpenSSF program page](https://openssf.org/projects/best-practices-badge/)
-links to the assessment service. A project-specific assessment must be created
-or updated at [bestpractices.dev](https://www.bestpractices.dev/) by an
-authenticated project owner. No project ID has been supplied for this fork.
-Use this fork's repository URL, not upstream Cacti's identity or badge.
+links to the assessment service. The assessment uses this fork's repository
+identity, not upstream Cacti's badge. The owner can continue answering unresolved
+criteria at [the passing-level editor](https://www.bestpractices.dev/en/projects/15323/passing/edit).
 
 ## Evidence available for the owner
 
@@ -71,10 +76,11 @@ The owner's choice to retain the current merge policy remains in effect.
 
 ## Publishing and verification
 
-1. The owner registers this repository or supplies its existing project ID.
-2. Review the evidence and unresolved questions, then submit truthful answers
-   through the owner's authenticated assessment account.
-3. Add a README badge only after its project URL and actual status are public.
-4. After the source fixes merge, inspect the next develop Scorecard analysis
+1. Project 15323 is registered and the evidence-based answers are submitted.
+2. The owner reviews the unresolved audits and personal attestations; neither
+   assistant-generated answers nor source code establish personal knowledge.
+3. README badges link to the actual progress assessment and published Scorecard;
+   neither is represented as a passing certification.
+4. After the pending source fixes merge, inspect the next develop Scorecard analysis
    and alert states. An assessment and a human review are separate requirements;
    neither can substitute for the other.

@@ -47,8 +47,10 @@ checks and administrator enforcement remain intact. Independent approval is
 not made mandatory.
 3251 reports the historical approval ratio. Future independent review improves
 that ratio; approvals must not be fabricated for past changesets.
-3252 requires an actual OpenSSF Best Practices assessment. A README badge cannot
-truthfully be added before the project has completed that assessment.
+3252 requires an actual OpenSSF Best Practices assessment. Project 15323 was
+registered and its evidence-based questionnaire submitted on 2026-10-09; the
+published progress is 69%, not passing certification. The next default-branch
+Scorecard run must verify its detection before the finding is called resolved.
 The [assessment evidence worksheet](openssf-assessment.md) records available
 evidence, owner-only attestations, and the independent-review limitation.
 
@@ -58,3 +60,27 @@ the initial independent security review. Function locations now follow
 
 PR validation remains offline: no live Cacti database, device polling, privilege
 changes, installation, or production deployment.
+
+## OpenSSF follow-up on 2026-10-09
+
+The published Scorecard for develop revision
+`2794f31790818df899595dcbe56923529eeafec4` is 8.3/10. Previously reported
+security-policy, pinned-dependency and token-permission findings are fixed.
+
+- **3253 / Vulnerabilities:** flawfinder 2.0.19 is affected by
+  [PYSEC-2026-2480](https://osv.dev/PYSEC-2026-2480), an output-injection issue
+  patched in 2.0.20. The follow-up updates the exact pin and regenerated SHA-256
+  lock; hash-verified installation and the existing CI scanner policy pass.
+- **3249 / SAST:** CodeQL now runs on all pushes and PRs, without cancelling an
+  earlier same-branch analysis. This prevents future trigger/cancellation gaps;
+  it does not fabricate successful scans for historical changesets.
+- **3252 / CII-Best-Practices:** the genuine assessment is now public at
+  [project 15323](https://www.bestpractices.dev/en/projects/15323). Unknown
+  answers and unmet release/scan criteria remain visible.
+- **3251 / Code-Review:** the historical 5/30 approval ratio remains. The sole
+  maintainer cannot independently approve their own PRs. The owner's existing
+  merge-policy choice is preserved; no approval records are fabricated.
+
+Dependency and workflow fixes are prepared for review. Their default-branch
+alert states and aggregate score must be rechecked after a future owner-approved
+merge and scan. The new README badges display actual published results.

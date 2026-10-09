@@ -16,6 +16,8 @@ on:
     paths: &build_paths
       - "configure.ac"
       - "Makefile.am"
+      - "bootstrap"
+      - ".github/actions/**"
       - "**.c"
       - "**.h"
       - "tests/**"

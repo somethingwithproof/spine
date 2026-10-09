@@ -5,6 +5,7 @@ on:
     branches: [develop, '1.2.x']
   pull_request:
     branches: [develop, '1.2.x']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
           # pull_request normally checks out GitHub's synthetic merge commit,
           # which cannot carry the contributor's DCO trailer.
@@ -58,6 +60,8 @@ jobs:
       STRICT_CFLAGS: -Wall -Wextra -Wformat=2 -Wno-format-nonliteral
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/build-spine
         with:
@@ -92,6 +96,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/build-spine
         with:
@@ -115,6 +121,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install build dependencies
         run: |
@@ -144,6 +152,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run cppcheck
         run: |
@@ -254,6 +264,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run shellcheck
         run: |
@@ -271,15 +283,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/build-spine
         with:
-          extra-packages: gcovr python3-pip
           # The tests start polling threads; non-atomic arc counters race and
           # gcov then reports negative branch counts (GCC bug 68080).
           cflags: -g -O0 --coverage -fprofile-update=atomic
           ldflags: --coverage
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/requirements-coverage.txt
+
+      - name: Install pinned coverage tools
+        run: python3 -m pip install --require-hashes -r .github/requirements-coverage.txt
 
       - name: Build instrumented
         run: |
@@ -310,14 +331,13 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          python3 -m pip install --break-system-packages --require-hashes -r .github/requirements-coverage.txt
           diff-cover coverage.xml \
             --compare-branch="origin/${BASE_REF}" \
             --fail-under=70
 
       - name: Upload coverage reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.4.3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
           path: |
@@ -331,10 +351,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.x"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/requirements-analysis.txt
 
       - name: Install flawfinder
         run: python3 -m pip install --require-hashes -r .github/requirements-analysis.txt
@@ -370,6 +394,8 @@ jobs:
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/build-spine
         with:
@@ -403,6 +429,8 @@ jobs:
       TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/build-spine
         with:
@@ -427,6 +455,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/build-spine
 
