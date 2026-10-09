@@ -33,6 +33,8 @@ libtool
 *.m4
 tests/unit/bin/
 test-artifacts/
+__pycache__/
+*.py[cod]
 
 # Local assistant sessions and isolated worktrees
 .omc/

@@ -925,6 +925,7 @@ static void test_abandoned_children_are_swept_and_capacity_is_bounded(void **sta
  * real call with WNOHANG) must still kill the child before parking it,
  * rather than leaving a still-running process outside the sweep's reach. */
 static void test_nft_pclose_kills_child_when_waitpid_errors(void **state) {
+	char ready;
 	int fd;
 	int status;
 	pid_t child;
@@ -937,6 +938,11 @@ static void test_nft_pclose_kills_child_when_waitpid_errors(void **state) {
 	assert_true(fd >= 0);
 	child = nft_pchild(fd);
 	assert_true(child > 0);
+	/* posix_spawn may return before the child applies its process-group
+	 * attributes on BSD. Confirm the script is running before injecting the
+	 * wait failure; this test checks that failure path, not spawn scheduling. */
+	assert_int_equal(read(fd, &ready, 1), 1);
+	assert_int_equal(ready, 'x');
 
 	forced_waitpid_error_pid = child;
 	forced_waitpid_error_errno = EINVAL;
