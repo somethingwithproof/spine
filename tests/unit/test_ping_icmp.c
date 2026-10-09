@@ -1019,6 +1019,68 @@ static void test_ipv6_datagram_socket_answers(void **state) {
 	assert_int_equal(controlled_socket_closed, 1);
 }
 
+static void test_ipv6_invalid_input_releases_resources(void **state) {
+	(void) state;
+	for (int mode = 0; mode <= 2; mode++) {
+		host_t host;
+		ping_t ping = {0};
+
+		assert_int_equal(ping_reset(NULL), 0);
+		use_owned_controlled_socket();
+		track_packet = 1;
+		packet_size = sizeof(struct icmp6_hdr) + sizeof(icmp6_payload) - 1;
+		resolver_mode = mode;
+		make_host(&host, mode == 0 ? "" : "::1");
+		pi_debug_table[0] = host.id;
+		assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_DOWN);
+		assert_string_equal(ping.ping_response, mode == 0 ? "ICMPv6: Destination address not specified" : "ICMPv6: Destination hostname invalid");
+		assert_string_equal(ping.ping_status, "down");
+		assert_int_equal(resolver_calls, mode == 0 ? 0 : mode == 1 ? 1
+																   : 4);
+		assert_int_equal(freeaddrinfo_calls, 0);
+		assert_int_equal(packet_released, 1);
+		assert_int_equal(controlled_socket_closed, 1);
+		assert_int_equal(ping_teardown(NULL), 0);
+		controlled_pair[0] = controlled_pair[1] = -1;
+	}
+}
+
+static void test_ipv6_fd_boundary_releases_resources(void **state) {
+	host_t host;
+	ping_t ping = {0};
+
+	(void) state;
+	use_controlled_socket = 1;
+	controlled_socket_fd = FD_SETSIZE;
+	controlled_reply = 1;
+	controlled_reply_v6 = 1;
+	track_packet = 1;
+	packet_size = sizeof(struct icmp6_hdr) + sizeof(icmp6_payload) - 1;
+	make_host6(&host);
+	pi_debug_table[0] = host.id;
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_DOWN);
+	assert_non_null(strstr(ping.ping_response, "FD_SETSIZE"));
+	assert_int_equal(packet_released, 1);
+	assert_int_equal(controlled_socket_closed, 1);
+}
+
+static void test_ipv6_socket_failure_budget_is_bounded(void **state) {
+	host_t host;
+	ping_t ping = {0};
+
+	(void) state;
+	/* The datagram attempt and all five raw attempts fail deterministically. */
+	socket_failures_remaining = 6;
+	set.logging.log_level = POLLER_VERBOSITY_DEBUG;
+	make_host6(&host);
+	pi_debug_table[0] = host.id;
+	assert_int_equal(ping_icmp_ipv6(&host, &ping), HOST_DOWN);
+	assert_non_null(strstr(ping.ping_response, "unable to create ICMPv6 Socket"));
+	assert_int_equal(socket_calls, 6);
+	assert_int_equal(controlled_socket_closed, 0);
+	assert_null(packet_allocation);
+}
+
 int main(void) {
 	const struct CMUnitTest tests[] = {
 		cmocka_unit_test_setup_teardown(test_fd_setsize_guard_releases_the_packet, ping_reset, ping_teardown),
@@ -1047,6 +1109,9 @@ int main(void) {
 		cmocka_unit_test_setup_teardown(test_ipv6_shared_socket_answers, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_ipv6_shared_socket_timeout, ping_reset, ping_teardown),
 		cmocka_unit_test_setup_teardown(test_ipv6_datagram_socket_answers, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_invalid_input_releases_resources, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_fd_boundary_releases_resources, ping_reset, ping_teardown),
+		cmocka_unit_test_setup_teardown(test_ipv6_socket_failure_budget_is_bounded, ping_reset, ping_teardown),
 	};
 
 	return cmocka_run_group_tests(tests, NULL, NULL);

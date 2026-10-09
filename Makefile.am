@@ -121,6 +121,24 @@ coverage-fault-source-list:
 # Production and linked tests share runtime objects. Report real object names.
 coverage-object-list:
 	@printf '%s\n' $(spine_OBJECTS) $(test_spine_regressions_OBJECTS) $(test_spine_faults_OBJECTS) | LC_ALL=C sort -u
+
+# The cmocka suites exercise shipped code, including socket/error paths via
+# syscall interception. Keep their measured producers separate from the
+# unmodified production-linked regression/fault producers above.
+.PHONY: coverage-unit-program-list coverage-unit-object-list
+coverage-unit-program-list:
+	@printf '%s\n' $(filter tests/unit/%,$(check_PROGRAMS))
+
+# spine_runtime.c contains only test globals and generates no executable
+# coverage profile. All production sources remain in coverage-object-list.
+coverage-unit-object-list:
+	@printf '%s\n' $(filter-out tests/support/spine_runtime.o tests/support/%-spine_runtime.o, \
+	 $(tests_unit_test_util_strings_OBJECTS) $(tests_unit_test_build_fixes_OBJECTS) \
+	 $(tests_unit_test_safety_fixes_OBJECTS) $(tests_unit_test_linked_OBJECTS) \
+	 $(tests_unit_test_classify_result_OBJECTS) $(tests_unit_test_util_paths_OBJECTS) \
+	 $(tests_unit_test_snmpv3_session_OBJECTS) $(tests_unit_test_ping_icmp_OBJECTS) \
+	 $(tests_unit_test_ping_timing_OBJECTS) $(tests_unit_test_log_config_OBJECTS) \
+	 $(tests_unit_test_php_runtime_OBJECTS) $(tests_unit_test_poll_host_OBJECTS)) | LC_ALL=C sort -u
 # Docker targets — require Dockerfile and docker/dev.Dockerfile (from PR #401)
 .PHONY: docker docker-dev verify cppcheck
 
@@ -279,6 +297,7 @@ EXTRA_DIST += docs/architecture/source-modules.md
 
 EXTRA_DIST += docs/security/2026-10-code-scanning-review.md
 EXTRA_DIST += docs/security/openssf-assessment.md
+EXTRA_DIST += docs/security/2026-10-sonar-ci-review.md
 
 noinst_HEADERS += src/app/buffer.h \
 	src/app/runtime.h \
