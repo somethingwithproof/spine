@@ -4676,12 +4676,7 @@ coverage-unit-program-list:
 # coverage profile. All production sources remain in coverage-object-list.
 coverage-unit-object-list:
 	@printf '%s\n' $(filter-out tests/support/spine_runtime.o tests/support/%-spine_runtime.o, \
-	 $(tests_unit_test_util_strings_OBJECTS) $(tests_unit_test_build_fixes_OBJECTS) \
-	 $(tests_unit_test_safety_fixes_OBJECTS) $(tests_unit_test_linked_OBJECTS) \
-	 $(tests_unit_test_classify_result_OBJECTS) $(tests_unit_test_util_paths_OBJECTS) \
-	 $(tests_unit_test_snmpv3_session_OBJECTS) $(tests_unit_test_ping_icmp_OBJECTS) \
-	 $(tests_unit_test_ping_timing_OBJECTS) $(tests_unit_test_log_config_OBJECTS) \
-	 $(tests_unit_test_php_runtime_OBJECTS) $(tests_unit_test_poll_host_OBJECTS)) | LC_ALL=C sort -u
+	 $(foreach program,$(filter tests/unit/%,$(check_PROGRAMS)),$($(subst /,_,$(program))_OBJECTS))) | LC_ALL=C sort -u
 # Docker targets — require Dockerfile and docker/dev.Dockerfile (from PR #401)
 .PHONY: docker docker-dev verify cppcheck
 
