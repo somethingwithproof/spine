@@ -41,6 +41,14 @@ branch reports to the SonarCloud main branch. Any other branch passes
 side-branch run never replaces the `develop` analysis. Tag refs and ref names
 outside `[A-Za-z0-9._/-]` are rejected before the build starts.
 
+Coverage includes the production-linked regression/fault programs and the
+cmocka suites, including syscall-intercepted error and IPv6 cases. The latter
+compile the shipped implementations; their measured profiles supplement the
+real-system-call contracts. Both sets have explicit object manifests, required
+nonempty gcov notes/profiles, source and binary hashes, and retained test logs.
+Missing cmocka is an error rather than a reduced coverage run. No source or
+branch is removed from the report to meet the Sonar quality gate.
+
 ### Enabling analysis
 
 1. In SonarCloud, create a token under My Account > Security. A project

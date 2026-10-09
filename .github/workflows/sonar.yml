@@ -135,7 +135,7 @@ jobs:
       - name: Install build dependencies
         uses: ./.github/actions/install-apt-deps
         with:
-          packages: autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin lcov bear jq
+          packages: autoconf automake libtool help2man libmariadb-dev mariadb-client libsnmp-dev snmpd libssl-dev libcap2-bin libcmocka-dev lcov bear jq
       - name: Build, test and record compilation database
         run: |
           set -euo pipefail
