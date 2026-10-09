@@ -1,26 +1,3 @@
-# Default review routing.
-*                              @Cacti/cacti-developers
-
-# CI, release and dependency policy changes need both implementation and
-# security review. These requirements take effect when the repository ruleset
-# enables code-owner approval.
-/.github/                      @Cacti/cacti-developers @Cacti/cacti-security
-/configure.ac                  @Cacti/cacti-developers @Cacti/cacti-security
-/Makefile.am                   @Cacti/cacti-developers @Cacti/cacti-security
-/Dockerfile                    @Cacti/cacti-developers @Cacti/cacti-security
-/docker/                       @Cacti/cacti-developers @Cacti/cacti-security
-/vendor/                       @Cacti/cacti-developers @Cacti/cacti-security
-
-# High-risk runtime boundaries.
-/src/database/                 @Cacti/cacti-developers @Cacti/cacti-security
-/src/snmp/                     @Cacti/cacti-developers @Cacti/cacti-security
-/src/app/                      @Cacti/cacti-developers @Cacti/cacti-security
-/src/platform/                 @Cacti/cacti-developers @Cacti/cacti-security
-/src/log/                      @Cacti/cacti-developers @Cacti/cacti-security
-/src/internal/                 @Cacti/cacti-developers @Cacti/cacti-security
-
-# Reachability and polling implementation modules.
-/src/ping/                     @Cacti/cacti-developers @Cacti/cacti-security
-/src/poller/                   @Cacti/cacti-developers @Cacti/cacti-security
-/src/script/                   @Cacti/cacti-developers @Cacti/cacti-security
-/src/process/                  @Cacti/cacti-developers @Cacti/cacti-security
+# Review routing for this fork; mandatory approvals remain a repository policy.
+# Upstream Cacti teams do not have ownership permissions in this repository.
+* @somethingwithproof

@@ -85,3 +85,42 @@ To update TruffleHog, take the new SHA-256 from the release's
 `checksums.txt` after verifying that file's cosign signature. To update
 Semgrep, pin the new image index digest
 (`docker buildx imagetools inspect semgrep/semgrep:<version>`).
+
+## Dependency maintenance
+
+`.github/dependabot.yml` follows the repository's default branch, `develop`.
+Version updates run weekly at staggered UTC times; minor/patch updates are
+grouped by ecosystem and major upgrades remain separate. Security updates are
+enabled in repository settings and are not delayed by the version cooldown.
+
+| Ecosystem | Maintained inputs |
+| --- | --- |
+| GitHub Actions | Workflow and action references, including pinned commit IDs |
+| Docker | Root, development/coverage and SNMP fixture base-image tags/digests |
+| pip | `.github/requirements-*.in` and their complete hash-pinned `.txt` locks |
+| pre-commit | Remote hook revisions in `.pre-commit-config.yaml` |
+
+There is no npm application or manifest. Distro-managed C libraries, vendored
+uthash bytes, local hook `additional_dependencies`, and tool/image versions
+embedded in shell or environment variables still require explicit review.
+Dependabot does not replace that work. Labels referenced by the configuration
+exist in the repository. Updates use the same required tests and merge policy
+as other changes; there is no privileged auto-merge workflow.
+
+## Workflow conventions
+
+Build jobs share the build/install composite actions. The installer validates
+package names, passes an argument array, and omits recommended packages; it
+does not cache mutable OS package state. Coverage and flawfinder use a selected
+Python 3.12 runtime, hash-verified tool locks and download caches keyed by those
+locks. This avoids mixing distro and pip coverage-tool versions or modifying
+the system Python environment.
+
+All checkouts disable persisted credentials, jobs have explicit timeouts, and
+tokens default to read-only permissions. SARIF/OIDC permissions stay scoped to
+the jobs that require them. CodeQL scans all pushes and PRs without cancelling
+an earlier commit's scan. Other long-running test workflows cancel superseded
+runs; their stable required gate continues to reject failed, cancelled or
+unexpectedly skipped jobs. Build/action changes trigger the affected fuzz,
+integration and distro checks. No existing test, compiler lane, sanitizer,
+coverage threshold or diagnostic gate is removed by this cleanup.
