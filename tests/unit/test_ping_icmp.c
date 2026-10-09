@@ -894,6 +894,13 @@ static void test_shared_dispatch_ipv6(void **state) {
 	icmp_shared_dispatch(AF_INET, reply, length, &from);
 	assert_false(waiter.answered);
 	source->sin6_addr = in6addr_loopback;
+	/* Every address octet participates in peer identity; struct padding does not. */
+	for (size_t octet = 0; octet < sizeof(source->sin6_addr.s6_addr); octet++) {
+		source->sin6_addr.s6_addr[octet] ^= 0x80;
+		icmp_shared_dispatch(AF_INET6, reply, length, &from);
+		assert_false(waiter.answered);
+		source->sin6_addr.s6_addr[octet] ^= 0x80;
+	}
 	icmp_shared_dispatch(AF_INET6, reply, length, &from);
 	assert_true(waiter.answered);
 	thread_mutex_unlock(LOCK_ICMP);
