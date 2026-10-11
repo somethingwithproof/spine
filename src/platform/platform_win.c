@@ -159,10 +159,10 @@ static HANDLE g_spine_job_object = NULL;
  * that would otherwise stall a headless poller. BREAKAWAY_OK leaves an
  * escape hatch for operator-launched helpers that must outlive spine. */
 void spine_win_init_job(void) {
-	JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {0};
 
-	if (g_spine_job_object != NULL) {
-		return;
+  if (g_spine_job_object != NULL) {
+    return;
 	}
 
 	g_spine_job_object = CreateJobObjectW(NULL, NULL);
@@ -170,8 +170,7 @@ void spine_win_init_job(void) {
 		return;
 	}
 
-	memset(&limits, 0, sizeof(limits));
-	limits.BasicLimitInformation.LimitFlags =
+        limits.BasicLimitInformation.LimitFlags =
 		JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
 		JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION |
 		JOB_OBJECT_LIMIT_BREAKAWAY_OK;

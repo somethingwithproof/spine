@@ -61,13 +61,26 @@ static void test_accepts_extra_trailing(void) {
 	ASSERT_INT_EQ(spine_ping_validate_payload(buf, sizeof(buf), 0x01020304u), 1);
 }
 
+static void test_unaligned_payload(void) {
+  const spine_ping_payload_t payload = {
+      .magic = SPINE_PING_MAGIC, .pid_mask = 0x12345678u, .timestamp_us = 99u};
+  unsigned char bytes[sizeof(payload) + _Alignof(spine_ping_payload_t)];
+  for (size_t offset = 0; offset < _Alignof(spine_ping_payload_t); offset++) {
+    memcpy(bytes + offset, &payload, sizeof(payload));
+    ASSERT_INT_EQ(spine_ping_validate_payload(bytes + offset, sizeof(payload),
+                                              payload.pid_mask),
+                  1);
+  }
+}
+
 int main(void) {
-	test_wire_format_size();
-	test_accepts_well_formed();
-	test_rejects_wrong_magic();
-	test_rejects_wrong_pid_mask();
-	test_rejects_undersized();
-	test_rejects_null_buf();
-	test_accepts_extra_trailing();
-	return finish_tests("ping reply validation tests");
+  test_unaligned_payload();
+  test_wire_format_size();
+  test_accepts_well_formed();
+  test_rejects_wrong_magic();
+  test_rejects_wrong_pid_mask();
+  test_rejects_undersized();
+  test_rejects_null_buf();
+  test_accepts_extra_trailing();
+  return finish_tests("ping reply validation tests");
 }

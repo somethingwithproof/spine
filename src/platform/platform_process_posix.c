@@ -32,11 +32,11 @@ int spine_process_pipe(int pipe_fds[2]) {
 	if (rc == 0) {
 		if (fcntl(pipe_fds[0], F_SETFD, FD_CLOEXEC) == -1 ||
 			fcntl(pipe_fds[1], F_SETFD, FD_CLOEXEC) == -1) {
-			int saved_errno = errno;
-			close(pipe_fds[0]);
-			close(pipe_fds[1]);
-			errno = saved_errno;
-			return -1;
+                  const int saved_errno = errno;
+                  close(pipe_fds[0]);
+                  close(pipe_fds[1]);
+                  errno = saved_errno;
+                  return -1;
 		}
 	}
 	return rc;
@@ -72,30 +72,29 @@ int spine_process_spawn_retry(
 	unsigned int retry_sleep_us
 ) {
 	int spawn_err;
-	int retry_count;
-	char *const *spawn_envp;
+        int retry_count = 0;
+        char *const *spawn_envp = envp == NULL ? environ : envp;
 
-	retry_count = 0;
-	spawn_envp = envp == NULL ? environ : envp;
+        for (;;) {
+          pid_t spawned_pid;
 
-	do {
-		pid_t spawned_pid;
+          spawn_err = posix_spawn(&spawned_pid, path, file_actions, spawn_attr,
+                                  argv, spawn_envp);
+          if ((spawn_err == EAGAIN || spawn_err == ENOMEM) &&
+              retry_count < retry_limit) {
+            retry_count++;
+            spine_platform_sleep_us(retry_sleep_us);
+            continue;
+          }
 
-		spawn_err = posix_spawn(&spawned_pid, path, file_actions, spawn_attr, argv, spawn_envp);
-		if ((spawn_err == EAGAIN || spawn_err == ENOMEM) && retry_count < retry_limit) {
-			retry_count++;
-			spine_platform_sleep_us(retry_sleep_us);
-			continue;
-		}
+          if (spawn_err == 0) {
+            *pid = spawned_pid;
+          }
 
-		if (spawn_err == 0) {
-			*pid = spawned_pid;
-		}
+          break;
+        }
 
-		break;
-	} while (1);
-
-	return spawn_err;
+        return spawn_err;
 }
 
 #endif

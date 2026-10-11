@@ -29,8 +29,8 @@ static wchar_t *spine_windows_utf8_to_wide(const char *input) {
 		return NULL;
 	}
 
-	output = (wchar_t *) malloc((size_t) required_chars * sizeof(wchar_t));
-	if (output == NULL) {
+        output = malloc((size_t)required_chars * sizeof(*output));
+        if (output == NULL) {
 		errno = ENOMEM;
 		return NULL;
 	}
@@ -107,8 +107,8 @@ static wchar_t *spine_windows_build_command_line(char *const argv[]) {
 		arg_count++;
 	}
 
-	command_line = (wchar_t *) malloc(total_len * sizeof(wchar_t));
-	if (command_line == NULL) {
+        command_line = malloc(total_len * sizeof(*command_line));
+        if (command_line == NULL) {
 		return NULL;
 	}
 
@@ -291,29 +291,29 @@ int spine_process_spawn_retry(
 	int retry_limit,
 	unsigned int retry_sleep_us
 ) {
-	STARTUPINFOW startup_info;
-	PROCESS_INFORMATION process_info;
-	wchar_t *command_line_template;
-	wchar_t *command_line;
-	wchar_t *wide_path;
-	BOOL create_result;
-	int retry_count;
-	int spawn_error;
-	DWORD last_error;
-	DWORD creation_flags;
+  STARTUPINFOW startup_info = {.cb = sizeof(startup_info)};
+  PROCESS_INFORMATION process_info = {0};
+  wchar_t *command_line_template;
+  wchar_t *command_line;
+  wchar_t *wide_path;
+  BOOL create_result;
+  int retry_count;
+  int spawn_error;
+  DWORD last_error;
+  DWORD creation_flags;
 
-	(void) file_actions;
-	(void) spawn_attr;
+  (void)file_actions;
+  (void)spawn_attr;
 
-	retry_count = 0;
-	/* CREATE_SUSPENDED + AssignProcessToJobObject + ResumeThread is the
-	 * documented pattern for binding a child to a Job Object before it can
-	 * execute any user code. Without CREATE_SUSPENDED the child may exit or
-	 * spawn grandchildren that escape the job. */
-	creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED;
-	if (envp != NULL) {
-		errno = ENOTSUP;
-		return ENOTSUP;
+  retry_count = 0;
+  /* CREATE_SUSPENDED + AssignProcessToJobObject + ResumeThread is the
+   * documented pattern for binding a child to a Job Object before it can
+   * execute any user code. Without CREATE_SUSPENDED the child may exit or
+   * spawn grandchildren that escape the job. */
+  creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED;
+  if (envp != NULL) {
+    errno = ENOTSUP;
+    return ENOTSUP;
 	}
 	wide_path = spine_windows_utf8_to_wide(path);
 	command_line_template = spine_windows_build_command_line(argv);
@@ -323,11 +323,7 @@ int spine_process_spawn_retry(
 		return ENOMEM;
 	}
 
-	memset(&startup_info, 0, sizeof(startup_info));
-	startup_info.cb = sizeof(startup_info);
-	memset(&process_info, 0, sizeof(process_info));
-
-	do {
+        do {
 		command_line = _wcsdup(command_line_template);
 		if (command_line == NULL) {
 			free(wide_path);

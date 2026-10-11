@@ -36,29 +36,32 @@ int spine_apply_ipv6_scope_id(struct sockaddr_in6 *sin6, const char *ifname) {
 	}
 
 	if (ifname != NULL && ifname[0] != '\0') {
-		unsigned int idx = if_nametoindex(ifname);
-		if (idx != 0) {
-			sin6->sin6_scope_id = idx;
-			return 0;
+          const unsigned int idx = if_nametoindex(ifname);
+          if (idx != 0) {
+            sin6->sin6_scope_id = idx;
+            return 0;
 		}
 	}
 
 	{
-		struct ifaddrs *ifa_list = NULL;
-		struct ifaddrs *ifa;
-		int found = 0;
-		if (getifaddrs(&ifa_list) == 0) {
-			for (ifa = ifa_list; ifa != NULL; ifa = ifa->ifa_next) {
-				if (ifa->ifa_addr == NULL) continue;
-				if (ifa->ifa_addr->sa_family != AF_INET6) continue;
-				if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-				sin6->sin6_scope_id = if_nametoindex(ifa->ifa_name);
-				if (sin6->sin6_scope_id != 0) {
-					found = 1;
-					break;
-				}
-			}
-			freeifaddrs(ifa_list);
+          struct ifaddrs *ifa_list = NULL;
+          int found = 0;
+          if (getifaddrs(&ifa_list) == 0) {
+            for (const struct ifaddrs *ifa = ifa_list; ifa != NULL;
+                 ifa = ifa->ifa_next) {
+              if (ifa->ifa_addr == NULL)
+                continue;
+              if (ifa->ifa_addr->sa_family != AF_INET6)
+                continue;
+              if (ifa->ifa_flags & IFF_LOOPBACK)
+                continue;
+              sin6->sin6_scope_id = if_nametoindex(ifa->ifa_name);
+              if (sin6->sin6_scope_id != 0) {
+                found = 1;
+                break;
+              }
+            }
+            freeifaddrs(ifa_list);
 		}
 		return found ? 0 : -1;
 	}

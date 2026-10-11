@@ -129,8 +129,8 @@ char **spine_build_child_env(void) {
 	while (environ && environ[n]) n++;
 
 	/* +3 for possible PATH, IFS, and NULL terminator. */
-	char **new_env = calloc(n + 3, sizeof(char *));
-	if (!new_env) return NULL;
+        char **new_env = calloc(n + 3, sizeof(*new_env));
+        if (!new_env) return NULL;
 
 	int has_path = 0;
 	int has_ifs  = 0;
@@ -138,10 +138,11 @@ char **spine_build_child_env(void) {
 	for (size_t r = 0; r < n; r++) {
 		int skip = 0;
 		for (size_t d = 0; spine_dangerous_env_prefixes[d]; d++) {
-			size_t plen = strlen(spine_dangerous_env_prefixes[d]);
-			if (strncmp(environ[r], spine_dangerous_env_prefixes[d], plen) == 0) {
-				skip = 1;
-				break;
+                  const size_t plen = strlen(spine_dangerous_env_prefixes[d]);
+                  if (strncmp(environ[r], spine_dangerous_env_prefixes[d],
+                              plen) == 0) {
+                    skip = 1;
+                    break;
 			}
 		}
 		if (skip) continue;
@@ -231,14 +232,14 @@ int nft_popen(const char * command, const char * type) {
 	/* Disable thread cancellation from this point forward. */
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
 
-	if ((cur = malloc(sizeof(struct pid))) == NULL) {
-		(void)spine_process_close_fd(pdes[0]);
-		(void)spine_process_close_fd(pdes[1]);
-		pthread_setcancelstate(cancel_state, NULL);
-		return -1;
-	}
+        if ((cur = malloc(sizeof(*cur))) == NULL) {
+          (void)spine_process_close_fd(pdes[0]);
+          (void)spine_process_close_fd(pdes[1]);
+          pthread_setcancelstate(cancel_state, NULL);
+          return -1;
+        }
 
-	if ((command_copy = strdup(command)) == NULL) {
+        if ((command_copy = strdup(command)) == NULL) {
 		(void)spine_process_close_fd(pdes[0]);
 		(void)spine_process_close_fd(pdes[1]);
 		free(cur);

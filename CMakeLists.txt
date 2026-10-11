@@ -677,6 +677,7 @@ function(spine_add_platform_test test_name)
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/platform
+        ${CMAKE_SOURCE_DIR}/tests/support
         ${CMAKE_SOURCE_DIR}/third_party
     )
     target_link_libraries(test_platform_${test_name} PRIVATE Threads::Threads)
@@ -821,7 +822,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(test_ping_reply_validation PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
+        ${CMAKE_SOURCE_DIR}/tests/support
     )
     if(TARGET spine_build_options)
         target_link_libraries(test_ping_reply_validation PRIVATE spine_build_options)
@@ -836,7 +837,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(test_ping_ipv6_scope PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
+        ${CMAKE_SOURCE_DIR}/tests/support
     )
     if(TARGET spine_build_options)
         target_link_libraries(test_ping_ipv6_scope PRIVATE spine_build_options)
@@ -853,7 +854,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(test_systemd_notify PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
+        ${CMAKE_SOURCE_DIR}/tests/support
     )
     if(TARGET spine_build_options)
         target_link_libraries(test_systemd_notify PRIVATE spine_build_options)
@@ -880,7 +881,7 @@ if(BUILD_TESTING)
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/platform
-        ${CMAKE_SOURCE_DIR}/tests/unit
+        ${CMAKE_SOURCE_DIR}/tests/support
         ${CMAKE_SOURCE_DIR}/third_party
     )
     target_link_libraries(test_sandbox PRIVATE Threads::Threads)
@@ -902,11 +903,11 @@ if(BUILD_TESTING)
     # the whole util.c + mysql + net-snmp chain just for a pure-string test.
     add_executable(test_json_log
         tests/unit/test_json_log.c
-        tests/unit/json_escape_tu.c
+        tests/support/json_escape_tu.c
     )
     target_include_directories(test_json_log PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/tests/unit
+        ${CMAKE_SOURCE_DIR}/tests/support
     )
     if(TARGET spine_build_options)
         target_link_libraries(test_json_log PRIVATE spine_build_options)
@@ -929,7 +930,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
             ${CMAKE_SOURCE_DIR}/third_party
         )
         target_link_libraries(test_icmp_win_loader PRIVATE Threads::Threads
@@ -950,11 +951,11 @@ if(BUILD_TESTING)
     if(NOT WIN32)
         add_executable(test_env_scrub
             tests/unit/test_env_scrub.c
-            tests/unit/build_child_env_tu.c
+            tests/support/build_child_env_tu.c
         )
         target_include_directories(test_env_scrub PRIVATE
             ${CMAKE_SOURCE_DIR}/src
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
         )
         if(TARGET spine_build_options)
             target_link_libraries(test_env_scrub PRIVATE spine_build_options)
@@ -967,6 +968,101 @@ if(BUILD_TESTING)
     # the spine config struct and/or MySQL. Gate them behind the same main
     # build so we only wire them when mysql + net-snmp were discovered.
     if(SPINE_BUILD_MAIN)
+        if(NOT WIN32)
+            # Compile the real ping.c through the test TU to exercise private
+            # helpers with a deterministic resolver, without sending probes.
+            foreach(ping_test IN ITEMS ping_c17 ping_behavior)
+                add_executable(test_${ping_test}
+                    tests/unit/test_${ping_test}.c
+                    tests/support/test_spine_stubs.c
+                    src/util.c
+                    src/ping_validate.c
+                    src/ping_ipv6_scope.c
+                )
+                target_include_directories(test_${ping_test} PRIVATE
+                    ${CMAKE_BINARY_DIR}
+                    ${CMAKE_SOURCE_DIR}
+                    ${CMAKE_SOURCE_DIR}/src
+                    ${CMAKE_SOURCE_DIR}/src/platform
+                    ${CMAKE_SOURCE_DIR}/tests/support
+                    ${CMAKE_SOURCE_DIR}/third_party
+                )
+                target_link_libraries(test_${ping_test} PRIVATE
+                    spine_platform spine_mysql spine_netsnmp Threads::Threads
+                    spine_hardening spine_posix_features
+                )
+                if(OpenSSL_FOUND)
+                    target_link_libraries(test_${ping_test} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+                endif()
+                if(TARGET spine_build_options)
+                    target_link_libraries(test_${ping_test} PRIVATE spine_build_options)
+                endif()
+                add_test(NAME ${ping_test} COMMAND test_${ping_test})
+            endforeach()
+            add_test(NAME cli_behavior COMMAND ${CMAKE_COMMAND}
+                -DSPINE_EXECUTABLE=$<TARGET_FILE:spine>
+                -DBASELINE_FILE=${CMAKE_SOURCE_DIR}/tests/fixtures/remaining_cli_baseline.json
+                -P ${CMAKE_SOURCE_DIR}/tests/cmake/test_cli_behavior.cmake)
+            set_tests_properties(cli_behavior PROPERTIES TIMEOUT 30)
+            foreach(behavior_test IN ITEMS sql_behavior script_behavior snmp_behavior support_behavior)
+                add_executable(test_${behavior_test}
+                    tests/unit/test_${behavior_test}.c
+                )
+                if(behavior_test STREQUAL "snmp_behavior")
+                    target_sources(test_${behavior_test} PRIVATE tests/support/test_spine_stubs.c src/util.c)
+                elseif(NOT behavior_test STREQUAL "support_behavior")
+                    target_sources(test_${behavior_test} PRIVATE tests/support/test_sql_stubs.c)
+                endif()
+                if(behavior_test STREQUAL "script_behavior")
+                    target_sources(test_${behavior_test} PRIVATE src/nft_popen.c)
+                    add_test(NAME script_buffers COMMAND test_${behavior_test} --buffers)
+                    set_tests_properties(script_buffers PROPERTIES TIMEOUT 30)
+                endif()
+                target_include_directories(test_${behavior_test} PRIVATE
+                    ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
+                    ${CMAKE_SOURCE_DIR}/src/platform ${CMAKE_SOURCE_DIR}/tests/support
+                    ${CMAKE_SOURCE_DIR}/third_party
+                )
+                target_link_libraries(test_${behavior_test} PRIVATE
+                    spine_platform spine_mysql spine_netsnmp Threads::Threads
+                    spine_hardening spine_posix_features
+                )
+                if(OpenSSL_FOUND)
+                    target_link_libraries(test_${behavior_test} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+                endif()
+                if(TARGET spine_build_options)
+                    target_link_libraries(test_${behavior_test} PRIVATE spine_build_options)
+                endif()
+                add_test(NAME ${behavior_test} COMMAND test_${behavior_test})
+                set_tests_properties(${behavior_test} PROPERTIES TIMEOUT 30)
+            endforeach()
+            add_executable(test_poller_util_behavior
+                tests/unit/test_poller_util_behavior.c
+                tests/support/test_spine_stubs.c
+                src/ping.c
+                src/ping_validate.c
+                src/ping_ipv6_scope.c
+            )
+            target_include_directories(test_poller_util_behavior PRIVATE
+                ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
+                ${CMAKE_SOURCE_DIR}/src/platform ${CMAKE_SOURCE_DIR}/tests/support
+                ${CMAKE_SOURCE_DIR}/third_party
+            )
+            target_link_libraries(test_poller_util_behavior PRIVATE
+                spine_platform spine_mysql spine_netsnmp Threads::Threads
+                spine_hardening spine_posix_features
+            )
+            if(OpenSSL_FOUND)
+                target_link_libraries(test_poller_util_behavior PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+            endif()
+            if(TARGET spine_build_options)
+                target_link_libraries(test_poller_util_behavior PRIVATE spine_build_options)
+            endif()
+            add_test(NAME poller_util_behavior COMMAND test_poller_util_behavior
+                ${CMAKE_SOURCE_DIR}/tests/fixtures/poller_util_behavior_baseline.txt)
+            set_tests_properties(poller_util_behavior PROPERTIES TIMEOUT 30)
+        endif()
+
         add_executable(test_circuit_breaker
             tests/unit/test_circuit_breaker.c
             src/circuit_breaker.c
@@ -977,7 +1073,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
             ${CMAKE_SOURCE_DIR}/third_party
         )
         target_link_libraries(test_circuit_breaker PRIVATE
@@ -1002,7 +1098,7 @@ if(BUILD_TESTING)
 
         add_executable(test_dump_config
             tests/unit/test_dump_config.c
-            tests/unit/test_spine_stubs.c
+            tests/support/test_spine_stubs.c
             src/util.c
         )
         target_include_directories(test_dump_config PRIVATE
@@ -1010,7 +1106,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
             ${CMAKE_SOURCE_DIR}/third_party
         )
         target_link_libraries(test_dump_config PRIVATE
@@ -1030,7 +1126,7 @@ if(BUILD_TESTING)
 
         add_executable(test_check_mode
             tests/unit/test_check_mode.c
-            tests/unit/test_spine_stubs.c
+            tests/support/test_spine_stubs.c
             src/util.c
         )
         target_include_directories(test_check_mode PRIVATE
@@ -1038,7 +1134,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
             ${CMAKE_SOURCE_DIR}/third_party
         )
         target_link_libraries(test_check_mode PRIVATE
@@ -1061,7 +1157,7 @@ if(BUILD_TESTING)
 
         add_executable(test_dry_run
             tests/unit/test_dry_run.c
-            tests/unit/test_sql_stubs.c
+            tests/support/test_sql_stubs.c
             src/sql.c
         )
         target_include_directories(test_dry_run PRIVATE
@@ -1069,7 +1165,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
             ${CMAKE_SOURCE_DIR}/third_party
         )
         target_link_libraries(test_dry_run PRIVATE
@@ -1099,7 +1195,7 @@ if(BUILD_TESTING)
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_SOURCE_DIR}/src
             ${CMAKE_SOURCE_DIR}/src/platform
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
         )
         target_link_libraries(test_job_object PRIVATE Threads::Threads ws2_32 iphlpapi advapi32)
         if(TARGET spine_build_options)
@@ -1113,7 +1209,7 @@ if(BUILD_TESTING)
     if(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD|DragonFly)$")
         add_executable(test_arc4random tests/unit/test_arc4random.c)
         target_include_directories(test_arc4random PRIVATE
-            ${CMAKE_SOURCE_DIR}/tests/unit
+            ${CMAKE_SOURCE_DIR}/tests/support
         )
         if(TARGET spine_build_options)
             target_link_libraries(test_arc4random PRIVATE spine_build_options)

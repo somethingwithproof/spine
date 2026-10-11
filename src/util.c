@@ -102,22 +102,21 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
-	MYSQL_ROW mysql_row;
-	int       i;
+        MYSQL_ROW mysql_row;
 
-	assert(psql    != 0);
+        assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
-		if (STRIMATCH(setting, opttable[i].opt)) {
-			/* FOUND IT! */
-			retval = strdup(opttable[i].val);
-			return retval;
-		}
-	}
+        for (int i = 0; i < nopts; i++) {
+          if (STRIMATCH(setting, opttable[i].opt)) {
+            /* FOUND IT! */
+            retval = strdup(opttable[i].val);
+            return retval;
+          }
+        }
 
-	snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
+        snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE value FROM settings WHERE name = '%s'", setting);
 
 	result = db_query(psql, mode, qstring);
 
@@ -151,26 +150,25 @@ static char *getsetting(MYSQL *psql, int mode, const char *setting) {
  *
  */
 static int putsetting(MYSQL *psql, int mode, const char *mysetting, const char *myvalue) {
-	char  qstring[BUFSIZE];
-	int   result = 0;
+  char qstring[BUFSIZE];
 
-	assert(psql    != 0);
-	assert(mysetting != 0);
-	assert(myvalue   != 0);
+  assert(psql != 0);
+  assert(mysetting != 0);
+  assert(myvalue != 0);
 
-	if (set.dbonupdate == 0) {
-		snprintf(qstring, sizeof(qstring), "INSERT INTO settings (name, value) "
-			"VALUES ('%s', '%s') "
-			"ON DUPLICATE KEY UPDATE value = VALUES(value)", mysetting, myvalue);
+  if (set.dbonupdate == 0) {
+    snprintf(qstring, sizeof(qstring),
+             "INSERT INTO settings (name, value) "
+             "VALUES ('%s', '%s') "
+             "ON DUPLICATE KEY UPDATE value = VALUES(value)",
+             mysetting, myvalue);
 	} else {
 		snprintf(qstring, sizeof(qstring), "INSERT INTO settings (name, value) "
 			"VALUES ('%s', '%s') AS rs "
 			"ON DUPLICATE KEY UPDATE value = rs.value", mysetting, myvalue);
 	}
 
-	result = db_insert(psql, mode, qstring);
-
-	return result;
+        return db_insert(psql, mode, qstring);
 }
 
 /*! \fn static char *getpsetting(MYSQL *psql, const char *setting)
@@ -190,22 +188,21 @@ static char *getpsetting(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
-	MYSQL_ROW mysql_row;
-	int       i;
+        MYSQL_ROW mysql_row;
 
-	assert(psql    != 0);
+        assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
-		if (STRIMATCH(setting, opttable[i].opt)) {
-			/* FOUND IT! */
-			retval = strdup(opttable[i].val);
-			return retval;
-		}
-	}
+        for (int i = 0; i < nopts; i++) {
+          if (STRIMATCH(setting, opttable[i].opt)) {
+            /* FOUND IT! */
+            retval = strdup(opttable[i].val);
+            return retval;
+          }
+        }
 
-	snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller_id);
+        snprintf(qstring, sizeof(qstring), "SELECT SQL_NO_CACHE %s FROM poller WHERE id = '%d'", setting, set.poller_id);
 
 	result = db_query(psql, mode, qstring);
 
@@ -285,22 +282,21 @@ static char *getglobalvariable(MYSQL *psql, int mode, const char *setting) {
 	char      qstring[BUFSIZE];
 	char      *retval;
 	MYSQL_RES *result;
-	MYSQL_ROW mysql_row;
-	int       i;
+        MYSQL_ROW mysql_row;
 
-	assert(psql    != 0);
+        assert(psql    != 0);
 	assert(setting != 0);
 
 	/* see if it's in the option table */
-	for (i=0; i<nopts; i++) {
-		if (STRIMATCH(setting, opttable[i].opt)) {
-			/* FOUND IT! */
-			retval = strdup(opttable[i].val);
-			return retval;
-		}
-	}
+        for (int i = 0; i < nopts; i++) {
+          if (STRIMATCH(setting, opttable[i].opt)) {
+            /* FOUND IT! */
+            retval = strdup(opttable[i].val);
+            return retval;
+          }
+        }
 
-	snprintf(qstring, sizeof(qstring), "SHOW GLOBAL VARIABLES LIKE '%s'", setting);
+        snprintf(qstring, sizeof(qstring), "SHOW GLOBAL VARIABLES LIKE '%s'", setting);
 
 	result = db_query(psql, mode, qstring);
 
@@ -360,16 +356,11 @@ void read_config_options(void) {
 	char       sqlbuf[HUGE_BUFSIZE];
 	char       *sqlp = sqlbuf;
 	char       *res;
-	char       spine_priv[BUFSIZE];
-	char       spine_auth[BUFSIZE];
-	char       spine_capabilities[BUFSIZE];
+        char spine_priv[BUFSIZE] = {0};
+        char spine_auth[BUFSIZE] = {0};
+        char spine_capabilities[BUFSIZE] = {0};
 
-	/* publish spine snmpv3 capabilities to the database */
-	memset(spine_capabilities, 0, sizeof(spine_capabilities));
-	memset(spine_priv, 0, sizeof(spine_priv));
-	memset(spine_auth, 0, sizeof(spine_auth));
-
-	db_connect(LOCAL, &mysql);
+        db_connect(LOCAL, &mysql);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
 		db_connect(REMOTE, &mysqlr);
@@ -1260,9 +1251,9 @@ void die(const char *format, ...) {
 	va_list	args;
 	char logmessage[BUFSIZE];
 	char flogmessage[DBL_BUFSIZE];
-	int old_errno = errno;
+        const int old_errno = errno;
 
-	va_start(args, format);
+        va_start(args, format);
 	vsnprintf(logmessage, BUFSIZE, format, args);
 	va_end(args);
 
@@ -1294,14 +1285,14 @@ void die(const char *format, ...) {
 }
 
 char *get_date_format(void) {
-	char *log_fmt;
-	char log_sep = '/';
+  char *log_fmt = malloc(GD_FMT_SIZE);
+  char log_sep = '/';
 
-	if (!(log_fmt = (char *) malloc(GD_FMT_SIZE))) {
-		die("ERROR: Fatal malloc error: util.c get_date_format!");
-	}
+  if (log_fmt == NULL) {
+    die("ERROR: Fatal malloc error: util.c get_date_format!");
+  }
 
-	if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
+        if (set.log_datetime_separator < GDC_MIN || set.log_datetime_separator > GDC_MAX) {
 		set.log_datetime_separator = GDC_DEFAULT;
 	}
 
@@ -1345,7 +1336,7 @@ char *get_date_format(void) {
 			break;
 	}
 
-	return (log_fmt);
+        return log_fmt;
 }
 
 /*! \fn void spine_log(const char *format, ...)
@@ -1591,8 +1582,8 @@ int all_digits(const char *string) {
 	/* empty string is not all digits */
 	if ( *string == '\0' ) return FALSE;
 
-	while ( isdigit((int)*string) )
-		string++;
+        while (isdigit((unsigned char)*string))
+          string++;
 
 	return *string == '\0';
 }
@@ -1609,15 +1600,14 @@ int all_digits(const char *string) {
  */
 int is_ipaddress(const char *string) {
 	while (*string) {
-		if ((isdigit((int)*string)) ||
-			(*string == '.') ||
-			(*string == ':')) {
-			string++;
+          if ((isdigit((unsigned char)*string)) || (*string == '.') ||
+              (*string == ':')) {
+            string++;
 
-			continue;
-		}
+            continue;
+          }
 
-		return FALSE;
+                return FALSE;
 	}
 
 	return TRUE;
@@ -1632,12 +1622,10 @@ int is_ipaddress(const char *string) {
  */
 int is_numeric(char *string) {
 	char *end_ptr_long, *end_ptr_double;
-	int conv_base=10;
-	int length;
+        const int conv_base = 10;
+        const size_t length = strlen(trim(string));
 
-	length = strlen(trim(string));
-
-	if (!length) {
+        if (!length) {
 		return FALSE;
 	}
 
@@ -1732,38 +1720,18 @@ int is_hexadecimal(const char * str, const short ignore_special) {
  *
  */
 char *strip_alpha(char *string) {
-	int i;
-	int j;
+  size_t end = strlen(string);
+  size_t start = 0;
 
-	i = strlen(string);
-	j = 0;
-
-	/* trim trailing characters */
-	while (i >= 0) {
-		if (isdigit((int)string[i])) {
-			break;
-		} else {
-			string[i] = '\0';
-		}
-		i--;
-	}
-
-	/* trim leading characters */
-	while (j < i) {
-		if (isdigit((int)string[j])) {
-			break;
-		} else if (string[j] == '-') {
-			break;
-		} else if (string[j] == '+') {
-			j++;
-		} else {
-			j++;
-		}
-	}
-
-	string = &string[j];
-
-	return string;
+  while (end > 0 && !isdigit((unsigned char)string[end - 1])) {
+    string[--end] = '\0';
+  }
+  /* Preserve a leading minus, skip a plus, and stop at the last digit. */
+  while (start + 1 < end && !isdigit((unsigned char)string[start]) &&
+         string[start] != '-') {
+    start++;
+  }
+  return string + start;
 }
 
 /*! \fn char *strncopy(char *dst, const char *src, size_t obuf)
@@ -1784,20 +1752,19 @@ char *strip_alpha(char *string) {
  *
 */
 char *strncopy(char *dst, const char *src, size_t obuf) {
-	size_t copy_len;
+  assert(dst != NULL);
+  assert(src != NULL);
 
-	assert(dst != 0);
-	assert(src != 0);
+  if (obuf == 0)
+    return dst;
 
-	if (obuf == 0) return dst;
+  /* Cap the scan at obuf-1: no need to walk past the usable copy capacity,
+   * and avoids a full strlen when src is large or unterminated near obuf. */
+  const size_t copy_len = strnlen(src, obuf - 1);
 
-	/* Cap the scan at obuf-1: no need to walk past the usable copy capacity,
-	 * and avoids a full strlen when src is large or unterminated near obuf. */
-	copy_len = strnlen(src, obuf - 1);
-
-	if (copy_len) {
-		strncpy(dst, src, copy_len);
-	}
+  if (copy_len) {
+    memcpy(dst, src, copy_len);
+        }
 
 	dst[copy_len] = '\0';
 	return dst;
@@ -1847,20 +1814,17 @@ char *trim(char *str) {
  *  \return the trimmed string.
  */
 char *rtrim(char *str) {
-	char    *end;
-	const char *trim = " \"\'\\\t\n\r";
+  const char *trim = " \"\'\\\t\n\r";
 
-	if (!str) return NULL;
+  if (!str)
+    return NULL;
 
-	end = str + strlen(str);
+  char *end = str + strlen(str);
+  while (end > str && strchr(trim, end[-1]) != NULL) {
+    *--end = '\0';
+  }
 
-	while (end-- > str) {
-		if (!strchr(trim, *end)) return str;
-
-		*end = 0;
-	}
-
-	return str;
+  return str;
 }
 
 /*! \fn ltrim()
@@ -1888,20 +1852,15 @@ char *ltrim(char *str) {
  *
  *  \return the reversed string.
  */
-char *reverse(char* str) {
-	int end   = strlen(str)-1;
-	int start = 0;
-
-	while (start < end) {
-		str[start] ^= str[end];
-		str[end]   ^= str[start];
-		str[start] ^= str[end];
-
-		++start;
-		--end;
-	}
-
-	return str;
+char *reverse(char *str) {
+  const size_t length = strlen(str);
+  for (size_t start = 0; start < length / 2; start++) {
+    const size_t end = length - start - 1;
+    const char saved = str[start];
+    str[start] = str[end];
+    str[end] = saved;
+  }
+  return str;
 }
 
 /*! \fn strpos()
@@ -2185,13 +2144,13 @@ int get_cacti_version(MYSQL *psql, int mode) {
 const char *regex_replace(const char *exp, const char *value) {
 	regex_t regex;
 	int reti;
-	/* Thread-local storage: each polling thread gets its own buffer, so
-	 * concurrent callers do not race.  Callers must consume the result before
-	 * making another call on the same thread (all current call sites do this).
-	 * C11 _Thread_local is equivalent; __thread is used here since GCC/Clang
-	 * (the only supported compilers for this codebase) treat them identically. */
-	static __thread char msgbuf[SMALL_BUFSIZE];
-	regmatch_t matches[MAX_MATCHES];
+        /* Thread-local storage: each polling thread gets its own buffer, so
+         * concurrent callers do not race.  Callers must consume the result
+         * before making another call on the same thread (all current call sites
+         * do this). Use the standard C17 storage duration rather than a
+         * compiler extension. */
+        static _Thread_local char msgbuf[SMALL_BUFSIZE];
+        regmatch_t matches[MAX_MATCHES];
 	size_t match_len;
 
 	/* Compile regular expression */

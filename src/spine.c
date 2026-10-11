@@ -131,16 +131,16 @@ static void spine_sigterm_handler(int signo) {
 }
 
 static void spine_install_reload_handler(void) {
-    struct sigaction sa;
-    sa.sa_handler = spine_sighup_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGHUP, &sa, NULL);
+  struct sigaction sa = {.sa_handler = spine_sighup_handler,
+                         .sa_flags = SA_RESTART};
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sigaction(SIGHUP, &sa, NULL);
 
-    sa.sa_handler = spine_sigterm_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGTERM, &sa, NULL);
+  sa.sa_handler = spine_sigterm_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sigaction(SIGTERM, &sa, NULL);
 }
 
 /* Global Variables */
@@ -152,7 +152,7 @@ double start_time;
 double total_time;
 
 config_t set;
-php_t	*php_processes = 0;
+php_t *php_processes = NULL;
 char	config_paths[CONFIG_PATHS][BUFSIZE];
 int     *debug_devices;
 
@@ -325,15 +325,15 @@ int main(int argc, char *argv[]) {
 	ping_init();
 
 	/* establish php processes and initialize space */
-	php_processes = (php_t*) calloc(MAX_PHP_SERVERS, sizeof(php_t));
-	for (i = 0; i < MAX_PHP_SERVERS; i++) {
+        php_processes = calloc(MAX_PHP_SERVERS, sizeof(*php_processes));
+        for (i = 0; i < MAX_PHP_SERVERS; i++) {
 		php_processes[i].php_state = PHP_BUSY;
 	}
 
 	/* create the array of debug devices */
-	debug_devices = calloc(MAX_DEBUG_DEVICES, sizeof(int));
+        debug_devices = calloc(MAX_DEBUG_DEVICES, sizeof(*debug_devices));
 
-	/* initialize icmp_avail */
+        /* initialize icmp_avail */
 	set.icmp_avail = TRUE;
 
 	/* initialize number of threads */
@@ -691,16 +691,16 @@ int main(int argc, char *argv[]) {
 	db_connect(LOCAL, &mysql);
 
 	/* setup local connection pool for hosts */
-	db_pool_local = (pool_t *) calloc(set.threads, sizeof(pool_t));
-	db_create_connection_pool(LOCAL);
+        db_pool_local = calloc(set.threads, sizeof(*db_pool_local));
+        db_create_connection_pool(LOCAL);
 
 	if (set.poller_id > 1 && set.mode == REMOTE_ONLINE) {
 		db_connect(REMOTE, &mysqlr);
 		mode = REMOTE;
 
 		/* setup remote connection pool for hosts */
-		db_pool_remote = (pool_t *) calloc(set.threads, sizeof(pool_t));
-		db_create_connection_pool(REMOTE);
+                db_pool_remote = calloc(set.threads, sizeof(*db_pool_remote));
+                db_create_connection_pool(REMOTE);
 	} else {
 		mode = LOCAL;
 	}
@@ -832,23 +832,23 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (num_rows > 0) {
-		if (!(threads = (pthread_t *)malloc(num_rows * sizeof(pthread_t)))) {
-			die("ERROR: Fatal malloc error: spine.c threads!");
-		}
+          if (!(threads = malloc(num_rows * sizeof(*threads)))) {
+            die("ERROR: Fatal malloc error: spine.c threads!");
+          }
 
-		if (!(details = (poller_thread_t **)malloc(num_rows * sizeof(poller_thread_t*)))) {
-			die("ERROR: Fatal malloc error: spine.c details!");
-		}
+          if (!(details = malloc(num_rows * sizeof(*details)))) {
+            die("ERROR: Fatal malloc error: spine.c details!");
+          }
 
-		if (!(ids = (int *)malloc(num_rows * sizeof(int)))) {
-			die("ERROR: Fatal malloc error: spine.c host id's!");
-		}
+          if (!(ids = malloc(num_rows * sizeof(*ids)))) {
+            die("ERROR: Fatal malloc error: spine.c host id's!");
+          }
 
-		if (!(host_time = (char *) malloc(SMALL_BUFSIZE))) {
-			die("ERROR: Fatal malloc error: util.c host_time");
-		}
+          if (!(host_time = malloc(SMALL_BUFSIZE))) {
+            die("ERROR: Fatal malloc error: util.c host_time");
+          }
 
-		memset(host_time, 0, SMALL_BUFSIZE);
+                memset(host_time, 0, SMALL_BUFSIZE);
 	}
 
 	/* mark the spine process as started */
@@ -1028,11 +1028,11 @@ int main(int argc, char *argv[]) {
 		}
 
 		/* populate the thread structure */
-		if (!(poller_details = (poller_thread_t *)malloc(sizeof(poller_thread_t)))) {
-			die("ERROR: Fatal malloc error: spine.c poller_details!");
-		}
+                if (!(poller_details = malloc(sizeof(*poller_details)))) {
+                  die("ERROR: Fatal malloc error: spine.c poller_details!");
+                }
 
-		poller_details->device_counter   = device_counter;
+                poller_details->device_counter   = device_counter;
 		poller_details->host_id          = host_id;
 		poller_details->host_thread      = current_thread;
 		poller_details->host_threads     = device_threads;

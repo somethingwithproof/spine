@@ -60,12 +60,12 @@ char *php_cmd(const char *php_command, int php_process) {
 	ssize_t bytes;
 	int retries = 0;
 
-	assert(php_command != 0);
+        assert(php_command != NULL);
 
-	/* pad command with CR-LF */
-	snprintf(command, BUFSIZE, "%s\r\n", php_command);
+        /* pad command with CR-LF */
+        snprintf(command, sizeof(command), "%s\r\n", php_command);
 
-	/* place lock around mutex */
+        /* place lock around mutex */
 	switch (php_process) {
 	case 0:  thread_mutex_lock(LOCK_PHP_PROC_0);  break;
 	case 1:  thread_mutex_lock(LOCK_PHP_PROC_1);  break;
@@ -98,7 +98,8 @@ char *php_cmd(const char *php_command, int php_process) {
 		/* increment and retry a few times on the next item */
 		retries++;
 		if (retries < 3) {
-			goto retry;
+                  free(result_string);
+                  goto retry;
 		}
 	} else {
 		/* read the result from the php_command */
@@ -155,7 +156,7 @@ int php_get_process(void) {
 	return i;
 }
 
-/*! \fn char *php_readpipe(int php_process, char *command)
+/*! \fn char *php_readpipe(int php_process, const char *command)
  *  \brief read a line from a PHP Script Server process
  *  \param php_process the PHP Script Server process to obtain output from
  *
@@ -166,120 +167,139 @@ int php_get_process(void) {
  *
  *  \return a string pointer to the PHP Script Server response
  */
-char *php_readpipe(int php_process, char *command) {
-	struct timeval timeout;
-	double begin_time = 0;
-	double end_time = 0;
-	double remaining_usec = 0;
-	char *result_string;
+char *php_readpipe(int php_process, const char *command) {
+  struct timeval timeout;
+  double begin_time = 0;
+  double end_time = 0;
+  double remaining_usec = 0;
+  char *result_string;
 
-	int  i;
-	char *cp;
-	char *bptr;
+  ssize_t bytes_read;
+  char *bptr;
 
-	if (!(result_string = (char *)malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: php.c php_readpipe!");
-	}
-	result_string[0] = '\0';
+  if (!(result_string = malloc(RESULTS_BUFFER))) {
+    die("ERROR: Fatal malloc error: php.c php_readpipe!");
+  }
+  result_string[0] = '\0';
 
-	/* record start time */
-	begin_time = get_time_as_double();
+  /* record start time */
+  begin_time = get_time_as_double();
 
-	/* establish timeout value for the PHP script server to respond */
-	timeout.tv_sec = set.script_timeout;
-	timeout.tv_usec = 0;
+  /* establish timeout value for the PHP script server to respond */
+  timeout.tv_sec = set.script_timeout;
+  timeout.tv_usec = 0;
 
-	/* check to see which pipe talked and take action
-	 * should only be the READ pipe */
-	retry:
+/* check to see which pipe talked and take action
+ * should only be the READ pipe */
+retry:
 
-	switch (spine_fd_wait_readable(php_processes[php_process].php_read_fd, &timeout)) {
-	case -1:
-		switch (spine_fd_last_error()) {
-			case EBADF:
-				SPINE_LOG(("ERROR: SS[%i] An invalid file descriptor was given in one of the sets.", php_process));
-				break;
-			case EINTR:
-				#ifndef SOLAR_THREAD
-				/* take a moment */
-				spine_platform_sleep_us(2000);
-				#endif
+  switch (spine_fd_wait_readable(php_processes[php_process].php_read_fd,
+                                 &timeout)) {
+  case -1:
+    switch (spine_fd_last_error()) {
+    case EBADF:
+      SPINE_LOG(("ERROR: SS[%i] An invalid file descriptor was given in one of "
+                 "the sets.",
+                 php_process));
+      break;
+    case EINTR:
+#ifndef SOLAR_THREAD
+      /* take a moment */
+      spine_platform_sleep_us(2000);
+#endif
 
-				/* record end time */
-				end_time = get_time_as_double();
+      /* record end time */
+      end_time = get_time_as_double();
 
-				/* re-establish new timeout value */
-				timeout.tv_sec  = rint(floor(set.script_timeout-(end_time-begin_time)));
-				remaining_usec  = set.script_timeout - timeout.tv_sec - (end_time - begin_time);
+      /* re-establish new timeout value */
+      timeout.tv_sec =
+          rint(floor(set.script_timeout - (end_time - begin_time)));
+      remaining_usec =
+          set.script_timeout - timeout.tv_sec - (end_time - begin_time);
 
-				if (remaining_usec > 0) {
-					timeout.tv_usec = rint(remaining_usec * 1000000);
-				} else {
-					timeout.tv_usec = 0;
-				}
+      if (remaining_usec > 0) {
+        timeout.tv_usec = rint(remaining_usec * 1000000);
+      } else {
+        timeout.tv_usec = 0;
+      }
 
-				if (timeout.tv_sec + timeout.tv_usec > 0) {
-					goto retry;
-				} else {
-					SPINE_LOG(("WARNING: SS[%i] The Script Server script timed out while processing EINTR's.", php_process));
-				}
+      if (timeout.tv_sec + timeout.tv_usec > 0) {
+        goto retry;
+      } else {
+        SPINE_LOG(("WARNING: SS[%i] The Script Server script timed out while "
+                   "processing EINTR's.",
+                   php_process));
+      }
 
-				break;
-			case EINVAL:
-				SPINE_LOG(("ERROR: SS[%i] N is negative or the value contained within timeout is invalid.", php_process));
-				break;
-			case ENOMEM:
-				SPINE_LOG(("ERROR: SS[%i] Select was unable to allocate memory for internal tables.", php_process));
-				break;
-			default:
-				SPINE_LOG(("ERROR: SS[%i] Unknown fatal wait error", php_process));
-				break;
-		}
+      break;
+    case EINVAL:
+      SPINE_LOG(("ERROR: SS[%i] N is negative or the value contained within "
+                 "timeout is invalid.",
+                 php_process));
+      break;
+    case ENOMEM:
+      SPINE_LOG(("ERROR: SS[%i] Select was unable to allocate memory for "
+                 "internal tables.",
+                 php_process));
+      break;
+    default:
+      SPINE_LOG(("ERROR: SS[%i] Unknown fatal wait error", php_process));
+      break;
+    }
 
-		SET_UNDEFINED(result_string);
+    SET_UNDEFINED(result_string);
 
-		/* kill script server because it is misbehaving */
-		php_close(php_process);
-		php_init(php_process);
-		break;
-	case 0:
-		/* record end time */
-		end_time = get_time_as_double();
-		SPINE_LOG(("WARNING: SS[%i] The PHP Script Server did not respond in time for Timeout[%0.2f], Command[%s] and will therefore be restarted", php_process, end_time - begin_time, command));
-		SET_UNDEFINED(result_string);
+    /* kill script server because it is misbehaving */
+    php_close(php_process);
+    php_init(php_process);
+    break;
+  case 0:
+    /* record end time */
+    end_time = get_time_as_double();
+    SPINE_LOG(
+        ("WARNING: SS[%i] The PHP Script Server did not respond in time for "
+         "Timeout[%0.2f], Command[%s] and will therefore be restarted",
+         php_process, end_time - begin_time, command));
+    SET_UNDEFINED(result_string);
 
-		/* kill script server because it is misbehaving */
-		php_close(php_process);
-		php_init(php_process);
-		break;
-	default:
-		bptr = result_string;
+    /* kill script server because it is misbehaving */
+    php_close(php_process);
+    php_init(php_process);
+    break;
+  default:
+    bptr = result_string;
 
-		while (1) {
-			i = spine_fd_read(php_processes[php_process].php_read_fd, bptr, RESULTS_BUFFER-(bptr-result_string));
+    for (;;) {
+      /* Reserve the final byte for the string terminator. */
+      const size_t used = (size_t)(bptr - result_string);
+      const size_t remaining = RESULTS_BUFFER - 1 - used;
+      if (remaining == 0) {
+        SPINE_LOG(("ERROR: SS[%i] The Script Server result was longer than the "
+                   "acceptable range",
+                   php_process));
+        SET_UNDEFINED(result_string);
+        break;
+      }
+      bytes_read = spine_fd_read(php_processes[php_process].php_read_fd, bptr,
+                                 remaining);
 
-			if (i <= 0) {
-				SET_UNDEFINED(result_string);
-				break;
-			}
+      if (bytes_read <= 0) {
+        SET_UNDEFINED(result_string);
+        break;
+      }
 
-			bptr += i;
-			*bptr = '\0';	/* make what we've got into a string */
+      bptr += bytes_read;
+      *bptr = '\0'; /* make what we've got into a string */
 
-			if ((cp = strstr(result_string,"\n")) != 0) {
-				break;
-			}
+      if (strchr(result_string, '\n') != NULL) {
+        break;
+      }
+    }
 
-				if (bptr >= result_string+RESULTS_BUFFER) {
-					SPINE_LOG(("ERROR: SS[%i] The Script Server result was longer than the acceptable range", php_process));
-					SET_UNDEFINED(result_string);
-				}
-		}
+    php_processes[php_process].php_state = PHP_READY;
+  }
 
-		php_processes[php_process].php_state = PHP_READY;
-	}
-
-	return result_string;
+  return result_string;
 }
 
 /*! \fn int php_init(int php_process)
@@ -298,18 +318,18 @@ int php_init(int php_process) {
 	int  php2cacti_pdes[2];
 	spine_pid_t  pid;
 	char poller_id[TINY_BUFSIZE];
-	char *argv[7];
-	char arg_q[] = "-q";
+        char *argv[7] = {NULL};
+        char arg_q[] = "-q";
 	char arg_spine[] = "spine";
 	char arg_environ_spine[] = "--environ=spine";
 	char arg_mode_online[] = "--mode=online";
 	char arg_mode_offline[] = "--mode=offline";
 	int  cancel_state;
-	char *result_string = 0;
-	int num_processes;
+        char *result_string = NULL;
+        int num_processes;
 	int i;
-	char *command = strdup("INIT");
-	char error_buffer[256];
+        const char *command = "INIT";
+        char error_buffer[256];
 
 	/* special code to start all PHP Servers */
 	if (php_process == PHP_INIT) {
@@ -484,9 +504,7 @@ int php_init(int php_process) {
 		free(result_string);
 	}
 
-	free(command);
-
-	return TRUE;
+        return TRUE;
 }
 
 /*! \fn void php_close(int php_process)

@@ -38,15 +38,14 @@
 #ifdef _WIN32
 #include <icmpapi.h>
 #else
-#  include <ifaddrs.h>
-#  include <net/if.h>
-#  include <netdb.h>
-#  include <netinet/in.h>
-#  include <sys/types.h>
-#  include <netinet/ip.h>
-#  include <netinet/ip_icmp.h>
-#  include <netinet/icmp6.h>
-#  include <stddef.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netdb.h>
+#include <netinet/icmp6.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <sys/types.h>
 #endif
 
 #if defined(__linux__)
@@ -59,23 +58,30 @@
 
 #include "ping_wire.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 /* XORed into every ICMP echo id so a same-PID spine restart does not
  * reuse the previous run's identifiers. Set once at program start. */
 static uint16_t icmp_id_mask = 0;
 
 /* ICMP sequence counters need 16-bit wraparound semantics (the on-wire
- * field is 16 bits) and lock-free concurrent increment across poller
- * threads. Prefer C11 _Atomic with memory_order_relaxed; fall back to
+ * field is 16 bits) and atomic concurrent increment across poller
+ * threads. Use C17 _Atomic with memory_order_relaxed; fall back to
  * the GCC/Clang __atomic builtin on unsigned int when <stdatomic.h>
  * isn't available. The fallback keeps the old wider counter and relies
- * on the existing uint16_t cast at the call sites. */
-#if !defined(__STDC_NO_ATOMICS__) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+ * on the uint16_t conversion in the helper. */
+#if !defined(__STDC_NO_ATOMICS__)
 #  include <stdatomic.h>
-#  define SPINE_PING_SEQ_T   _Atomic uint16_t
-#  define SPINE_PING_SEQ_NEXT(s) atomic_fetch_add_explicit(&(s), (uint16_t)1, memory_order_relaxed)
+typedef _Atomic uint16_t ping_sequence_t;
+static uint16_t ping_sequence_next(ping_sequence_t *sequence) {
+  return atomic_fetch_add_explicit(sequence, (uint16_t)1, memory_order_relaxed);
+}
 #else
-#  define SPINE_PING_SEQ_T   unsigned int
-#  define SPINE_PING_SEQ_NEXT(s) ((uint16_t)__atomic_fetch_add(&(s), 1, __ATOMIC_RELAXED))
+typedef unsigned int ping_sequence_t;
+static uint16_t ping_sequence_next(ping_sequence_t *sequence) {
+  return (uint16_t)__atomic_fetch_add(sequence, 1, __ATOMIC_RELAXED);
+}
 #endif
 
 void ping_init(void) {
@@ -113,9 +119,7 @@ void ping_init(void) {
 #endif
 }
 
-/* Populate the payload signature that rides inside every echo we send.
- * Made public-ish so unit tests can compose identical packets without
- * threading concerns. */
+/* Populate the payload signature that rides inside every echo we send. */
 static void build_ping_payload(spine_ping_payload_t *p) {
 	struct timeval tv;
 	p->magic = SPINE_PING_MAGIC;
@@ -126,11 +130,6 @@ static void build_ping_payload(spine_ping_payload_t *p) {
 		p->timestamp_us = 0;
 	}
 }
-
-/* Validator lives in src/ping_validate.c so unit tests can link just
- * that object without the full spine runtime dependency chain. */
-extern int spine_ping_validate_payload(const void *buf, size_t len,
-                                       uint32_t expect_pid_mask);
 
 #ifndef _WIN32
 /* Implemented in src/ping_ipv6_scope.c so the unit test can link
@@ -177,103 +176,118 @@ SPINE_MAYBE_UNUSED static void spine_drop_caps_once(void) {
  * AI_NUMERICHOST when this is the case so getaddrinfo() cannot be
  * steered into DNS lookups by a hostile hostname that looks numeric.
  * Conservative -- if in doubt, do not set the flag. */
-static int hostname_is_numeric(const char *hostname) {
-	if (hostname == NULL || hostname[0] == '\0') {
-		return 0;
-	}
-	if (strchr(hostname, ':') != NULL) {
-		return 1;
-	}
-	{
-		size_t n = strlen(hostname);
-		if (strspn(hostname, "0123456789.") == n && strchr(hostname, '.') != NULL) {
-			return 1;
-		}
-	}
-	return 0;
+static bool hostname_is_numeric(const char *hostname) {
+  if (hostname == NULL || hostname[0] == '\0') {
+    return false;
+  }
+  if (strchr(hostname, ':') != NULL) {
+    return true;
+  }
+  {
+    size_t n = strlen(hostname);
+    if (strspn(hostname, "0123456789.") == n && strchr(hostname, '.') != NULL) {
+      return true;
+    }
+  }
+  return false;
 }
 
-static int resolve_sockaddr(struct sockaddr_storage *address, socklen_t *address_len, int family, const char *hostname, unsigned short int port) {
-	struct addrinfo hints, *hostinfo;
-	char service[16];
-	int rv, retry_count;
+static int resolve_sockaddr(void *address, size_t address_capacity,
+                            socklen_t *address_len, int family,
+                            const char *hostname, unsigned short int port) {
+  struct addrinfo hints = {
+      .ai_family = family,
+      .ai_socktype = SOCK_STREAM,
+      .ai_flags = AI_CANONNAME | AI_ADDRCONFIG,
+  };
+  struct addrinfo *hostinfo = NULL;
+  char service[16];
+  int retry_count = 0;
 
-	memset(&hints, 0, sizeof(hints));
-	memset(address, 0, sizeof(*address));
+  if (address == NULL || address_len == NULL || hostname == NULL) {
+    return FALSE;
+  }
+  *address_len = 0;
+  memset(address, 0, address_capacity);
 
-	hints.ai_family = family;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_CANONNAME | AI_ADDRCONFIG;
+  /* Skip the DNS resolver path entirely for numeric literals. Saves
+   * an unbounded wait on a misconfigured resolv.conf and prevents a
+   * crafted hostname that parses as an address from triggering DNS. */
+  if (hostname_is_numeric(hostname)) {
+    hints.ai_flags |= AI_NUMERICHOST;
+  }
 
-	/* Skip the DNS resolver path entirely for numeric literals. Saves
-	 * an unbounded wait on a misconfigured resolv.conf and prevents a
-	 * crafted hostname that parses as an address from triggering DNS. */
-	if (hostname_is_numeric(hostname)) {
-		hints.ai_flags |= AI_NUMERICHOST;
-	}
+  snprintf(service, sizeof(service), "%u", port);
 
-	snprintf(service, sizeof(service), "%u", port);
+  for (;;) {
+    const int rv = getaddrinfo(hostname, service, &hints, &hostinfo);
 
-	retry_count = 0;
-	hostinfo = NULL;
+    if (rv == 0) {
+      break;
+    }
 
-	while (TRUE) {
-		rv = getaddrinfo(hostname, service, &hints, &hostinfo);
+    switch (rv) {
+    case EAI_AGAIN:
+      if (retry_count < 3) {
+        SPINE_LOG(("WARNING: EAGAIN received resolving after 3 retryies for "
+                   "host %s (%s)",
+                   hostname, gai_strerror(rv)));
+        if (hostinfo != NULL) {
+          freeaddrinfo(hostinfo);
+          hostinfo = NULL;
+        }
 
-		if (rv == 0) {
-			break;
-		}
+        retry_count++;
+        spine_platform_sleep_us(50000);
+        continue;
+      } else {
+        SPINE_LOG(("WARNING: Error resolving after 3 retryies for host %s (%s)",
+                   hostname, gai_strerror(rv)));
+        if (hostinfo != NULL) {
+          freeaddrinfo(hostinfo);
+        }
+        return FALSE;
+      }
+    case EAI_FAIL:
+      SPINE_LOG(
+          ("WARNING: DNS Server reported permanent error for host %s (%s)",
+           hostname, gai_strerror(rv)));
+      if (hostinfo != NULL) {
+        freeaddrinfo(hostinfo);
+      }
+      return FALSE;
+    case EAI_MEMORY:
+      SPINE_LOG(("WARNING: Out of memory trying to resolve host %s (%s)",
+                 hostname, gai_strerror(rv)));
+      if (hostinfo != NULL) {
+        freeaddrinfo(hostinfo);
+      }
+      return FALSE;
+    default:
+      SPINE_LOG(("WARNING: Unknown error while resolving host %s (%s)",
+                 hostname, gai_strerror(rv)));
+      if (hostinfo != NULL) {
+        freeaddrinfo(hostinfo);
+      }
+      return FALSE;
+    }
+  }
 
-		switch (rv) {
-			case EAI_AGAIN:
-				if (retry_count < 3) {
-					SPINE_LOG(("WARNING: EAGAIN received resolving after 3 retryies for host %s (%s)", hostname, gai_strerror(rv)));
-					if (hostinfo != NULL) {
-						freeaddrinfo(hostinfo);
-						hostinfo = NULL;
-					}
+  if (hostinfo == NULL) {
+    SPINE_LOG(("WARNING: Unknown host %s", hostname));
+    return FALSE;
+  }
 
-					retry_count++;
-					spine_platform_sleep_us(50000);
-					continue;
-				} else {
-					SPINE_LOG(("WARNING: Error resolving after 3 retryies for host %s (%s)", hostname, gai_strerror(rv)));
-					if (hostinfo != NULL) {
-						freeaddrinfo(hostinfo);
-					}
-					return FALSE;
-				}
-			case EAI_FAIL:
-				SPINE_LOG(("WARNING: DNS Server reported permanent error for host %s (%s)", hostname, gai_strerror(rv)));
-				if (hostinfo != NULL) {
-					freeaddrinfo(hostinfo);
-				}
-				return FALSE;
-			case EAI_MEMORY:
-				SPINE_LOG(("WARNING: Out of memory trying to resolve host %s (%s)", hostname, gai_strerror(rv)));
-				if (hostinfo != NULL) {
-					freeaddrinfo(hostinfo);
-				}
-				return FALSE;
-			default:
-				SPINE_LOG(("WARNING: Unknown error while resolving host %s (%s)", hostname, gai_strerror(rv)));
-				if (hostinfo != NULL) {
-					freeaddrinfo(hostinfo);
-				}
-				return FALSE;
-		}
-	}
+  if (hostinfo->ai_addr == NULL || hostinfo->ai_addrlen > address_capacity) {
+    freeaddrinfo(hostinfo);
+    return FALSE;
+  }
 
-	if (hostinfo == NULL) {
-		SPINE_LOG(("WARNING: Unknown host %s", hostname));
-		return FALSE;
-	}
+  memcpy(address, hostinfo->ai_addr, hostinfo->ai_addrlen);
+  *address_len = (socklen_t)hostinfo->ai_addrlen;
 
-	memcpy(address, hostinfo->ai_addr, hostinfo->ai_addrlen);
-	*address_len = (socklen_t) hostinfo->ai_addrlen;
-
-	freeaddrinfo(hostinfo);
-	return TRUE;
+  freeaddrinfo(hostinfo);
+  return TRUE;
 }
 
 #ifdef _WIN32
@@ -290,13 +304,16 @@ static int ping_icmp_windows(host_t *host, ping_t *ping, int family) {
 		return HOST_DOWN;
 	}
 
-	if (!resolve_sockaddr(&destination, &destination_len, family, host->hostname, 0)) {
-		snprintf(ping->ping_response, SMALL_BUFSIZE, family == AF_INET6 ? "ICMPv6: Destination hostname invalid" : "ICMP: Destination hostname invalid");
-		snprintf(ping->ping_status, 50, "down");
-		return HOST_DOWN;
-	}
+        if (!resolve_sockaddr(&destination, sizeof(destination),
+                              &destination_len, family, host->hostname, 0)) {
+          snprintf(ping->ping_response, SMALL_BUFSIZE,
+                   family == AF_INET6 ? "ICMPv6: Destination hostname invalid"
+                                      : "ICMP: Destination hostname invalid");
+          snprintf(ping->ping_status, 50, "down");
+          return HOST_DOWN;
+        }
 
-	timeout_ms = host->ping_timeout > 0 ? (DWORD) host->ping_timeout : 1000;
+        timeout_ms = host->ping_timeout > 0 ? (DWORD) host->ping_timeout : 1000;
 	if (timeout_ms == 0) {
 		timeout_ms = 1000;
 	}
@@ -441,56 +458,63 @@ static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
 	spine_socket_t icmp_socket;
 	double begin_time, end_time, total_time;
 	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
-	struct sockaddr_in6 recvname;
-	struct sockaddr_in6 fromname;
-	char socket_reply[BUFSIZE];
+        const double one_thousand = 1000.00;
+        struct timeval timeout;
+        struct sockaddr_in6 recvname = {0};
+        struct sockaddr_in6 fromname = {0};
+        char socket_reply[BUFSIZE];
 	int retry_count;
-	int packet_len;
-	socklen_t fromlen;
+        const size_t packet_len =
+            sizeof(struct icmp6_hdr) + sizeof(spine_ping_payload_t);
+        socklen_t fromlen;
 	ssize_t return_code;
-	static SPINE_PING_SEQ_T seq = 0;
-	struct icmp6_hdr *icmp6;
-	struct icmp6_hdr *reply;
-	unsigned char *packet;
-	uint16_t our_id;
+        static ping_sequence_t seq = 0;
+        struct icmp6_hdr icmp6 = {0};
+        struct icmp6_hdr reply;
+        unsigned char packet[sizeof(struct icmp6_hdr) +
+                             sizeof(spine_ping_payload_t)] = {0};
+        uint16_t our_id;
 	uint16_t our_seq;
 	int ret = HOST_DOWN;
 
 	retry_count = 0;
 	icmp_socket = (spine_socket_t)-1;
-	while (TRUE) {
-		if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-			thread_mutex_lock(LOCK_SETEUID);
-			if (seteuid(0) == -1) {
-				SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-			}
-		}
+        for (;;) {
+          if (spine_socket_raw_icmp_needs_privileged_open() &&
+              hasCaps() != TRUE) {
+            thread_mutex_lock(LOCK_SETEUID);
+            if (seteuid(0) == -1) {
+              SPINE_LOG_DEBUG(
+                  ("WARNING: Spine unable to obtain root privileges."));
+            }
+          }
 
-		icmp_socket = spine_socket_open(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
-		if (!spine_socket_is_valid(icmp_socket)) {
-			spine_platform_sleep_us(500000);
-			retry_count++;
+          icmp_socket = spine_socket_open(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+          if (!spine_socket_is_valid(icmp_socket)) {
+            spine_platform_sleep_us(500000);
+            retry_count++;
 
-			if (retry_count > 4) {
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMPv6: Ping unable to create ICMP Socket");
-				snprintf(ping->ping_status, 50, "down");
-				if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-					if (seteuid(getuid()) == -1) {
-						SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-					}
-					thread_mutex_unlock(LOCK_SETEUID);
-				}
+            if (retry_count > 4) {
+              snprintf(ping->ping_response, SMALL_BUFSIZE,
+                       "ICMPv6: Ping unable to create ICMP Socket");
+              snprintf(ping->ping_status, 50, "down");
+              if (spine_socket_raw_icmp_needs_privileged_open() &&
+                  hasCaps() != TRUE) {
+                if (seteuid(getuid()) == -1) {
+                  SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to "
+                                   "local user."));
+                }
+                thread_mutex_unlock(LOCK_SETEUID);
+              }
 
-				return HOST_DOWN;
-			}
-		} else {
-			break;
-		}
-	}
+              return HOST_DOWN;
+            }
+          } else {
+            break;
+          }
+        }
 
-	if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
+        if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
 		if (seteuid(getuid()) == -1) {
 			SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
 		}
@@ -529,39 +553,34 @@ static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
 #endif
 	}
 
-	host_timeout = host->ping_timeout;
-	packet_len = (int) sizeof(struct icmp6_hdr) + (int) sizeof(spine_ping_payload_t);
+        host_timeout = host->ping_timeout;
 
-	if (!(packet = malloc(packet_len))) {
-		die("ERROR: Fatal malloc error: ping.c ping_icmp_ipv6!");
-	}
-	memset(packet, 0, packet_len);
-	memset(&fromname, 0, sizeof(fromname));
-	memset(&recvname, 0, sizeof(recvname));
+        our_id = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
+        our_seq = ping_sequence_next(&seq);
 
-	our_id = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
-	our_seq = (uint16_t) SPINE_PING_SEQ_NEXT(seq);
+        icmp6.icmp6_type = ICMP6_ECHO_REQUEST;
+        icmp6.icmp6_code = 0;
+        icmp6.icmp6_id = htons(our_id);
+        icmp6.icmp6_seq = htons(our_seq);
+        memcpy(packet, &icmp6, sizeof(icmp6));
 
-	icmp6 = (struct icmp6_hdr *) packet;
-	icmp6->icmp6_type = ICMP6_ECHO_REQUEST;
-	icmp6->icmp6_code = 0;
-	icmp6->icmp6_id   = htons(our_id);
-	icmp6->icmp6_seq  = htons(our_seq);
-
-	{
+        {
 		spine_ping_payload_t sig;
 		build_ping_payload(&sig);
 		memcpy(packet + sizeof(struct icmp6_hdr), &sig, sizeof(sig));
 	}
 
-	if ((strlen(host->hostname) == 0) || !resolve_sockaddr((struct sockaddr_storage *) &fromname, &fromlen, AF_INET6, host->hostname, 7)) {
-		snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMPv6: Destination hostname invalid");
-		snprintf(ping->ping_status, 50, "down");
-		ret = HOST_DOWN;
-		goto cleanup;
-	}
+        if ((strlen(host->hostname) == 0) ||
+            !resolve_sockaddr(&fromname, sizeof(fromname), &fromlen, AF_INET6,
+                              host->hostname, 7)) {
+          snprintf(ping->ping_response, SMALL_BUFSIZE,
+                   "ICMPv6: Destination hostname invalid");
+          snprintf(ping->ping_status, 50, "down");
+          ret = HOST_DOWN;
+          goto cleanup;
+        }
 
-	/* Link-local destinations need a scope_id. Auto-detect when the
+        /* Link-local destinations need a scope_id. Auto-detect when the
 	 * kernel did not set one (it does not for numeric literals without
 	 * a %zone suffix). Non-fatal if resolution fails -- caller gets
 	 * the usual kernel error. */
@@ -578,102 +597,118 @@ static int ping_icmp_ipv6(host_t *host, ping_t *ping) {
 	total_time  = 0;
 	begin_time  = get_time_as_double();
 
-	while (1) {
-		if (retry_count > host->ping_retries) {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMPv6: Ping timed out");
-			snprintf(ping->ping_status, 50, "down");
-			ret = HOST_DOWN;
-			goto cleanup;
-		}
+        for (;;) {
+          if (retry_count > host->ping_retries) {
+            snprintf(ping->ping_response, SMALL_BUFSIZE,
+                     "ICMPv6: Ping timed out");
+            snprintf(ping->ping_status, 50, "down");
+            ret = HOST_DOWN;
+            goto cleanup;
+          }
 
-		timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-		timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
-		spine_socket_set_timeout(icmp_socket, &timeout);
+          timeout.tv_sec = rint((host_timeout - total_time) / 1000);
+          timeout.tv_usec = ((int)(host_timeout - total_time) % 1000) * 1000;
+          spine_socket_set_timeout(icmp_socket, &timeout);
 
-		return_code = spine_socket_sendto(icmp_socket, packet, packet_len, 0, (struct sockaddr *) &fromname, fromlen);
-		(void) return_code;
+          return_code =
+              spine_socket_sendto(icmp_socket, packet, packet_len, 0,
+                                  (struct sockaddr *)&fromname, fromlen);
+          (void)return_code;
 
-keep_listening_ipv6:
-		if (!spine_socket_is_valid(icmp_socket)) {
-			snprintf(ping->ping_status, 50, "down");
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMPv6: invalid socket");
-			ret = HOST_DOWN;
-			goto cleanup;
-		}
+        keep_listening_ipv6:
+          if (!spine_socket_is_valid(icmp_socket)) {
+            snprintf(ping->ping_status, 50, "down");
+            snprintf(ping->ping_response, SMALL_BUFSIZE,
+                     "ICMPv6: invalid socket");
+            ret = HOST_DOWN;
+            goto cleanup;
+          }
 
-		return_code = spine_socket_wait_readable(icmp_socket, &timeout);
-		end_time = get_time_as_double();
-		total_time = (end_time - begin_time) * one_thousand;
+          return_code = spine_socket_wait_readable(icmp_socket, &timeout);
+          end_time = get_time_as_double();
+          total_time = (end_time - begin_time) * one_thousand;
 
-		if (return_code > 0 && total_time < host_timeout) {
-			fromlen = sizeof(recvname);
-			return_code = spine_socket_recvfrom(icmp_socket, socket_reply, BUFSIZE, 0, (struct sockaddr *) &recvname, &fromlen);
+          if (return_code > 0 && total_time < host_timeout) {
+            fromlen = sizeof(recvname);
+            return_code =
+                spine_socket_recvfrom(icmp_socket, socket_reply, BUFSIZE, 0,
+                                      (struct sockaddr *)&recvname, &fromlen);
 
-			if (return_code < 0) {
-				if (spine_socket_error_is_interrupted(spine_socket_last_error())) {
-					goto keep_listening_ipv6;
-				}
-			} else {
-				/* Bounds-check before casting to struct. An undersized
-				 * raw recv cannot legally be an ICMPv6 echo reply, but
-				 * a hostile sender (or a kernel bug) could deliver one;
-				 * treat it as noise and keep listening. */
-				if ((size_t) return_code < sizeof(struct icmp6_hdr) + sizeof(spine_ping_payload_t)) {
-					SPINE_LOG_DEBUG(("DEBUG: Discarding undersized ICMPv6 reply: %zd bytes", return_code));
-					goto keep_listening_ipv6;
-				}
+            if (return_code < 0) {
+              if (spine_socket_error_is_interrupted(
+                      spine_socket_last_error())) {
+                goto keep_listening_ipv6;
+              }
+            } else {
+              /* Bounds-check before casting to struct. An undersized
+               * raw recv cannot legally be an ICMPv6 echo reply, but
+               * a hostile sender (or a kernel bug) could deliver one;
+               * treat it as noise and keep listening. */
+              if ((size_t)return_code <
+                  sizeof(struct icmp6_hdr) + sizeof(spine_ping_payload_t)) {
+                SPINE_LOG_DEBUG(
+                    ("DEBUG: Discarding undersized ICMPv6 reply: %zd bytes",
+                     return_code));
+                goto keep_listening_ipv6;
+              }
 
-				reply = (struct icmp6_hdr *) socket_reply;
+              memcpy(&reply, socket_reply, sizeof(reply));
 
-				/* 1. Source must match the target we probed. The kernel
-				 * does not verify this on AF_INET6 raw sockets. */
-				if (memcmp(&fromname.sin6_addr, &recvname.sin6_addr, sizeof(struct in6_addr)) != 0) {
-					SPINE_LOG_DEBUG(("DEBUG: Dropping ICMPv6 reply from unexpected source"));
-					goto keep_listening_ipv6;
-				}
+              /* 1. Source must match the target we probed. The kernel
+               * does not verify this on AF_INET6 raw sockets. */
+              if (memcmp(&fromname.sin6_addr, &recvname.sin6_addr,
+                         sizeof(struct in6_addr)) != 0) {
+                SPINE_LOG_DEBUG(
+                    ("DEBUG: Dropping ICMPv6 reply from unexpected source"));
+                goto keep_listening_ipv6;
+              }
 
-				/* 2. Must be an echo reply with our id and seq. */
-				if (reply->icmp6_type != ICMP6_ECHO_REPLY) {
-					goto keep_listening_ipv6;
-				}
-				if (reply->icmp6_id != htons(our_id)) {
-					SPINE_LOG_DEBUG(("DEBUG: Dropping ICMPv6 reply with foreign id"));
-					goto keep_listening_ipv6;
-				}
-				if (reply->icmp6_seq != htons(our_seq)) {
-					SPINE_LOG_DEBUG(("DEBUG: Dropping ICMPv6 reply with stale seq"));
-					goto keep_listening_ipv6;
-				}
+              /* 2. Must be an echo reply with our id and seq. */
+              if (reply.icmp6_type != ICMP6_ECHO_REPLY) {
+                goto keep_listening_ipv6;
+              }
+              if (reply.icmp6_id != htons(our_id)) {
+                SPINE_LOG_DEBUG(
+                    ("DEBUG: Dropping ICMPv6 reply with foreign id"));
+                goto keep_listening_ipv6;
+              }
+              if (reply.icmp6_seq != htons(our_seq)) {
+                SPINE_LOG_DEBUG(
+                    ("DEBUG: Dropping ICMPv6 reply with stale seq"));
+                goto keep_listening_ipv6;
+              }
 
-				/* 3. Payload signature check (rejects unrelated traffic
-				 * and cross-run leakage that happens to match id+seq). */
-				if (!spine_ping_validate_payload(socket_reply + sizeof(struct icmp6_hdr),
-				                                 (size_t) return_code - sizeof(struct icmp6_hdr),
-				                                 (uint32_t) icmp_id_mask)) {
-					SPINE_LOG_DEBUG(("DEBUG: Dropping ICMPv6 reply with invalid payload signature"));
-					goto keep_listening_ipv6;
-				}
+              /* 3. Payload signature check (rejects unrelated traffic
+               * and cross-run leakage that happens to match id+seq). */
+              if (!spine_ping_validate_payload(
+                      socket_reply + sizeof(struct icmp6_hdr),
+                      (size_t)return_code - sizeof(struct icmp6_hdr),
+                      (uint32_t)icmp_id_mask)) {
+                SPINE_LOG_DEBUG(("DEBUG: Dropping ICMPv6 reply with invalid "
+                                 "payload signature"));
+                goto keep_listening_ipv6;
+              }
 
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMPv6: Device is Alive");
-				snprintf(ping->ping_status, 50, "%.5f", total_time);
-				ret = HOST_UP;
-				goto cleanup;
-			}
-		}
+              snprintf(ping->ping_response, SMALL_BUFSIZE,
+                       "ICMPv6: Device is Alive");
+              snprintf(ping->ping_status, 50, "%.5f", total_time);
+              ret = HOST_UP;
+              goto cleanup;
+            }
+          }
 
-		total_time = 0;
-		retry_count++;
+          total_time = 0;
+          retry_count++;
 #ifndef SOLAR_THREAD
 		spine_platform_sleep_us(1000);
 #endif
-	}
+        }
 
 cleanup:
-	SPINE_FREE(packet);
-	if (spine_socket_is_valid(icmp_socket)) {
-		spine_socket_close(icmp_socket);
-	}
-	return ret;
+  if (spine_socket_is_valid(icmp_socket)) {
+    spine_socket_close(icmp_socket);
+  }
+  return ret;
 }
 #endif
 
@@ -688,48 +723,50 @@ cleanup:
  *  \return HOST_UP if the host is reachable, HOST_DOWN otherwise.
  */
 int ping_host(host_t *host, ping_t *ping) {
-	int ping_result;
-	int snmp_result;
-	double snmp_start_time;
-	double snmp_end_time;
+  int ping_result = 0;
+  int snmp_result = 0;
+  double snmp_start_time;
+  double snmp_end_time;
 
-	/* snmp pinging has been selected at a minimum */
-	ping_result = 0;
-	snmp_result = 0;
+  /* icmp/tcp/udp ping test */
+  if ((host->availability_method == AVAIL_SNMP_AND_PING) ||
+      (host->availability_method == AVAIL_PING) ||
+      (host->availability_method == AVAIL_SNMP_OR_PING)) {
 
-	/* icmp/tcp/udp ping test */
-	if ((host->availability_method == AVAIL_SNMP_AND_PING) ||
-		(host->availability_method == AVAIL_PING) ||
-		(host->availability_method == AVAIL_SNMP_OR_PING)) {
+    if (host->ping_method == PING_ICMP) {
+      if (set.icmp_avail == FALSE) {
+        SPINE_LOG(
+            ("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues",
+             host->id));
+        host->ping_method = PING_UDP;
+      }
+    }
 
-		if (host->ping_method == PING_ICMP) {
-			if (set.icmp_avail == FALSE) {
-				SPINE_LOG(("Device[%i] DEBUG Falling back to UDP Ping Due to SetUID Issues", host->id));
-				host->ping_method = PING_UDP;
-			}
-		}
+    if (!strstr(host->hostname, "localhost")) {
+      int address_type = get_address_type(host);
 
-		if (!strstr(host->hostname, "localhost")) {
-			int address_type = get_address_type(host);
-
-			if (address_type == SPINE_IPV4 || address_type == SPINE_IPV6) {
-				if (host->ping_method == PING_ICMP) {
-					ping_result = ping_icmp(host, ping);
-				} else if (host->ping_method == PING_UDP) {
-					ping_result = ping_udp(host, ping);
-				} else if (host->ping_method == PING_TCP || host->ping_method == PING_TCP_CLOSED) {
-					ping_result = ping_tcp(host, ping);
-				}
-			} else if (host->availability_method == AVAIL_PING) {
-				snprintf(ping->ping_status, 50, "0.000");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "PING: Device address is unknown. Please use the SNMP ping options only.");
-				ping_result = HOST_DOWN;
-			}
-		} else {
-			snprintf(ping->ping_status, 50, "0.000");
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "PING: Device does not require ping.");
-			ping_result = HOST_UP;
-		}
+      if (address_type == SPINE_IPV4 || address_type == SPINE_IPV6) {
+        if (host->ping_method == PING_ICMP) {
+          ping_result = ping_icmp(host, ping);
+        } else if (host->ping_method == PING_UDP) {
+          ping_result = ping_udp(host, ping);
+        } else if (host->ping_method == PING_TCP ||
+                   host->ping_method == PING_TCP_CLOSED) {
+          ping_result = ping_tcp(host, ping);
+        }
+      } else if (host->availability_method == AVAIL_PING) {
+        snprintf(ping->ping_status, 50, "0.000");
+        snprintf(ping->ping_response, SMALL_BUFSIZE,
+                 "PING: Device address is unknown. Please use the SNMP ping "
+                 "options only.");
+        ping_result = HOST_DOWN;
+      }
+    } else {
+      snprintf(ping->ping_status, 50, "0.000");
+      snprintf(ping->ping_response, SMALL_BUFSIZE,
+               "PING: Device does not require ping.");
+      ping_result = HOST_UP;
+    }
 	}
 
 	/* snmp test */
@@ -801,11 +838,11 @@ int ping_host(host_t *host, ping_t *ping) {
  */
 int ping_snmp(host_t *host, ping_t *ping) {
 	char *poll_result = NULL;
-	char *oid;
-	double begin_time, end_time, total_time;
-	double one_thousand = 1000.00;
+        const char *oid;
+        double begin_time, end_time, total_time;
+        const double one_thousand = 1000.00;
 
-	if (is_debug_device(host->id)) {
+        if (is_debug_device(host->id)) {
 		SPINE_LOG(("Device[%i] DEBUG: Entering SNMP Ping", host->id));
 	} else {
 		SPINE_LOG_DEBUG(("DEBUG: Device[%i] Entering SNMP Ping", host->id));
@@ -815,16 +852,14 @@ int ping_snmp(host_t *host, ping_t *ping) {
 		if (strlen(host->snmp_community) != 0 || host->snmp_version == 3) {
 			/* by default, we look at sysUptime */
 			if (host->availability_method == AVAIL_SNMP_GET_NEXT) {
-				oid = strdup(".1.3");
-			} else if (host->availability_method == AVAIL_SNMP_GET_SYSDESC) {
-				oid = strdup(".1.3.6.1.2.1.1.1.0");
-			} else {
-				oid = strdup(".1.3.6.1.2.1.1.3.0");
-			}
+                          oid = ".1.3";
+                        } else if (host->availability_method == AVAIL_SNMP_GET_SYSDESC) {
+                          oid = ".1.3.6.1.2.1.1.1.0";
+                        } else {
+                          oid = ".1.3.6.1.2.1.1.3.0";
+                        }
 
-			if (oid == NULL) die("ERROR: malloc(): strdup() oid ping.c failed");
-
-			/* record start time */
+                        /* record start time */
 			begin_time = get_time_as_double();
 
 			if (host->availability_method == AVAIL_SNMP_GET_NEXT) {
@@ -836,9 +871,7 @@ int ping_snmp(host_t *host, ping_t *ping) {
 			/* record end time */
 			end_time = get_time_as_double();
 
-			SPINE_FREE(oid);
-
-			total_time = (end_time - begin_time) * one_thousand;
+                        total_time = (end_time - begin_time) * one_thousand;
 
 			/* do positive test cases first */
 			if (host->snmp_status == SNMPERR_UNKNOWN_OBJID) {
@@ -913,23 +946,24 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 	double begin_time, end_time, total_time;
 	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
+        const double one_thousand = 1000.00;
+        struct timeval timeout;
 
-	struct sockaddr_in recvname;
-	struct sockaddr_in fromname;
-	char   socket_reply[BUFSIZE];
+        struct sockaddr_in recvname = {0};
+        struct sockaddr_in fromname = {0};
+        char   socket_reply[BUFSIZE];
 	int    retry_count;
-	int    packet_len;
-	socklen_t    fromlen;
+        const size_t packet_len = ICMP_HDR_SIZE + sizeof(spine_ping_payload_t);
+        socklen_t    fromlen;
 	ssize_t    return_code;
 
-	static SPINE_PING_SEQ_T seq = 0;
-	struct   icmp  *icmp;
-	struct   ip    *ip;
-	struct   icmp  *pkt;
-	unsigned char  *packet;
-	uint16_t our_id;
+        static ping_sequence_t seq = 0;
+        struct icmp icmp = {0};
+        struct ip ip;
+        struct icmp pkt;
+        unsigned char packet[ICMP_HDR_SIZE + sizeof(spine_ping_payload_t)] = {
+            0};
+        uint16_t our_id;
 	uint16_t our_seq;
 
 	if (get_address_type(host) == SPINE_IPV6) {
@@ -944,36 +978,42 @@ int ping_icmp(host_t *host, ping_t *ping) {
 
 	/* get ICMP socket */
 	retry_count = 0;
-	while (TRUE) {
-		if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-			thread_mutex_lock(LOCK_SETEUID);
-			if (seteuid(0) == -1) {
-				SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-			}
-		}
+        for (;;) {
+          if (spine_socket_raw_icmp_needs_privileged_open() &&
+              hasCaps() != TRUE) {
+            thread_mutex_lock(LOCK_SETEUID);
+            if (seteuid(0) == -1) {
+              SPINE_LOG_DEBUG(
+                  ("WARNING: Spine unable to obtain root privileges."));
+            }
+          }
 
-		if (!spine_socket_is_valid(icmp_socket = spine_socket_open(AF_INET, SOCK_RAW, IPPROTO_ICMP))) {
-			spine_platform_sleep_us(500000);
-			retry_count++;
+          if (!spine_socket_is_valid(icmp_socket = spine_socket_open(
+                                         AF_INET, SOCK_RAW, IPPROTO_ICMP))) {
+            spine_platform_sleep_us(500000);
+            retry_count++;
 
-			if (retry_count > 4) {
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping unable to create ICMP Socket");
-				snprintf(ping->ping_status, 50, "down");
-				if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-					if (seteuid(getuid()) == -1) {
-						SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-					}
-					thread_mutex_unlock(LOCK_SETEUID);
-				}
+            if (retry_count > 4) {
+              snprintf(ping->ping_response, SMALL_BUFSIZE,
+                       "ICMP: Ping unable to create ICMP Socket");
+              snprintf(ping->ping_status, 50, "down");
+              if (spine_socket_raw_icmp_needs_privileged_open() &&
+                  hasCaps() != TRUE) {
+                if (seteuid(getuid()) == -1) {
+                  SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to "
+                                   "local user."));
+                }
+                thread_mutex_unlock(LOCK_SETEUID);
+              }
 
-				return HOST_DOWN;
-			}
-		} else {
-			break;
-		}
-	}
+              return HOST_DOWN;
+            }
+          } else {
+            break;
+          }
+        }
 
-	if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
+        if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
 		if (seteuid(getuid()) == -1) {
 			SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
 		}
@@ -983,39 +1023,26 @@ int ping_icmp(host_t *host, ping_t *ping) {
 	/* convert the host timeout to a double precision number in seconds */
 	host_timeout = host->ping_timeout;
 
-	/* allocate the packet in memory */
-	packet_len = ICMP_HDR_SIZE + (int) sizeof(spine_ping_payload_t);
+        our_id  = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
+        our_seq = ping_sequence_next(&seq);
 
-	if (!(packet = malloc(packet_len))) {
-		die("ERROR: Fatal malloc error: ping.c ping_icmp!");
-	}
-	memset(packet, 0, packet_len);
+        icmp.icmp_type = ICMP_ECHO;
+        icmp.icmp_code = 0;
+        icmp.icmp_id = htons(our_id);
+        icmp.icmp_seq = htons(our_seq);
 
-	/* set the memory of the ping address */
-	memset(&fromname, 0, sizeof(struct sockaddr_in));
-	memset(&recvname, 0, sizeof(struct sockaddr_in));
-
-	our_id  = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
-	our_seq = (uint16_t) SPINE_PING_SEQ_NEXT(seq);
-
-	icmp = (struct icmp*) packet;
-
-	icmp->icmp_type = ICMP_ECHO;
-	icmp->icmp_code = 0;
-	icmp->icmp_id   = htons(our_id);
-	icmp->icmp_seq  = htons(our_seq);
-
-	{
+        {
 		/* Carry a magic + pid_mask signature so a stray reply that
 		 * happens to collide on id+seq can still be dropped. */
 		spine_ping_payload_t sig;
 		build_ping_payload(&sig);
 		memcpy(packet + ICMP_HDR_SIZE, &sig, sizeof(sig));
 	}
-	icmp->icmp_cksum = 0;
-	icmp->icmp_cksum = get_checksum(packet, packet_len);
+        memcpy(packet, &icmp, ICMP_HDR_SIZE);
+        icmp.icmp_cksum = get_checksum(packet, (int)packet_len);
+        memcpy(packet, &icmp, ICMP_HDR_SIZE);
 
-	/* hostname must be nonblank */
+        /* hostname must be nonblank */
 	if ((strlen(host->hostname) != 0) && spine_socket_is_valid(icmp_socket)) {
 		/* initialize variables */
 		snprintf(ping->ping_status, 50, "down");
@@ -1027,169 +1054,222 @@ int ping_icmp(host_t *host, ping_t *ping) {
 			total_time  = 0;
 			begin_time  = get_time_as_double();
 
-			while (1) {
-				if (retry_count > host->ping_retries) {
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Ping timed out");
-					snprintf(ping->ping_status, 50, "down");
-					SPINE_FREE(packet);
-					spine_socket_close(icmp_socket);
-					return HOST_DOWN;
-				}
+                        for (;;) {
+                          if (retry_count > host->ping_retries) {
+                            snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                     "ICMP: Ping timed out");
+                            snprintf(ping->ping_status, 50, "down");
+                            spine_socket_close(icmp_socket);
+                            return HOST_DOWN;
+                          }
 
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] DEBUG: Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, (int) our_seq, retry_count, host->ping_retries));
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] Attempting to ping %s, seq %d (Retry %d of %d)", host->id, host->hostname, (int) our_seq, retry_count, host->ping_retries));
-				}
+                          if (is_debug_device(host->id)) {
+                            SPINE_LOG(("Device[%i] DEBUG: Attempting to ping "
+                                       "%s, seq %d (Retry %d of %d)",
+                                       host->id, host->hostname, (int)our_seq,
+                                       retry_count, host->ping_retries));
+                          } else {
+                            SPINE_LOG_DEBUG(("DEBUG: Device[%i] Attempting to "
+                                             "ping %s, seq %d (Retry %d of %d)",
+                                             host->id, host->hostname,
+                                             (int)our_seq, retry_count,
+                                             host->ping_retries));
+                          }
 
-				/* decrement the timeout value by the total time */
-				timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-				timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+                          /* decrement the timeout value by the total time */
+                          timeout.tv_sec =
+                              rint((host_timeout - total_time) / 1000);
+                          timeout.tv_usec =
+                              ((int)(host_timeout - total_time) % 1000) * 1000;
 
-				/* set the socket send and receive timeout */
-				spine_socket_set_timeout(icmp_socket, &timeout);
+                          /* set the socket send and receive timeout */
+                          spine_socket_set_timeout(icmp_socket, &timeout);
 
-				/* send packet to destination */
-				return_code = spine_socket_sendto(icmp_socket, packet, packet_len, 0, (struct sockaddr *) &fromname, sizeof(fromname));
+                          /* send packet to destination */
+                          return_code = spine_socket_sendto(
+                              icmp_socket, packet, packet_len, 0,
+                              (struct sockaddr *)&fromname, sizeof(fromname));
 
-				fromlen = sizeof(fromname);
+                          fromlen = sizeof(fromname);
 
-				/* wait for a response on the socket */
-				/* reinitialize fd_set -- select(2) clears bits in place on return */
-				keep_listening:
-				if (!spine_socket_is_valid(icmp_socket)) {
-					snprintf(ping->ping_status, 50, "down");
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: invalid socket");
-					spine_socket_close(icmp_socket);
-					return HOST_DOWN;
-				}
-				return_code = spine_socket_wait_readable(icmp_socket, &timeout);
+                        /* wait for a response on the socket */
+                        /* reinitialize fd_set -- select(2) clears bits in place
+                         * on return */
+                        keep_listening:
+                          if (!spine_socket_is_valid(icmp_socket)) {
+                            snprintf(ping->ping_status, 50, "down");
+                            snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                     "ICMP: invalid socket");
+                            spine_socket_close(icmp_socket);
+                            return HOST_DOWN;
+                          }
+                          return_code =
+                              spine_socket_wait_readable(icmp_socket, &timeout);
 
-				/* record end time */
-				end_time = get_time_as_double();
+                          /* record end time */
+                          end_time = get_time_as_double();
 
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
+                          /* calculate total time */
+                          total_time = (end_time - begin_time) * one_thousand;
 
-				if (total_time < host_timeout) {
-					return_code = spine_socket_recvfrom(icmp_socket, socket_reply, BUFSIZE, spine_socket_ping_icmp_recv_flags(), (struct sockaddr *) &recvname, &fromlen);
+                          if (total_time < host_timeout) {
+                            return_code = spine_socket_recvfrom(
+                                icmp_socket, socket_reply, BUFSIZE,
+                                spine_socket_ping_icmp_recv_flags(),
+                                (struct sockaddr *)&recvname, &fromlen);
 
-					if (return_code < 0) {
-						if (spine_socket_error_is_interrupted(spine_socket_last_error())) {
-							/* call was interrupted by some system event */
+                            if (return_code < 0) {
+                              if (spine_socket_error_is_interrupted(
+                                      spine_socket_last_error())) {
+                                /* call was interrupted by some system event */
 
-							if (is_debug_device(host->id)) {
-								SPINE_LOG(("Device[%i] DEBUG: Received EINTR", host->id));
-							} else {
-								SPINE_LOG_DEBUG(("DEBUG: Device[%i] Received EINTR", host->id));
-							}
+                                if (is_debug_device(host->id)) {
+                                  SPINE_LOG(("Device[%i] DEBUG: Received EINTR",
+                                             host->id));
+                                } else {
+                                  SPINE_LOG_DEBUG(
+                                      ("DEBUG: Device[%i] Received EINTR",
+                                       host->id));
+                                }
 
-							goto keep_listening;
-						}
-					} else {
-						size_t ip_hl;
-						/* Bounds check: raw AF_INET recv includes the IP header.
-						 * Refuse anything too small to plausibly contain one. */
-						if ((size_t) return_code < sizeof(struct ip)) {
-							SPINE_LOG_DEBUG(("DEBUG: Discarding undersized IPv4 reply: %zd bytes", return_code));
-							goto keep_listening;
-						}
-						ip = (struct ip *) socket_reply;
-						ip_hl = (size_t)(ip->ip_hl) * 4U;
-						if (ip_hl < sizeof(struct ip) || ip_hl > (size_t) return_code) {
-							SPINE_LOG_DEBUG(("DEBUG: Invalid IPv4 header length in reply"));
-							goto keep_listening;
-						}
-						if ((size_t) return_code < ip_hl + ICMP_HDR_SIZE) {
-							SPINE_LOG_DEBUG(("DEBUG: Reply too short to contain ICMP header"));
-							goto keep_listening;
-						}
-						pkt = (struct icmp *) (socket_reply + ip_hl);
+                                goto keep_listening;
+                              }
+                            } else {
+                              size_t ip_hl;
+                              /* Bounds check: raw AF_INET recv includes the IP
+                               * header. Refuse anything too small to plausibly
+                               * contain one. */
+                              if ((size_t)return_code < sizeof(struct ip)) {
+                                SPINE_LOG_DEBUG(("DEBUG: Discarding undersized "
+                                                 "IPv4 reply: %zd bytes",
+                                                 return_code));
+                                goto keep_listening;
+                              }
+                              memcpy(&ip, socket_reply, sizeof(ip));
+                              ip_hl = (size_t)(ip.ip_hl) * 4U;
+                              if (ip_hl < sizeof(struct ip) ||
+                                  ip_hl > (size_t)return_code) {
+                                SPINE_LOG_DEBUG(("DEBUG: Invalid IPv4 header "
+                                                 "length in reply"));
+                                goto keep_listening;
+                              }
+                              if ((size_t)return_code < ip_hl + ICMP_HDR_SIZE) {
+                                SPINE_LOG_DEBUG(("DEBUG: Reply too short to "
+                                                 "contain ICMP header"));
+                                goto keep_listening;
+                              }
+                              memset(&pkt, 0, sizeof(pkt));
+                              memcpy(&pkt, socket_reply + ip_hl, ICMP_HDR_SIZE);
 
-						if (fromname.sin_addr.s_addr != recvname.sin_addr.s_addr) {
-							/* another host responded */
-							goto keep_listening;
-						}
+                              if (fromname.sin_addr.s_addr !=
+                                  recvname.sin_addr.s_addr) {
+                                /* another host responded */
+                                goto keep_listening;
+                              }
 
-						if (pkt->icmp_type != ICMP_ECHOREPLY) {
-							/* received a response other than an echo reply; the enclosing
-							 * total_time < host_timeout branch means a retry bump here
-							 * is unreachable. Drop and keep listening. */
-							continue;
-						}
+                              if (pkt.icmp_type != ICMP_ECHOREPLY) {
+                                /* received a response other than an echo reply;
+                                 * the enclosing total_time < host_timeout
+                                 * branch means a retry bump here is
+                                 * unreachable. Drop and keep listening. */
+                                continue;
+                              }
 
-						/* id/seq sanity: the kernel copies our outbound
-						 * id back into the reply. ntohs()-compare to be
-						 * byte-order independent on the wire. */
-						if (pkt->icmp_id != htons(our_id)) {
-							SPINE_LOG_DEBUG(("DEBUG: Dropping ICMP reply with foreign id"));
-							goto keep_listening;
-						}
-						if (pkt->icmp_seq != htons(our_seq)) {
-							SPINE_LOG_DEBUG(("DEBUG: Dropping ICMP reply with stale seq"));
-							goto keep_listening;
-						}
+                              /* id/seq sanity: the kernel copies our outbound
+                               * id back into the reply. ntohs()-compare to be
+                               * byte-order independent on the wire. */
+                              if (pkt.icmp_id != htons(our_id)) {
+                                SPINE_LOG_DEBUG(("DEBUG: Dropping ICMP reply "
+                                                 "with foreign id"));
+                                goto keep_listening;
+                              }
+                              if (pkt.icmp_seq != htons(our_seq)) {
+                                SPINE_LOG_DEBUG(("DEBUG: Dropping ICMP reply "
+                                                 "with stale seq"));
+                                goto keep_listening;
+                              }
 
-						/* Payload signature cross-check. Require the
-						 * received ICMP payload to fit at least our
-						 * signature struct. */
-						{
-							size_t payload_off = ip_hl + ICMP_HDR_SIZE;
-							if ((size_t) return_code < payload_off + sizeof(spine_ping_payload_t)) {
-								SPINE_LOG_DEBUG(("DEBUG: ICMP reply payload too short for signature"));
-								goto keep_listening;
-							}
-							if (!spine_ping_validate_payload(socket_reply + payload_off,
-							                                 (size_t) return_code - payload_off,
-							                                 (uint32_t) icmp_id_mask)) {
-								SPINE_LOG_DEBUG(("DEBUG: Dropping ICMP reply with invalid payload signature"));
-								goto keep_listening;
-							}
-						}
+                              /* Payload signature cross-check. Require the
+                               * received ICMP payload to fit at least our
+                               * signature struct. */
+                              {
+                                size_t payload_off = ip_hl + ICMP_HDR_SIZE;
+                                if ((size_t)return_code <
+                                    payload_off +
+                                        sizeof(spine_ping_payload_t)) {
+                                  SPINE_LOG_DEBUG(("DEBUG: ICMP reply payload "
+                                                   "too short for signature"));
+                                  goto keep_listening;
+                                }
+                                if (!spine_ping_validate_payload(
+                                        socket_reply + payload_off,
+                                        (size_t)return_code - payload_off,
+                                        (uint32_t)icmp_id_mask)) {
+                                  SPINE_LOG_DEBUG(
+                                      ("DEBUG: Dropping ICMP reply with "
+                                       "invalid payload signature"));
+                                  goto keep_listening;
+                                }
+                              }
 
-						if (is_debug_device(host->id)) {
-							SPINE_LOG(("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-						} else {
-							SPINE_LOG_MEDIUM(("Device[%i] INFO: ICMP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-						}
-						snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Device is Alive");
-						snprintf(ping->ping_status, 50, "%.5f", total_time);
-						SPINE_FREE(packet);
-						if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-							thread_mutex_lock(LOCK_SETEUID);
-							if (seteuid(0) == -1) {
-								SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
-							}
-						}
-						spine_socket_close(icmp_socket);
-						if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
-							if (seteuid(getuid()) == -1) {
-								SPINE_LOG_DEBUG(("WARNING: Spine unable to drop from root to local user."));
-							}
-							thread_mutex_unlock(LOCK_SETEUID);
-						}
+                              if (is_debug_device(host->id)) {
+                                SPINE_LOG(("Device[%i] INFO: ICMP Device "
+                                           "Alive, Try Count:%i, Time:%.4f ms",
+                                           host->id, retry_count + 1,
+                                           (total_time)));
+                              } else {
+                                SPINE_LOG_MEDIUM(
+                                    ("Device[%i] INFO: ICMP Device Alive, Try "
+                                     "Count:%i, Time:%.4f ms",
+                                     host->id, retry_count + 1, (total_time)));
+                              }
+                              snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                       "ICMP: Device is Alive");
+                              snprintf(ping->ping_status, 50, "%.5f",
+                                       total_time);
+                              if (spine_socket_raw_icmp_needs_privileged_open() &&
+                                  hasCaps() != TRUE) {
+                                thread_mutex_lock(LOCK_SETEUID);
+                                if (seteuid(0) == -1) {
+                                  SPINE_LOG_DEBUG(("WARNING: Spine unable to "
+                                                   "obtain root privileges."));
+                                }
+                              }
+                              spine_socket_close(icmp_socket);
+                              if (spine_socket_raw_icmp_needs_privileged_open() &&
+                                  hasCaps() != TRUE) {
+                                if (seteuid(getuid()) == -1) {
+                                  SPINE_LOG_DEBUG(
+                                      ("WARNING: Spine unable to drop from "
+                                       "root to local user."));
+                                }
+                                thread_mutex_unlock(LOCK_SETEUID);
+                              }
 
-						return HOST_UP;
-					}
-				} else {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] DEBUG: Exceeded Device Timeout, Retrying", host->id));
-					} else {
-						SPINE_LOG_DEBUG(("DEBUG: Device[%i] Exceeded Device Timeout, Retrying", host->id));
-					}
-				}
+                              return HOST_UP;
+                            }
+                          } else {
+                            if (is_debug_device(host->id)) {
+                              SPINE_LOG(("Device[%i] DEBUG: Exceeded Device "
+                                         "Timeout, Retrying",
+                                         host->id));
+                            } else {
+                              SPINE_LOG_DEBUG(("DEBUG: Device[%i] Exceeded "
+                                               "Device Timeout, Retrying",
+                                               host->id));
+                            }
+                          }
 
-				total_time = 0;
-				retry_count++;
+                          total_time = 0;
+                          retry_count++;
 				#ifndef SOLAR_THREAD
 				spine_platform_sleep_us(1000);
 				#endif
-			}
-		} else {
+                        }
+                } else {
 			snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			SPINE_FREE(packet);
-			if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
+                        snprintf(ping->ping_status, 50, "down");
+                        if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
 				thread_mutex_lock(LOCK_SETEUID);
 				if (seteuid(0) == -1) {
 					SPINE_LOG_DEBUG(("WARNING: Spine unable to obtain root privileges."));
@@ -1206,9 +1286,8 @@ int ping_icmp(host_t *host, ping_t *ping) {
 		}
 	} else {
 		snprintf(ping->ping_response, SMALL_BUFSIZE, "ICMP: Destination address not specified");
-		snprintf(ping->ping_status, 50, "down");
-		SPINE_FREE(packet);
-		if (spine_socket_is_valid(icmp_socket)) {
+                snprintf(ping->ping_status, 50, "down");
+                if (spine_socket_is_valid(icmp_socket)) {
 			if (spine_socket_raw_icmp_needs_privileged_open() && hasCaps() != TRUE) {
 				thread_mutex_lock(LOCK_SETEUID);
 				if (seteuid(0) == -1) {
@@ -1243,8 +1322,8 @@ int ping_icmp(host_t *host, ping_t *ping) {
 int ping_udp(host_t *host, ping_t *ping) {
 	double begin_time, end_time, total_time;
 	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
+        const double one_thousand = 1000.00;
+        struct timeval timeout;
 	spine_socket_t udp_socket;
 	struct sockaddr_storage servername;
 	socklen_t servername_len;
@@ -1278,125 +1357,155 @@ int ping_udp(host_t *host, ping_t *ping) {
 		snprintf(ping->ping_response, SMALL_BUFSIZE, "default");
 
 		/* get address of hostname */
-		if (resolve_sockaddr(&servername, &servername_len, AF_UNSPEC, host->hostname, host->ping_port)) {
-			udp_socket = spine_socket_open(((struct sockaddr *) &servername)->sa_family, SOCK_DGRAM, IPPROTO_UDP);
-			if (!spine_socket_is_valid(udp_socket)) {
-				snprintf(ping->ping_status, 50, "down");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Unable to create socket");
-				return HOST_DOWN;
-			}
+                if (resolve_sockaddr(&servername, sizeof(servername),
+                                     &servername_len, AF_UNSPEC, host->hostname,
+                                     host->ping_port)) {
+                  udp_socket = spine_socket_open(
+                      ((struct sockaddr *)&servername)->sa_family, SOCK_DGRAM,
+                      IPPROTO_UDP);
+                  if (!spine_socket_is_valid(udp_socket)) {
+                    snprintf(ping->ping_status, 50, "down");
+                    snprintf(ping->ping_response, SMALL_BUFSIZE,
+                             "UDP: Unable to create socket");
+                    return HOST_DOWN;
+                  }
 
-			if (spine_socket_connect(udp_socket, (struct sockaddr *) &servername, servername_len) < 0) {
-				snprintf(ping->ping_status, 50, "down");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Cannot connect to host");
-				spine_socket_close(udp_socket);
-				return HOST_DOWN;
-			}
+                  if (spine_socket_connect(udp_socket,
+                                           (struct sockaddr *)&servername,
+                                           servername_len) < 0) {
+                    snprintf(ping->ping_status, 50, "down");
+                    snprintf(ping->ping_response, SMALL_BUFSIZE,
+                             "UDP: Cannot connect to host");
+                    spine_socket_close(udp_socket);
+                    return HOST_DOWN;
+                  }
 
-			/* format packet */
-			snprintf(request, BUFSIZE, "cacti-monitoring-system"); /* the actual test data */
-			request_len = strlen(request);
+                  /* format packet */
+                  snprintf(
+                      request, BUFSIZE,
+                      "cacti-monitoring-system"); /* the actual test data */
+                  request_len = strlen(request);
 
-			retry_count = 0;
+                  retry_count = 0;
 
-			while (1) {
-				if (retry_count > host->ping_retries) {
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Ping timed out");
-					snprintf(ping->ping_status, 50, "down");
-					spine_socket_close(udp_socket);
-					return HOST_DOWN;
-				}
+                  for (;;) {
+                    if (retry_count > host->ping_retries) {
+                      snprintf(ping->ping_response, SMALL_BUFSIZE,
+                               "UDP: Ping timed out");
+                      snprintf(ping->ping_status, 50, "down");
+                      spine_socket_close(udp_socket);
+                      return HOST_DOWN;
+                    }
 
-				/* record start time */
-				if (total_time == 0) {
-					/* establish timeout value */
-					timeout.tv_sec  = rint(host_timeout / 1000);
-					timeout.tv_usec = rint((int) host_timeout % 1000) * 1000;
+                    /* record start time */
+                    if (total_time == 0) {
+                      /* establish timeout value */
+                      timeout.tv_sec = rint(host_timeout / 1000);
+                      timeout.tv_usec = rint((int)host_timeout % 1000) * 1000;
 
-					/* set the socket send and receive timeout */
-					spine_socket_set_timeout(udp_socket, &timeout);
-				} else {
-					/* decrement the timeout value by the total time */
-					timeout.tv_sec  = rint((host_timeout - total_time) / 1000);
-					timeout.tv_usec = ((int) (host_timeout - total_time) % 1000) * 1000;
+                      /* set the socket send and receive timeout */
+                      spine_socket_set_timeout(udp_socket, &timeout);
+                    } else {
+                      /* decrement the timeout value by the total time */
+                      timeout.tv_sec = rint((host_timeout - total_time) / 1000);
+                      timeout.tv_usec =
+                          ((int)(host_timeout - total_time) % 1000) * 1000;
 
-					/* set the socket send and receive timeout */
-					spine_socket_set_timeout(udp_socket, &timeout);
-				}
+                      /* set the socket send and receive timeout */
+                      spine_socket_set_timeout(udp_socket, &timeout);
+                    }
 
-				/* send packet to destination */
-				spine_socket_send(udp_socket, request, request_len, 0);
+                    /* send packet to destination */
+                    spine_socket_send(udp_socket, request, request_len, 0);
 
-				/* wait for a response on the socket */
-				wait_more:
-				return_code = spine_socket_wait_readable(udp_socket, &timeout);
+                  /* wait for a response on the socket */
+                  wait_more:
+                    return_code =
+                        spine_socket_wait_readable(udp_socket, &timeout);
 
-				/* record end time */
-				end_time = get_time_as_double();
+                    /* record end time */
+                    end_time = get_time_as_double();
 
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
+                    /* calculate total time */
+                    total_time = (end_time - begin_time) * one_thousand;
 
-				/* check to see which socket talked */
-				if (return_code > 0) {
-					return_code = spine_socket_recv(udp_socket, socket_reply, BUFSIZE, 0);
+                    /* check to see which socket talked */
+                    if (return_code > 0) {
+                      return_code = spine_socket_recv(udp_socket, socket_reply,
+                                                      BUFSIZE, 0);
 
-					if (return_code == -1 && (
-						spine_socket_error_is_host_unreachable(spine_socket_last_error()) ||
-						spine_socket_error_is_conn_reset(spine_socket_last_error()) ||
-						spine_socket_error_is_conn_refused(spine_socket_last_error()))) {
-							if (is_debug_device(host->id)) {
-								SPINE_LOG(("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-							} else {
-								SPINE_LOG_MEDIUM(("Device[%i] INFO: UDP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-							}
-							snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Alive");
-							snprintf(ping->ping_status, 50, "%.5f", total_time);
-							spine_socket_close(udp_socket);
-							return HOST_UP;
-					}
-				} else if (return_code == -1) {
-					if (spine_socket_error_is_interrupted(spine_socket_last_error())) {
-						/* interrupted, try again */
-						spine_platform_sleep_us(10000);
-						goto wait_more;
-					} else {
-						snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Device is Down");
-						snprintf(ping->ping_status, 50, "%.5f", total_time);
-						spine_socket_close(udp_socket);
-						return HOST_DOWN;
-					}
-				} else {
-					/* timeout */
-				}
+                      if (return_code == -1 &&
+                          (spine_socket_error_is_host_unreachable(
+                               spine_socket_last_error()) ||
+                           spine_socket_error_is_conn_reset(
+                               spine_socket_last_error()) ||
+                           spine_socket_error_is_conn_refused(
+                               spine_socket_last_error()))) {
+                        if (is_debug_device(host->id)) {
+                          SPINE_LOG(("Device[%i] INFO: UDP Device Alive, Try "
+                                     "Count:%i, Time:%.4f ms",
+                                     host->id, retry_count + 1, (total_time)));
+                        } else {
+                          SPINE_LOG_MEDIUM(("Device[%i] INFO: UDP Device "
+                                            "Alive, Try Count:%i, Time:%.4f ms",
+                                            host->id, retry_count + 1,
+                                            (total_time)));
+                        }
+                        snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                 "UDP: Device is Alive");
+                        snprintf(ping->ping_status, 50, "%.5f", total_time);
+                        spine_socket_close(udp_socket);
+                        return HOST_UP;
+                      }
+                    } else if (return_code == -1) {
+                      if (spine_socket_error_is_interrupted(
+                              spine_socket_last_error())) {
+                        /* interrupted, try again */
+                        spine_platform_sleep_us(10000);
+                        goto wait_more;
+                      } else {
+                        snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                 "UDP: Device is Down");
+                        snprintf(ping->ping_status, 50, "%.5f", total_time);
+                        spine_socket_close(udp_socket);
+                        return HOST_DOWN;
+                      }
+                    } else {
+                      /* timeout */
+                    }
 
-				if (is_debug_device(host->id)) {
-					SPINE_LOG(("Device[%i] DEBUG: UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: Device[%i] UDP Timeout, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-				}
+                    if (is_debug_device(host->id)) {
+                      SPINE_LOG(("Device[%i] DEBUG: UDP Timeout, Try Count:%i, "
+                                 "Time:%.4f ms",
+                                 host->id, retry_count + 1, (total_time)));
+                    } else {
+                      SPINE_LOG_DEBUG(("DEBUG: Device[%i] UDP Timeout, Try "
+                                       "Count:%i, Time:%.4f ms",
+                                       host->id, retry_count + 1,
+                                       (total_time)));
+                    }
 
-				retry_count++;
+                    retry_count++;
 				#ifndef SOLAR_THREAD
 				spine_platform_sleep_us(1000);
 				#endif
-			}
-		} else {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			if (spine_socket_is_valid(udp_socket)) {
-				spine_socket_close(udp_socket);
-			}
-			return HOST_DOWN;
-		}
-	} else {
+                  }
+                } else {
+                  snprintf(ping->ping_response, SMALL_BUFSIZE,
+                           "UDP: Destination hostname invalid");
+                  snprintf(ping->ping_status, 50, "down");
+                  if (spine_socket_is_valid(udp_socket)) {
+                    spine_socket_close(udp_socket);
+                  }
+                  return HOST_DOWN;
+                }
+        } else {
 		snprintf(ping->ping_response, SMALL_BUFSIZE, "UDP: Destination address invalid or unable to create socket");
 		snprintf(ping->ping_status, 50, "down");
 		if (spine_socket_is_valid(udp_socket)) spine_socket_close(udp_socket);
 		return HOST_DOWN;
 	}
 }
-
 
 /*! \fn int ping_tcp(host_t *host, ping_t *ping)
  *  \brief ping a host using an TCP syn
@@ -1413,8 +1522,8 @@ int ping_udp(host_t *host, ping_t *ping) {
 int ping_tcp(host_t *host, ping_t *ping) {
 	double begin_time, end_time, total_time;
 	double host_timeout;
-	double one_thousand = 1000.00;
-	struct timeval timeout;
+        const double one_thousand = 1000.00;
+        struct timeval timeout;
 	spine_socket_t tcp_socket;
 	struct sockaddr_storage servername;
 	socklen_t servername_len;
@@ -1446,64 +1555,84 @@ int ping_tcp(host_t *host, ping_t *ping) {
 		snprintf(ping->ping_response, SMALL_BUFSIZE, "default");
 
 		/* get address of hostname */
-		if (resolve_sockaddr(&servername, &servername_len, AF_UNSPEC, host->hostname, host->ping_port)) {
-			tcp_socket = spine_socket_open(((struct sockaddr *) &servername)->sa_family, SOCK_STREAM, IPPROTO_TCP);
-			if (!spine_socket_is_valid(tcp_socket)) {
-				snprintf(ping->ping_status, 50, "down");
-				snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Unable to create socket");
-				return HOST_DOWN;
-			}
+                if (resolve_sockaddr(&servername, sizeof(servername),
+                                     &servername_len, AF_UNSPEC, host->hostname,
+                                     host->ping_port)) {
+                  tcp_socket = spine_socket_open(
+                      ((struct sockaddr *)&servername)->sa_family, SOCK_STREAM,
+                      IPPROTO_TCP);
+                  if (!spine_socket_is_valid(tcp_socket)) {
+                    snprintf(ping->ping_status, 50, "down");
+                    snprintf(ping->ping_response, SMALL_BUFSIZE,
+                             "TCP: Unable to create socket");
+                    return HOST_DOWN;
+                  }
 
-			/* first attempt a connect */
-			retry_count = 0;
+                  /* first attempt a connect */
+                  retry_count = 0;
 
-			while (1) {
-				/* establish timeout value */
-				timeout.tv_sec  = rint(host_timeout / 1000);
-				timeout.tv_usec = ((int) host_timeout % 1000) * 1000;
+                  for (;;) {
+                    /* establish timeout value */
+                    timeout.tv_sec = rint(host_timeout / 1000);
+                    timeout.tv_usec = ((int)host_timeout % 1000) * 1000;
 
-				/* set the socket send and receive timeout */
-				spine_socket_set_timeout(tcp_socket, &timeout);
+                    /* set the socket send and receive timeout */
+                    spine_socket_set_timeout(tcp_socket, &timeout);
 
-				/* make the connection */
-				return_code = spine_socket_connect(tcp_socket, (struct sockaddr *) &servername, servername_len);
+                    /* make the connection */
+                    return_code = spine_socket_connect(
+                        tcp_socket, (struct sockaddr *)&servername,
+                        servername_len);
 
-				/* record end time */
-				end_time = get_time_as_double();
+                    /* record end time */
+                    end_time = get_time_as_double();
 
-				/* calculate total time */
-				total_time = (end_time - begin_time) * one_thousand;
+                    /* calculate total time */
+                    total_time = (end_time - begin_time) * one_thousand;
 
-				if ((return_code == -1 && spine_socket_error_is_conn_refused(spine_socket_last_error()) && host->ping_method == PING_TCP_CLOSED) || return_code == 0) {
-					if (is_debug_device(host->id)) {
-						SPINE_LOG(("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-					} else {
-						SPINE_LOG_MEDIUM(("Device[%i] INFO: TCP Device Alive, Try Count:%i, Time:%.4f ms", host->id, retry_count+1, (total_time)));
-					}
-					snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Device is Alive");
-					snprintf(ping->ping_status, 50, "%.5f", total_time);
-					spine_socket_close(tcp_socket);
-					return HOST_UP;
-				} else {
-					if (!spine_socket_ping_tcp_supports_retries() || retry_count > host->ping_retries) {
-						snprintf(ping->ping_status, 50, "down");
-						snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Cannot connect to host");
-						spine_socket_close(tcp_socket);
-						return HOST_DOWN;
-					} else {
-						retry_count++;
-					}
-				}
-			}
-		} else {
-			snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Destination hostname invalid");
-			snprintf(ping->ping_status, 50, "down");
-			if (spine_socket_is_valid(tcp_socket)) {
-				spine_socket_close(tcp_socket);
-			}
-			return HOST_DOWN;
-		}
-	} else {
+                    if ((return_code == -1 &&
+                         spine_socket_error_is_conn_refused(
+                             spine_socket_last_error()) &&
+                         host->ping_method == PING_TCP_CLOSED) ||
+                        return_code == 0) {
+                      if (is_debug_device(host->id)) {
+                        SPINE_LOG(("Device[%i] INFO: TCP Device Alive, Try "
+                                   "Count:%i, Time:%.4f ms",
+                                   host->id, retry_count + 1, (total_time)));
+                      } else {
+                        SPINE_LOG_MEDIUM(("Device[%i] INFO: TCP Device Alive, "
+                                          "Try Count:%i, Time:%.4f ms",
+                                          host->id, retry_count + 1,
+                                          (total_time)));
+                      }
+                      snprintf(ping->ping_response, SMALL_BUFSIZE,
+                               "TCP: Device is Alive");
+                      snprintf(ping->ping_status, 50, "%.5f", total_time);
+                      spine_socket_close(tcp_socket);
+                      return HOST_UP;
+                    } else {
+                      if (!spine_socket_ping_tcp_supports_retries() ||
+                          retry_count > host->ping_retries) {
+                        snprintf(ping->ping_status, 50, "down");
+                        snprintf(ping->ping_response, SMALL_BUFSIZE,
+                                 "TCP: Cannot connect to host");
+                        spine_socket_close(tcp_socket);
+                        return HOST_DOWN;
+                      } else {
+                        retry_count++;
+                      }
+                    }
+                  }
+                } else {
+                  snprintf(ping->ping_response, SMALL_BUFSIZE,
+                           "TCP: Destination hostname invalid");
+                  snprintf(ping->ping_status, 50, "down");
+                  if (spine_socket_is_valid(tcp_socket)) {
+                    spine_socket_close(tcp_socket);
+                  }
+                  return HOST_DOWN;
+                }
+        } else {
 		snprintf(ping->ping_response, SMALL_BUFSIZE, "TCP: Destination address invalid or unable to create socket");
 		snprintf(ping->ping_status, 50, "down");
 		if (spine_socket_is_valid(tcp_socket)) spine_socket_close(tcp_socket);
@@ -1517,53 +1646,58 @@ int ping_tcp(host_t *host, ping_t *ping) {
  *  \return 1 - IPv4, 2 - IPv6, 0 - Unknown
  */
 int get_address_type(host_t *host) {
-	struct addrinfo hints, *res, *res_list;
-	char addrstr[255];
-	void *ptr = NULL;
-	int addr_found = FALSE;
+  const struct addrinfo hints = {
+      .ai_family = AF_UNSPEC,
+      .ai_socktype = SOCK_DGRAM,
+      .ai_flags = AI_CANONNAME | AI_ADDRCONFIG,
+  };
+  struct addrinfo *res_list = NULL;
+  int address_type = SPINE_NONE;
+  const int error = getaddrinfo(host->hostname, NULL, &hints, &res_list);
+  if (error != 0) {
+    SPINE_LOG(("WARNING: Unable to determine address info for %s (%s)",
+               host->hostname, gai_strerror(error)));
+    return SPINE_NONE;
+  }
 
-	memset(&hints, 0, sizeof(hints));
+  for (const struct addrinfo *res = res_list; res != NULL; res = res->ai_next) {
+    struct sockaddr_in ipv4;
+    struct sockaddr_in6 ipv6;
+    const void *address;
+    char addrstr[INET6_ADDRSTRLEN];
 
-	hints.ai_family   = AF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_flags    = AI_CANONNAME | AI_ADDRCONFIG;
-	int error;
+    if (res->ai_addr == NULL)
+      continue;
+    switch (res->ai_family) {
+    case AF_INET:
+      if (res->ai_addrlen < sizeof(ipv4))
+        continue;
+      memcpy(&ipv4, res->ai_addr, sizeof(ipv4));
+      address = &ipv4.sin_addr;
+      break;
+    case AF_INET6:
+      if (res->ai_addrlen < sizeof(ipv6))
+        continue;
+      memcpy(&ipv6, res->ai_addr, sizeof(ipv6));
+      address = &ipv6.sin6_addr;
+      break;
+    default:
+      continue;
+    }
 
-	if ((error = getaddrinfo(host->hostname, NULL, &hints, &res_list)) != 0) {
-		SPINE_LOG(("WARNING: Unable to determine address info for %s (%s)", host->hostname, gai_strerror(error)));
-		return SPINE_NONE;
-	}
+    if (inet_ntop(res->ai_family, address, addrstr, sizeof(addrstr)) != NULL) {
+      SPINE_LOG_HIGH(
+          ("Device[%d] IPv%d address %s (%s)", host->id,
+           res->ai_family == AF_INET6 ? 6 : 4, addrstr,
+           res->ai_canonname != NULL ? res->ai_canonname : host->hostname));
+    }
+    address_type = res->ai_family == AF_INET ? SPINE_IPV4 : SPINE_IPV6;
+    if (address_type == SPINE_IPV4)
+      break;
+  }
 
-	for (res = res_list; res != NULL; res = res->ai_next) {
-		switch(res->ai_family) {
-			case AF_INET:
-				ptr = &((struct sockaddr_in *) res->ai_addr)->sin_addr;
-				addr_found = TRUE;
-				break;
-			case AF_INET6:
-				ptr = &((struct sockaddr_in6 *) res->ai_addr)->sin6_addr;
-				addr_found = TRUE;
-				break;
-		}
-
-		inet_ntop(res->ai_family, ptr, addrstr, 100);
-
-		SPINE_LOG_HIGH(("Device[%d] IPv%d address %s (%s)", host->id, res->ai_family == PF_INET6 ? 6:4, addrstr, res->ai_canonname));
-
-		if (res->ai_family != PF_INET6) {
-			freeaddrinfo(res_list);
-
-			return SPINE_IPV4;
-		}
-	}
-
-	freeaddrinfo(res_list);
-
-	if (addr_found) {
-		return SPINE_IPV6;
-	} else {
-		return SPINE_NONE;
-	}
+        freeaddrinfo(res_list);
+        return address_type;
 }
 
 /*! \fn int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short int port)
@@ -1576,11 +1710,12 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short
 	struct sockaddr_storage address;
 	socklen_t address_len;
 
-	if (!resolve_sockaddr(&address, &address_len, AF_INET, hostname, port)) {
-		return FALSE;
-	}
+        if (!resolve_sockaddr(&address, sizeof(address), &address_len, AF_INET,
+                              hostname, port)) {
+          return FALSE;
+        }
 
-	if (address_len < sizeof(struct sockaddr_in)) {
+        if (address_len < sizeof(struct sockaddr_in)) {
 		return FALSE;
 	}
 
@@ -1588,123 +1723,149 @@ int init_sockaddr(struct sockaddr_in *name, const char *hostname, unsigned short
 	return TRUE;
 }
 
-/*! \fn name_t *get_namebyhost(char *hostname, name_t *name)
+/* strtok-compatible delimiter handling with state owned by this call. */
+static char *ping_next_token(char **cursor) {
+  char *token = *cursor + strspn(*cursor, ":");
+  if (*token == '\0') {
+    *cursor = token;
+    return NULL;
+  }
+  char *end = token + strcspn(token, ":");
+  *cursor = *end == '\0' ? end : end + 1;
+  *end = '\0';
+  return token;
+}
+
+/*! \fn name_t *get_namebyhost(const char *hostname, name_t *name)
  *  \brief splits the hostname into method, name and port
  *
  *  \return name_t containing a trimmed hostname, port, and optional method
  *
  */
-name_t *get_namebyhost(char *hostname, name_t *name) {
-	if (name == NULL) {
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Allocating name_t", hostname));
+name_t *get_namebyhost(const char *hostname, name_t *name) {
+  if (name == NULL) {
+    SPINE_LOG_DEBUG(
+        ("DEBUG: get_namebyhost(%s) - Allocating name_t", hostname));
 
-		if (!(name = (name_t *) malloc(sizeof(name_t)))) {
-			die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
-		}
+    name = calloc(1, sizeof(*name));
+    if (name == NULL) {
+      die("ERROR: Fatal malloc error: ping.c get_namebyhost->name");
+    }
+  }
 
-		memset(name, '\0', sizeof(name_t));
-	}
+  int tokens = 0;
+  char *stack = strdup(hostname);
+  char *token = NULL;
+  char *cursor;
 
-	int tokens = 0;
-	char *stack = NULL;
-	char *token = NULL;
+  if (stack == NULL) {
+    die("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
+  }
 
-	if (!(stack = (char *) malloc(strlen(hostname)+1))) {
-		die("ERROR: Fatal malloc error: ping.c get_namebyhost->stack");
-	}
+  /* Preserve raw IPv6 literals like "::1". They contain ':' but are not
+   * method-prefixed host:port strings, and tokenizing them would lose data. */
+  if (hostname[0] != '[' && strncasecmp(hostname, "TCP:", 4) != 0 &&
+      strncasecmp(hostname, "UDP:", 4) != 0 &&
+      strncasecmp(hostname, "TCP6:", 5) != 0 &&
+      strncasecmp(hostname, "UDP6:", 5) != 0 && strchr(hostname, ':') != NULL &&
+      strchr(strchr(hostname, ':') + 1, ':') != NULL) {
+    SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - IPv6 literal detected, "
+                     "preserving hostname",
+                     hostname));
+    strncopy(name->hostname, hostname, sizeof(name->hostname));
+    free(stack);
+    return name;
+  }
 
-	memset(stack, '\0', strlen(hostname)+1);
-	strncopy(stack, hostname, strlen(hostname) + 1);
+  cursor = stack;
+  token = ping_next_token(&cursor);
 
-	/* Preserve raw IPv6 literals like "::1". They contain ':' but are not
-	 * method-prefixed host:port strings, and tokenizing them would lose data. */
-	if (hostname[0] != '[' &&
-		strncasecmp(hostname, "TCP:", 4) != 0 &&
-		strncasecmp(hostname, "UDP:", 4) != 0 &&
-		strncasecmp(hostname, "TCP6:", 5) != 0 &&
-		strncasecmp(hostname, "UDP6:", 5) != 0 &&
-		strchr(hostname, ':') != NULL &&
-		strchr(strchr(hostname, ':') + 1, ':') != NULL) {
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - IPv6 literal detected, preserving hostname", hostname));
-		strncopy(name->hostname, hostname, sizeof(name->hostname));
-		free(stack);
-		return name;
-	}
+  if (token == NULL) {
+    SPINE_LOG_DEBUG(
+        ("DEBUG: get_namebyhost(%s) - No delimiter, assume full hostname",
+         hostname));
+    strncopy(name->hostname, hostname, SMALL_BUFSIZE);
+  }
 
-	token = strtok(stack, ":");
+  while (token != NULL && tokens <= 3) {
+    const size_t token_length = strlen(token);
+    tokens++;
+    SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Token #%i - %s", hostname,
+                     tokens, token));
+    if (tokens == 1) {
+      if (token_length && token[0] == '[') {
+        SPINE_LOG_DEBUG(
+            ("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
+        strncopy(name->hostname, hostname, sizeof(name->hostname));
+        break;
+      } else if (token_length == 3) {
+        if (strncasecmp(token, "TCP", 3) == 0) {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - Have TCPv4 method", hostname));
+          name->method = 1;
+        } else if (strncasecmp(token, "UDP", 3) == 0) {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - Have UDPv4 method", hostname));
+          name->method = 2;
+        } else {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - No matching method for 3 chars: %s",
+               hostname, token));
+          // assume we have had a method
+          tokens++;
+        }
+      } else if (token_length == 4) {
+        if (strncasecmp(token, "TCP6", 4) == 0) {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
+          name->method = 3;
+        } else if (strncasecmp(token, "UDP6", 4) == 0) {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - Have UDPv6 method", hostname));
+          name->method = 4;
+        } else {
+          SPINE_LOG_DEBUG(
+              ("DEBUG: get_namebyhost(%s) - No matching method for 4 chars: %s",
+               hostname, token));
 
-	if (token == NULL) {
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No delimiter, assume full hostname", hostname));
-		strncopy(name->hostname, hostname, SMALL_BUFSIZE);
-	}
+          // assume we have had a method
+          tokens++;
+        }
+      } else {
+        SPINE_LOG_DEBUG(
+            ("DEBUG: get_hostbyname(%s) - No matching method for %zu chars: %s",
+             hostname, token_length, token));
 
-	while (token != NULL && tokens <= 3) {
-		tokens++;
-		SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Token #%i - %s", hostname, tokens, token));
-		if (tokens == 1) {
-			if (strlen(token) && token[0] == '[') {
-				SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-				strncpy(name->hostname, hostname, sizeof(name->hostname));
-				break;
-			} else if (strlen(token) == 3) {
-				if (strncasecmp(token, "TCP", 3) == 0) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv4 method", hostname));
-					name->method = 1;
-				} else if (strncasecmp(token, "UDP", 3) == 0) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv4 method", hostname));
-					name->method = 2;
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No matching method for 3 chars: %s", hostname, token));
-					// assume we have had a method
-					tokens++;
-				}
-			} else if (strlen(token) == 4) {
-				if (strncasecmp(token, "TCP6", 4) == 0) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have TCPv6 method", hostname));
-					name->method = 3;
-				} else if (strncasecmp(token, "UDP6", 4) == 0) {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Have UDPv6 method", hostname));
-					name->method = 4;
-				} else {
-					SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - No matching method for 4 chars: %s", hostname, token));
+        // assume we have had a method
+        tokens++;
+      }
+    }
 
-					// assume we have had a method
-					tokens++;
-				}
-			} else {
-				SPINE_LOG_DEBUG(("DEBUG: get_hostbyname(%s) - No matching method for %li chars: %s", hostname, strlen(token), token));
+    if (tokens == 2) {
+      SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s",
+                       hostname, token));
+      strncopy(name->hostname, token, sizeof(name->hostname));
+    }
 
-				// assume we have had a method
-				tokens++;
-			}
-		}
+    if (tokens == 3 && token_length) {
+      SPINE_LOG_DEBUG(
+          ("DEBUG: get_namebyhost(%s) - Setting port: %s", hostname, token));
+      name->port = atoi(token);
+    }
 
-		if (tokens == 2) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting hostname: %s", hostname, token));
-			strncpy(name->hostname, token, sizeof(name->hostname));
-			name->hostname[strlen(token)] = '\0';
-		}
+    if (tokens > 3) {
+      SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Unexpected token: %i",
+                       hostname, tokens));
+    }
+    token = ping_next_token(&cursor);
+  }
 
-		if (tokens == 3 && strlen(token)) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Setting port: %s", hostname, token));
-			name->port = atoi(token);
-		}
+  free(stack);
 
-		if (tokens > 3) {
-			SPINE_LOG_DEBUG(("DEBUG: get_namebyhost(%s) - Unexpected token: %i", hostname, tokens));
-		}
-		token = strtok(NULL, ":");
-	}
-
-	if (stack != NULL) {
-		free(stack);
-		stack = NULL;
-	}
-
-	return name;
+  return name;
 }
 
-/*! \fn unsigned short int get_checksum(void* buf, int len)
+/*! \fn unsigned short int get_checksum(const void *buf, int len)
  *  \brief calculates a 16bit checksum of a packet buffer
  *  \param buf the input buffer to calculate the checksum of
  *  \param len the size of the input buffer
@@ -1712,28 +1873,30 @@ name_t *get_namebyhost(char *hostname, name_t *name) {
  *  \return 16bit checksum of an input buffer of size len.
  *
  */
-unsigned short int get_checksum(void* buf, int len) {
-	int      nleft = len;
-	int32_t  sum   = 0;
-	unsigned short int answer;
-	unsigned short int* w = (unsigned short int*)buf;
-	unsigned short int odd_byte = 0;
+unsigned short int get_checksum(const void *buf, int len) {
+  const unsigned char *bytes = buf;
+  uint32_t sum = 0;
 
-	while (nleft > 1) {
-		sum += *w++;
-		nleft -= 2;
-	}
+  /* memcpy preserves the existing host-order checksum convention while
+   * accepting unaligned buffers without violating C17 effective types. */
+  while (len > 1) {
+    uint16_t word;
+    memcpy(&word, bytes, sizeof(word));
+    sum += word;
+    sum = (sum & UINT16_MAX) + (sum >> 16);
+    bytes += sizeof(word);
+    len -= (int)sizeof(word);
+  }
 
-	if (nleft == 1) {
-   		*(unsigned char*)(&odd_byte) = *(unsigned char*)w;
-   		sum += odd_byte;
-	}
+  if (len == 1) {
+    uint16_t word = 0;
+    memcpy(&word, bytes, 1);
+    sum += word;
+  }
 
-	sum    = (sum >> 16) + (sum & 0xffff);
-	sum   += (sum >> 16);
-	answer = ~sum;				/* truncate to 16 bits */
-
-	return answer;
+  sum = (sum & UINT16_MAX) + (sum >> 16);
+  sum = (sum & UINT16_MAX) + (sum >> 16);
+  return (uint16_t)~sum;
 }
 
 /*! \fn void update_host_status(int status, host_t *host, ping_t *ping, int availability_method)
@@ -2000,35 +2163,42 @@ int ping_icmp_v4_posix_numeric(const char *ip, uint32_t timeout_ms,
 	int sock = -1;
 	unsigned char *packet = NULL;
 	size_t pkt_len;
-	struct sockaddr_in dst;
-	struct sockaddr_in recvname;
+        struct sockaddr_in dst = {.sin_family = AF_INET};
+        struct sockaddr_in recvname;
 	socklen_t recvlen;
 	char recvbuf[BUFSIZE];
 	struct timeval tv;
 	fd_set rfds;
 	ssize_t n;
-	struct icmp *icp;
-	uint16_t our_id;
+        struct icmp icp = {0};
+        uint16_t our_id;
 	uint16_t our_seq;
-	static SPINE_PING_SEQ_T facade_seq = 0;
-	int ret = -1;
+        static ping_sequence_t facade_seq = 0;
+        int ret = -1;
 	double t0 = 0.0;
 	double t1 = 0.0;
-	int sig_payload = (payload == NULL);  /* we built the signature, so we own reply validation */
+        const bool sig_payload =
+            payload == NULL ||
+            payload_len ==
+                0; /* we built the signature, so we own reply validation */
 
-	if (result == NULL) return -1;
-	result->status = SPINE_ICMP_ERROR;
-	result->rtt_us = 0;
-	result->system_errno = 0;
+        if (result == NULL) return -1;
+        *result = (spine_icmp_result_t){.status = SPINE_ICMP_ERROR};
 
-	if (ip == NULL) {
+        if (ip == NULL) {
 		result->system_errno = EINVAL;
 		return -1;
 	}
 
-	memset(&dst, 0, sizeof(dst));
-	dst.sin_family = AF_INET;
-	if (inet_pton(AF_INET, ip, &dst.sin_addr) != 1) {
+        const size_t data_len = payload != NULL && payload_len > 0
+                                    ? payload_len
+                                    : sizeof(spine_ping_payload_t);
+        if (data_len > UINT16_MAX - (size_t)ICMP_HDR_SIZE) {
+          result->system_errno = EMSGSIZE;
+          return -1;
+        }
+
+        if (inet_pton(AF_INET, ip, &dst.sin_addr) != 1) {
 		result->system_errno = EINVAL;
 		return -1;
 	}
@@ -2039,33 +2209,33 @@ int ping_icmp_v4_posix_numeric(const char *ip, uint32_t timeout_ms,
 		return -1;
 	}
 
-	pkt_len = (size_t) ICMP_HDR_SIZE + (payload_len > 0 ? payload_len : sizeof(spine_ping_payload_t));
-	packet = calloc(1, pkt_len);
+        pkt_len = (size_t)ICMP_HDR_SIZE + data_len;
+        packet = calloc(1, pkt_len);
 	if (packet == NULL) {
 		result->system_errno = ENOMEM;
 		goto cleanup;
 	}
 
 	our_id  = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
-	our_seq = (uint16_t) SPINE_PING_SEQ_NEXT(facade_seq);
+        our_seq = ping_sequence_next(&facade_seq);
 
-	icp = (struct icmp *) packet;
-	icp->icmp_type = ICMP_ECHO;
-	icp->icmp_code = 0;
-	icp->icmp_id   = htons(our_id);
-	icp->icmp_seq  = htons(our_seq);
+        icp.icmp_type = ICMP_ECHO;
+        icp.icmp_code = 0;
+        icp.icmp_id = htons(our_id);
+        icp.icmp_seq = htons(our_seq);
+        memcpy(packet, &icp, ICMP_HDR_SIZE);
 
-	if (payload != NULL && payload_len > 0) {
+        if (payload != NULL && payload_len > 0) {
 		memcpy(packet + ICMP_HDR_SIZE, payload, payload_len);
 	} else {
 		spine_ping_payload_t sig;
 		build_ping_payload(&sig);
 		memcpy(packet + ICMP_HDR_SIZE, &sig, sizeof(sig));
 	}
-	icp->icmp_cksum = 0;
-	icp->icmp_cksum = get_checksum(packet, (int) pkt_len);
+        icp.icmp_cksum = get_checksum(packet, (int)pkt_len);
+        memcpy(packet, &icp, ICMP_HDR_SIZE);
 
-	t0 = get_time_as_double();
+        t0 = get_time_as_double();
 	if (sendto(sock, packet, pkt_len, 0, (struct sockaddr *) &dst, sizeof(dst)) < 0) {
 		result->system_errno = errno;
 		goto cleanup;
@@ -2109,19 +2279,23 @@ int ping_icmp_v4_posix_numeric(const char *ip, uint32_t timeout_ms,
 			continue;
 		}
 		{
-			struct ip *iph = (struct ip *) recvbuf;
-			size_t iphl = (size_t) iph->ip_hl * 4U;
-			struct icmp *pkt;
-			if (iphl < sizeof(struct ip) || iphl > (size_t) n) continue;
-			if ((size_t) n < iphl + ICMP_HDR_SIZE) continue;
-			if (dst.sin_addr.s_addr != recvname.sin_addr.s_addr) continue;
-			pkt = (struct icmp *) (recvbuf + iphl);
-			if (pkt->icmp_type != ICMP_ECHOREPLY
-			    || pkt->icmp_id != htons(our_id)
-			    || pkt->icmp_seq != htons(our_seq)) {
-				continue;
-			}
-			/* When we own payload composition, a LAN attacker who
+                  struct ip iph;
+                  memcpy(&iph, recvbuf, sizeof(iph));
+                  size_t iphl = (size_t)iph.ip_hl * 4U;
+                  struct icmp pkt = {0};
+                  if (iphl < sizeof(struct ip) || iphl > (size_t)n)
+                    continue;
+                  if ((size_t)n < iphl + ICMP_HDR_SIZE)
+                    continue;
+                  if (dst.sin_addr.s_addr != recvname.sin_addr.s_addr)
+                    continue;
+                  memcpy(&pkt, recvbuf + iphl, ICMP_HDR_SIZE);
+                  if (pkt.icmp_type != ICMP_ECHOREPLY ||
+                      pkt.icmp_id != htons(our_id) ||
+                      pkt.icmp_seq != htons(our_seq)) {
+                    continue;
+                  }
+                        /* When we own payload composition, a LAN attacker who
 			 * observed our probe cannot forge a matching reply
 			 * without also reproducing the signed payload. */
 			if (sig_payload) {
@@ -2154,35 +2328,42 @@ int ping_icmp_v6_posix_numeric(const char *ip, uint32_t timeout_ms,
 	int sock = -1;
 	unsigned char *packet = NULL;
 	size_t pkt_len;
-	struct sockaddr_in6 dst;
-	struct sockaddr_in6 recvname;
+        struct sockaddr_in6 dst = {.sin6_family = AF_INET6};
+        struct sockaddr_in6 recvname;
 	socklen_t recvlen;
 	char recvbuf[BUFSIZE];
 	struct timeval tv;
 	fd_set rfds;
 	ssize_t n;
-	struct icmp6_hdr *icp;
-	uint16_t our_id;
+        struct icmp6_hdr icp = {0};
+        uint16_t our_id;
 	uint16_t our_seq;
-	static SPINE_PING_SEQ_T facade_seq6 = 0;
-	int ret = -1;
+        static ping_sequence_t facade_seq6 = 0;
+        int ret = -1;
 	double t0 = 0.0;
 	double t1 = 0.0;
-	int sig_payload = (payload == NULL);  /* we built the signature, so we own reply validation */
+        const bool sig_payload =
+            payload == NULL ||
+            payload_len ==
+                0; /* we built the signature, so we own reply validation */
 
-	if (result == NULL) return -1;
-	result->status = SPINE_ICMP_ERROR;
-	result->rtt_us = 0;
-	result->system_errno = 0;
+        if (result == NULL) return -1;
+        *result = (spine_icmp_result_t){.status = SPINE_ICMP_ERROR};
 
-	if (ip == NULL) {
+        if (ip == NULL) {
 		result->system_errno = EINVAL;
 		return -1;
 	}
 
-	memset(&dst, 0, sizeof(dst));
-	dst.sin6_family = AF_INET6;
-	if (inet_pton(AF_INET6, ip, &dst.sin6_addr) != 1) {
+        const size_t data_len = payload != NULL && payload_len > 0
+                                    ? payload_len
+                                    : sizeof(spine_ping_payload_t);
+        if (data_len > UINT16_MAX - sizeof(struct icmp6_hdr)) {
+          result->system_errno = EMSGSIZE;
+          return -1;
+        }
+
+        if (inet_pton(AF_INET6, ip, &dst.sin6_addr) != 1) {
 		result->system_errno = EINVAL;
 		return -1;
 	}
@@ -2212,23 +2393,23 @@ int ping_icmp_v6_posix_numeric(const char *ip, uint32_t timeout_ms,
 	}
 #endif
 
-	pkt_len = sizeof(struct icmp6_hdr) + (payload_len > 0 ? payload_len : sizeof(spine_ping_payload_t));
-	packet = calloc(1, pkt_len);
+        pkt_len = sizeof(struct icmp6_hdr) + data_len;
+        packet = calloc(1, pkt_len);
 	if (packet == NULL) {
 		result->system_errno = ENOMEM;
 		goto cleanup;
 	}
 
 	our_id  = (uint16_t)((spine_platform_process_id() & 0xFFFF) ^ icmp_id_mask);
-	our_seq = (uint16_t) SPINE_PING_SEQ_NEXT(facade_seq6);
+        our_seq = ping_sequence_next(&facade_seq6);
 
-	icp = (struct icmp6_hdr *) packet;
-	icp->icmp6_type = ICMP6_ECHO_REQUEST;
-	icp->icmp6_code = 0;
-	icp->icmp6_id   = htons(our_id);
-	icp->icmp6_seq  = htons(our_seq);
+        icp.icmp6_type = ICMP6_ECHO_REQUEST;
+        icp.icmp6_code = 0;
+        icp.icmp6_id = htons(our_id);
+        icp.icmp6_seq = htons(our_seq);
+        memcpy(packet, &icp, sizeof(icp));
 
-	if (payload != NULL && payload_len > 0) {
+        if (payload != NULL && payload_len > 0) {
 		memcpy(packet + sizeof(struct icmp6_hdr), payload, payload_len);
 	} else {
 		spine_ping_payload_t sig;
@@ -2279,13 +2460,14 @@ int ping_icmp_v6_posix_numeric(const char *ip, uint32_t timeout_ms,
 		if ((size_t) n < sizeof(struct icmp6_hdr)) continue;
 		if (memcmp(&dst.sin6_addr, &recvname.sin6_addr, sizeof(struct in6_addr)) != 0) continue;
 		{
-			struct icmp6_hdr *r = (struct icmp6_hdr *) recvbuf;
-			if (r->icmp6_type != ICMP6_ECHO_REPLY
-			    || r->icmp6_id != htons(our_id)
-			    || r->icmp6_seq != htons(our_seq)) {
-				continue;
-			}
-			if (sig_payload) {
+                  struct icmp6_hdr r;
+                  memcpy(&r, recvbuf, sizeof(r));
+                  if (r.icmp6_type != ICMP6_ECHO_REPLY ||
+                      r.icmp6_id != htons(our_id) ||
+                      r.icmp6_seq != htons(our_seq)) {
+                    continue;
+                  }
+                        if (sig_payload) {
 				size_t payload_off = sizeof(struct icmp6_hdr);
 				if ((size_t) n < payload_off + sizeof(spine_ping_payload_t)) continue;
 				if (!spine_ping_validate_payload(recvbuf + payload_off,

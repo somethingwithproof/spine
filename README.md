@@ -141,6 +141,24 @@ Runtime sandboxing, when available on the target OS:
 - FreeBSD: stub in place; `capsicum(4)` integration is a tracked item.
 - Windows: spawned child processes are confined in a Job Object.
 
+## Repository layout
+- `src/`: production C sources and headers; OS adapters live in `src/platform/`.
+- `tests/unit/`: C test suites.
+- `tests/support/`: shared assertions, runtime stubs, and standalone test adapters.
+- `tests/cmake/`: CMake test drivers.
+- `tests/fixtures/`: captured behavior and expected output.
+- `tests/integration/`: integration checks.
+- `scripts/`: developer tools, including `debug.sh` and `package.sh`.
+- `config/`: generated-header templates.
+- `etc/`: runtime configuration, service units, and security profiles.
+- `packaging/`: distribution package definitions.
+- `docs/`: project and operational documentation.
+- `third_party/`: bundled dependencies.
+
+Run helper scripts from the checkout root. The debug helper expects a Makefile
+build in the current directory. To view the source archive helper's usage, run
+`bash scripts/package.sh --help`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). All commits must carry a DCO `Signed-off-by` line (`git commit -s`). Run `bash scripts/test-distros.sh` before pushing platform-sensitive changes.

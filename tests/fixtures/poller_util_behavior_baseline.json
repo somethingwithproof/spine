@@ -1,0 +1,85 @@
+{
+  "baseline_commit": "8b04bdabeb33bca080533badeee5472f9a953bac",
+  "baseline_scope": "Working-tree snapshot before poller.c/util.c changes; includes the previously completed ping.c refactor. Source hashes identify the exact inputs.",
+  "baseline_source_sha256": {
+    "src/poller.c": "5e3c4b9094bb3fd9716295f232ca66027652a5f5019f81e6824c1e43f0745c93",
+    "src/poller.h": "785982d1502a2939cf00a56e68dd94ec977981e8ad88b2ecc1e9a4e00998b17e",
+    "src/util.c": "e0b359b925e0be642c94b9d194f83918fc8473e6c3b5e6d1a3a1c8ae43a3c737",
+    "src/util.h": "efa0ea204054af29dff4c8f9fe80144bedbeb17813b0c98433c5eaa975364158",
+    "src/ping.c": "a17c0c54ec15925aa4fa9ca19dc0f3e2505753feae8cc345d652106c8f0b0dae",
+    "src/ping.h": "eafd42c4252d8ec2b1bb30383909ee382bfd3f381f0a53677eea2c260356e710",
+    "src/sql.c": "959d2fc3bbb972bb77e4ec8b47ff0297626dc435b7f6d1bd2f9b5d67ea443148",
+    "src/php.c": "7bb1dc8c7bf7a3ce668dde08e12e99ae8611f623cdc666f958cf322a87ca8f72",
+    "src/nft_popen.c": "9fce0fd61854303ef13bda2db7929cf597412e5349c9a640b06a4aba19b73f2e",
+    "src/spine.c": "41d322ff4798a4ad471a5c0161c9cbe938f437f127de00d33e72631e5cc0b4ac",
+    "src/error.c": "956dc6e131a40dbf215a0ab81e1ebf6f54174f951a1d01d1ec47eb9dabdc92ab",
+    "src/spine_sem.h": "8899870a98a02a692d8ca5cde73c0938897fda7abc3e8790f2846b9787b93f7b"
+  },
+  "trace_sha256": "c712b8746879808c6e3935f6a53aba642c6795090265b21b10ed3db2fa885f26",
+  "capture_test": "tests/unit/test_poller_util_behavior.c",
+  "capture_command": "test_poller_util_behavior --capture",
+  "runtime_environment": "macOS AppleClang C17; database, SNMP, PHP, process spawning, process termination, and script FD operations are mocked. Regex threads, worker lifecycle, semaphores, logging, config-file parsing, and fatal exits execute the real implementations.",
+  "runtime_contracts": {
+    "availability": {
+      "coverage": "Each availability mode 0..7 with upstream ping result UP/DOWN; primary and secondary worker behavior. These are caller-admission tests; the upstream availability decision matrix is covered separately by test_ping_behavior.",
+      "preserved": "SNMP v1/v2 with an empty community bypasses ping and updates UP; stream availability also bypasses ping. Normal checks update host status only from worker 1. Worker 1 owns the host UPDATE. Ping-only mode still performs that UPDATE, releases connections, and ends MySQL thread state; it returns before assigning host_errors."
+    },
+    "retry_semantics": {
+      "coverage": "Script-slot exhaustion, one interrupted FD wait followed by readiness, timeout and empty reads.",
+      "preserved": "exec_poll loops while ++retries < script_timeout*15 and sleeps 10 ms between failed slot requests. A 2-second setting gives 29 slot attempts. Slot exhaustion returns an empty allocated string, not U. EINTR recomputes the remaining timeout and retries the wait. A timeout kills the tracked child with SIGKILL and closes its pipe. Ping/SNMP retries remain delegated to their existing implementation."
+    },
+    "output_formatting": {
+      "coverage": "Numeric, multipart, hexadecimal, text-normalization, undefined, and empty PHP outputs; script output; date formats; JSON log field names, escaping, severity and stdout/stderr routing; configuration final-line handling; buffered error message.",
+      "preserved": "is_numeric mutates trailing trim characters and keeps its existing leading-space/quote quirks. Multipart acceptance counts delimiters versus spaces and accepts a colon or exclamation without spaces. Hex conversion retains its existing mutation and floating-point implementation. Config parsing ignores an unterminated final line. JSON PID/time/thread values are verified structurally, not frozen in the trace."
+    },
+    "database_writes": {
+      "coverage": "Byte-exact db_query/db_insert traces for host availability state, timing, local/remote poller output, Boost duplication, multi-row delimiters, profile scheduling, errors, and settings upsert variants.",
+      "preserved": "Host updates use LOCAL on worker 1. Output goes to REMOTE only for poller_id>1 and REMOTE_ONLINE; Boost duplicates output when both flags are set. Settings support VALUES(value) and the MySQL alias rs.value form. SQL templates, formatting and batching thresholds remain unchanged.",
+      "limitation": "Statements are captured at the database adapter boundary; no live database or MySQL server parsing/transaction test is performed."
+    },
+    "script_protocols": {
+      "coverage": "PHP dispatch through the real poller output path; exec_poll slot admission, read, EINTR, timeout, close and empty-result paths.",
+      "preserved": "exec_poll returns bytes from one read up to RESULTS_BUFFER-1. Despite its one-line comment, that read can contain multiple lines; the test preserves them. Timeout/empty-read results become U, while slot exhaustion returns empty. PHP command framing remains in unchanged php.c.",
+      "limitation": "The PHP adapter is mocked. Actual PHP worker CRLF framing/restarts are source-inspected rather than integration-tested."
+    },
+    "shutdown": {
+      "coverage": "Worker thread start/join, initialization semaphore, completed-thread semaphore, script-slot restoration, fatal exit code, message suffix, and parent-only PHP cleanup.",
+      "preserved": "Worker cleanup runs through pthread cleanup handlers; removing the unreachable exit after pthread_exit does not change the process lifecycle. die() prints its existing context suffix, closes PHP only for an initialized parent, and exits using set.exit_code.",
+      "limitation": "Global SIGTERM drain and signal handling live in unchanged spine.c/error.c and are source-inspected, not signal-integration-tested."
+    }
+  },
+  "source_inspected_contracts": {
+    "util_remote_sync": "poller_push_data_to_main copies host status and poller scheduling state to the remote DB; keeps existing 500-row batch logic and SQL dialect selection. Its template strings are unchanged; this full synchronization path is not runtime-tested.",
+    "configuration_loading": "read_config_options publishes capabilities and reads overrides/database values. Its SQL text and option precedence remain unchanged; only buffer initialization and loop-variable scope change here.",
+    "php_framing": "php_cmd appends CRLF, holds a process lock, and restarts failed communication; php_close sends quit followed by CRLF and closes/terminates the worker.",
+    "global_shutdown": "SIGTERM sets the stop flag, stops dispatch between devices and limits draining to the earlier poller deadline or 30 seconds. Main cleanup closes script workers, DB/SNMP and platform state. SIGINT remains the separate fatal-handler path."
+  },
+  "compatibility_checks": {
+    "string_literals": "All C string literal tokens in util.c are identical; all poller.c string literals except the equivalent multipart delimiter searches are identical. This includes SQL, script commands, output formats and failure messages.",
+    "no_annex_k": "No _s interfaces, Annex K feature macros, or compatibility library added.",
+    "headers": "Read-only poller command, timestamp and multipart input parameters now use const; existing writable callers remain compatible.",
+    "untouched_sources": [
+      "src/ping.c",
+      "src/ping.h",
+      "src/sql.c",
+      "src/php.c",
+      "src/nft_popen.c",
+      "src/spine.c",
+      "src/error.c",
+      "src/spine_sem.h"
+    ]
+  },
+  "safety_and_ownership_notes": [
+    "The error buffer and its counters now belong to the poll_host stack instead of three unchecked heap allocations. This adds DBL_BUFSIZE bytes to a worker stack; successful-poll output is unchanged.",
+    "rtrim no longer forms a pointer before the start of an empty/all-trim buffer.",
+    "ctype calls convert input bytes to unsigned char before classification.",
+    "Bounded copy uses memcpy only after computing the bounded byte count; original non-overlap precondition is preserved.",
+    "No parser-policy, retry, batching, SQL, script-framing, or signal-policy changes are intended."
+  ],
+  "validation": {
+    "baseline_trace": "Pass against original implementations and refactored implementations",
+    "strict_c17": "Both production files compile with -std=c17 -Wall -Wextra -Werror -Wstrict-prototypes -Wwrite-strings -Wvla -Wshadow",
+    "sanitizers": "poller_util_behavior, ping_c17, ping_behavior, dump_config and json_log pass with AddressSanitizer and UndefinedBehaviorSanitizer",
+    "full_suite": "21 tests passed; full Spine executable built successfully."
+  }
+}

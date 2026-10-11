@@ -169,20 +169,20 @@ void *snmp_host_init(int host_id, char *hostname, int snmp_version, char *snmp_c
 	netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_PRINT_BARE_VALUE, 1);
 	netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_NUMERIC_TIMETICKS, 1);
 
-	session.securityEngineID    = 0;
-	session.securityEngineIDLen = 0;
+        session.securityEngineID = NULL;
+        session.securityEngineIDLen = 0;
 
-	session.securityName    = 0;
-	session.securityNameLen = 0;
+        session.securityName = NULL;
+        session.securityNameLen = 0;
 
-	session.contextEngineID    = 0;
-	session.contextEngineIDLen = 0;
+        session.contextEngineID = NULL;
+        session.contextEngineIDLen = 0;
 
-	session.contextName    = 0;
-	session.contextNameLen = 0;
+        session.contextName = NULL;
+        session.contextNameLen = 0;
 
-	session.contextEngineID    = 0;
-	session.contextEngineIDLen = 0;
+        session.contextEngineID = NULL;
+        session.contextEngineIDLen = 0;
 
 	/* verify snmp version is accurate */
 	if (snmp_version == 2) {
@@ -439,10 +439,10 @@ char *snmp_get_base(host_t *current_host, const char *snmp_oid, bool should_fail
 	char   *result_string;
 	char   temp_result[RESULTS_BUFFER];
 
-	if (!(result_string = (char *) malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: snmp.c snmp_get!");
-	}
-	result_string[0] = '\0';
+        if (!(result_string = malloc(RESULTS_BUFFER))) {
+          die("ERROR: Fatal malloc error: snmp.c snmp_get!");
+        }
+        result_string[0] = '\0';
 
 	if (current_host->ignore_host) {
 		SPINE_LOG_HIGH(("WARNING: Skipped oid '%s' for Device[%i] as host ignore flag is active", snmp_oid, current_host->id));
@@ -692,10 +692,10 @@ char *snmp_getnext(host_t *current_host, const char *snmp_oid) {
 	char   *result_string;
 	char   temp_result[RESULTS_BUFFER];
 
-	if (!(result_string = (char *) malloc(RESULTS_BUFFER))) {
-		die("ERROR: Fatal malloc error: snmp.c snmp_get!");
-	}
-	result_string[0] = '\0';
+        if (!(result_string = malloc(RESULTS_BUFFER))) {
+          die("ERROR: Fatal malloc error: snmp.c snmp_get!");
+        }
+        result_string[0] = '\0';
 
 	status = STAT_DESCRIP_ERROR;
 
@@ -971,14 +971,15 @@ void snmp_snprint_value(char *obuf, size_t buf_len, const oid *objid, size_t obj
 	UNUSED_PARAMETER(objidlen);
 
 	if (buf_len > 0) {
-		if ((buf = (u_char *) calloc(buf_len, 1)) != 0) {
-			sprint_realloc_by_type(&buf, &buf_len, &out_len, 0, variable, NULL, NULL, NULL);
-			snprintf(obuf, buf_len, "%s", buf);
-		} else {
-			SET_UNDEFINED(obuf);
-		}
+          if ((buf = calloc(buf_len, sizeof(*buf))) != 0) {
+            sprint_realloc_by_type(&buf, &buf_len, &out_len, 0, variable, NULL,
+                                   NULL, NULL);
+            snprintf(obuf, buf_len, "%s", buf);
+          } else {
+            SET_UNDEFINED(obuf);
+          }
 
-		free(buf);
+                free(buf);
 	} else {
 		SET_UNDEFINED(obuf);
 	}
@@ -1009,8 +1010,8 @@ void snmp_get_multi(host_t *current_host, target_t *poller_items, snmp_oids_t *s
 	} *name, *namep;
 
 	/* load up oids */
-	namep = name = (struct nameStruct *) calloc(num_oids, sizeof(*name));
-	if (name == NULL) {
+        namep = name = calloc(num_oids, sizeof(*name));
+        if (name == NULL) {
 		SPINE_LOG(("ERROR: Failed to allocate memory for SNMP OID name array"));
 		return;
 	}

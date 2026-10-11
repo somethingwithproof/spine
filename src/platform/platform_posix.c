@@ -21,11 +21,11 @@
  * declaration is hidden on FreeBSD and others. nanosleep is the portable
  * POSIX-standard replacement and has always been in the issue-6 specification. */
 static void spine_nanosleep_us(unsigned long microseconds) {
-	struct timespec req;
-	req.tv_sec  = (time_t)(microseconds / 1000000UL);
-	req.tv_nsec = (long)((microseconds % 1000000UL) * 1000UL);
-	while (nanosleep(&req, &req) == -1 && (req.tv_sec > 0 || req.tv_nsec > 0)) {
-		/* Resume after EINTR with remaining time. */
+  struct timespec req = {.tv_sec = (time_t)(microseconds / 1000000UL),
+                         .tv_nsec =
+                             (long)((microseconds % 1000000UL) * 1000UL)};
+  while (nanosleep(&req, &req) == -1 && (req.tv_sec > 0 || req.tv_nsec > 0)) {
+    /* Resume after EINTR with remaining time. */
 	}
 }
 
@@ -53,11 +53,9 @@ void spine_platform_sleep_us(unsigned int microseconds) {
 }
 
 void spine_platform_sleep_s(unsigned int seconds) {
-	struct timespec req;
-	req.tv_sec = (time_t)seconds;
-	req.tv_nsec = 0;
-	while (nanosleep(&req, &req) == -1 && (req.tv_sec > 0 || req.tv_nsec > 0)) {
-		/* Resume after EINTR. */
+  struct timespec req = {.tv_sec = (time_t)seconds, .tv_nsec = 0};
+  while (nanosleep(&req, &req) == -1 && (req.tv_sec > 0 || req.tv_nsec > 0)) {
+    /* Resume after EINTR. */
 	}
 }
 

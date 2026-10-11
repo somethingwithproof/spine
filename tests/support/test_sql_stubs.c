@@ -16,8 +16,8 @@
 
 config_t set;
 
-pool_t *db_pool_local  = NULL;
+pool_t *db_pool_local = NULL;
 pool_t *db_pool_remote = NULL;
 
-void thread_mutex_lock(int mutex)   { (void) mutex; }
-void thread_mutex_unlock(int mutex) { (void) mutex; }
+void thread_mutex_lock(int mutex) { (void)mutex; }
+void thread_mutex_unlock(int mutex) { (void)mutex; }

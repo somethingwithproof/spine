@@ -1,0 +1,273 @@
+SCENARIO availability-0-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=0 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-0-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=0 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-1-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=1 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-1-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=1 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-2-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=2 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-2-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=2 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-3-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-3-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-4-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=4 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-4-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=4 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-5-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=5 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-5-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=5 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-6-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=6 result=1
+INSERT[0] UPDATE host SET status='1', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='1', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-6-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=6 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-7-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=7 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO availability-7-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=7 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO secondary-thread
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-0
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '42') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-1
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), 'a:1 b:2') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-2
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '65535') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-3
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '12.5') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-4
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), 'U') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+QUERY[0] INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids) VALUES(7, 0, 1, '10') ON DUPLICATE KEY UPDATE errors = errors + VALUES(errors), local_data_ids = CONCAT(local_data_ids, ', ', VALUES(local_data_ids))
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO php-output-5
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), 'U') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+QUERY[0] INSERT INTO host_errors (host_id, poller_id, errors, local_data_ids) VALUES(7, 0, 1, '10') ON DUPLICATE KEY UPDATE errors = errors + VALUES(errors), local_data_ids = CONCAT(local_data_ids, ', ', VALUES(local_data_ids))
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO remote-boost-mysql8
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND poller_id=2 
+PHP[0] /usr/bin/true
+INSERT[1] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '42') ON DUPLICATE KEY UPDATE output=VALUES(output)
+INSERT[1] INSERT INTO poller_output_boost (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '42') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.004 - 999.000 WHERE id = 7
+RELEASE[0] 9
+RELEASE[1] 10
+MYSQL_THREAD_END
+SCENARIO next-profile
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND rrd_next_step <= 0 
+QUERY[0] UPDATE poller_item SET rrd_next_step = IF(rrd_step = 60, 0, IF(rrd_next_step - 60 < 0, rrd_step - 60, rrd_next_step - 60)) WHERE host_id = 7
+QUERY[0] UPDATE host SET polling_time = 1000.002 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO missing-local-connection
+SCENARIO missing-remote-connection
+RELEASE[0] 9
+SCENARIO three-output-rows
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+PHP[0] /usr/bin/true
+PHP[0] /usr/bin/true
+PHP[0] /usr/bin/true
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '42'),(10, 'value', FROM_UNIXTIME(1000), '42'),(10, 'value', FROM_UNIXTIME(1000), '42') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.008 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO script-output-row
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+QUERY[0] SELECT SQL_NO_CACHE data_query_id, action, op, assert_value, arg1 FROM poller_reindex WHERE host_id = 7
+QUERY[0] SELECT SQL_NO_CACHE action, hostname, snmp_community, snmp_version, snmp_username, snmp_password, rrd_name, rrd_path, arg1, arg2, arg3, local_data_id, rrd_num, snmp_port, snmp_timeout, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id FROM poller_item WHERE host_id = 7 AND deleted = '' 
+INSERT[0] INSERT INTO poller_output (local_data_id, rrd_name, time, output) VALUES (10, 'value', FROM_UNIXTIME(1000), '42') ON DUPLICATE KEY UPDATE output=VALUES(output)
+QUERY[0] UPDATE host SET polling_time = 1000.005 - 999.000 WHERE id = 7
+RELEASE[0] 9
+MYSQL_THREAD_END
+SCENARIO script-result
+SCRIPT_RESULT <42
+ignored
+> opens=1 closes=1 waits=1 lock_attempts=1 killed=0/0
+SCENARIO script-timeout
+SCRIPT_RESULT <U> opens=1 closes=1 waits=1 lock_attempts=1 killed=12345/9
+SCENARIO script-eintr
+SCRIPT_RESULT <42
+ignored
+> opens=1 closes=1 waits=2 lock_attempts=1 killed=0/0
+SCENARIO script-empty
+SCRIPT_RESULT <U> opens=1 closes=1 waits=1 lock_attempts=1 killed=0/0
+SCENARIO script-lock-busy
+SCRIPT_RESULT <> opens=0 closes=0 waits=0 lock_attempts=29 killed=0/0
+SCENARIO settings-write
+INSERT[0] INSERT INTO settings (name, value) VALUES ('example', 'value') ON DUPLICATE KEY UPDATE value = VALUES(value)
+INSERT[1] INSERT INTO settings (name, value) VALUES ('example', 'value') AS rs ON DUPLICATE KEY UPDATE value = rs.value
+QUERY[0] SELECT SQL_NO_CACHE value FROM settings WHERE name = 'database_setting'
+SCENARIO strings
+VALUE <42> numeric=1 multipart=0 valid=1 mutated=<42>
+VALUE < 42 > numeric=0 multipart=0 valid=0 mutated=< 42>
+VALUE <"42"> numeric=0 multipart=0 valid=0 mutated=<"42>
+VALUE <+1.2e3> numeric=1 multipart=0 valid=1 mutated=<+1.2e3>
+VALUE <NaN> numeric=0 multipart=0 valid=0 mutated=<NaN>
+VALUE <inf> numeric=0 multipart=0 valid=0 mutated=<inf>
+VALUE <> numeric=0 multipart=0 valid=0 mutated=<>
+VALUE <3junk> numeric=0 multipart=0 valid=0 mutated=<3junk>
+VALUE <a:1 b:2> numeric=0 multipart=1 valid=1 mutated=<a:1 b:2>
+VALUE <a:1  b:2> numeric=0 multipart=0 valid=0 mutated=<a:1  b:2>
+VALUE <a!U> numeric=0 multipart=1 valid=1 mutated=<a!U>
+VALUE <FF FF> numeric=0 multipart=0 valid=0 mutated=<FF FF>
+DATE[0] %m-%d-%Y %H:%M:%S - 
+DATE[1] %b-%d-%Y %H:%M:%S - 
+DATE[2] %d-%m-%Y %H:%M:%S - 
+DATE[3] %d-%b-%Y %H:%M:%S - 
+DATE[4] %Y-%m-%d %H:%M:%S - 
+DATE[5] %Y-%b-%d %H:%M:%S - 
+SCENARIO error-buffer
+LOG WARNING: Invalid Response(s), Errors[2] Device[7] Thread[1] DS[10, 20]
+SCENARIO regex-threads
+REGEX storage=per-thread invalid-pattern=original no-match=original
+SCENARIO configuration
+CONFIG host=localhost port=3307 final-line-poller=0
+SCENARIO logging
+JSON_LOG stream=stdout level=INFO fields=ts,level,poller,pid,tid,msg escaped-quotes=1 newline=1
+JSON_LOG stream=stderr level=WARN fields=ts,level,poller,pid,tid,msg escaped-quotes=1 newline=1
+SCENARIO cleanup
+SCENARIO worker-cleanup
+QUERY[0] SELECT SQL_NO_CACHE id, hostname, snmp_community, snmp_version, snmp_username, snmp_password, snmp_auth_protocol, snmp_priv_passphrase, snmp_priv_protocol, snmp_context, snmp_engine_id, snmp_port, snmp_timeout, max_oids, availability_method, ping_method, ping_port, ping_timeout, ping_retries, status, status_event_count, UNIX_TIMESTAMP(status_fail_date), UNIX_TIMESTAMP(status_rec_date), status_last_error, min_time, max_time, cur_time, avg_time, total_polls, failed_polls, availability, snmp_sysUpTimeInstance, snmp_sysDescr, snmp_sysObjectID, snmp_sysContact, snmp_sysName, snmp_sysLocation FROM host WHERE id = 7 AND deleted = ''
+STATUS method=3 result=3
+INSERT[0] UPDATE host SET status='3', status_event_count='0', status_fail_date=FROM_UNIXTIME(123), status_rec_date=FROM_UNIXTIME(456), status_last_error='', min_time='0.000000', max_time='0.000000', cur_time='0.000000', avg_time='0.000000', total_polls='1', failed_polls='0', availability='100.0000' WHERE id='7'
+RELEASE[0] 9
+MYSQL_THREAD_END
+BREAKER[7] 0
+FATAL parent=0 exit=23 message=<test fatal (Spine init)> php_cleanup=0
+FATAL parent=1 exit=23 message=<test fatal (Spine init)> php_cleanup=1

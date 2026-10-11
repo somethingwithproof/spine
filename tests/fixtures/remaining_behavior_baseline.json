@@ -1,0 +1,139 @@
+{
+  "scope": [
+    "src/circuit_breaker.c",
+    "src/error.c",
+    "src/keywords.c",
+    "src/locks.c",
+    "src/nft_popen.c",
+    "src/php.c",
+    "src/ping_ipv6_scope.c",
+    "src/ping_validate.c",
+    "src/platform/platform_common.c",
+    "src/platform/platform_error_posix.c",
+    "src/platform/platform_error_win.c",
+    "src/platform/platform_fd_posix.c",
+    "src/platform/platform_fd_win.c",
+    "src/platform/platform_icmp_posix.c",
+    "src/platform/platform_icmp_win.c",
+    "src/platform/platform_posix.c",
+    "src/platform/platform_process_posix.c",
+    "src/platform/platform_process_win.c",
+    "src/platform/platform_sandbox_freebsd.c",
+    "src/platform/platform_sandbox_linux.c",
+    "src/platform/platform_sandbox_openbsd.c",
+    "src/platform/platform_sandbox_posix.c",
+    "src/platform/platform_sandbox_win.c",
+    "src/platform/platform_socket_posix.c",
+    "src/platform/platform_socket_win.c",
+    "src/platform/platform_win.c",
+    "src/snmp.c",
+    "src/spine.c",
+    "src/spine_audit.c",
+    "src/sql.c",
+    "src/systemd_notify.c"
+  ],
+  "refactored_c_files": [
+    "src/circuit_breaker.c",
+    "src/error.c",
+    "src/keywords.c",
+    "src/locks.c",
+    "src/nft_popen.c",
+    "src/php.c",
+    "src/ping_ipv6_scope.c",
+    "src/ping_validate.c",
+    "src/platform/platform_posix.c",
+    "src/platform/platform_process_posix.c",
+    "src/platform/platform_process_win.c",
+    "src/platform/platform_win.c",
+    "src/snmp.c",
+    "src/spine.c",
+    "src/sql.c"
+  ],
+  "baseline_sha256": {
+    "src/circuit_breaker.c": "d2ea71f13c30edf3d629cd8b19ca59968b40ad0f085c15d6894af405db3de823",
+    "src/error.c": "956dc6e131a40dbf215a0ab81e1ebf6f54174f951a1d01d1ec47eb9dabdc92ab",
+    "src/keywords.c": "fb39b0346b29398804969e0b10dcc466f753824b40fc6c9d85db9cc11387a263",
+    "src/locks.c": "96605a1b1459678b5f63f947864f54c012383bf8af12d9b1aa0c2ac7441d0ad9",
+    "src/nft_popen.c": "9fce0fd61854303ef13bda2db7929cf597412e5349c9a640b06a4aba19b73f2e",
+    "src/php.c": "7bb1dc8c7bf7a3ce668dde08e12e99ae8611f623cdc666f958cf322a87ca8f72",
+    "src/ping_ipv6_scope.c": "3052f42050df93b89cc003f35d708b8305ab4c9d4247315bd3490b199032cb55",
+    "src/ping_validate.c": "a78fb719133bfcab460dcd47028bbb5528986a7a9a4d0b2e5b42c840e30575a7",
+    "src/platform/platform_common.c": "518d8ad39a7871788a90980e61aff74b3faaccdaa751b7e0add509d7d79425c8",
+    "src/platform/platform_error_posix.c": "098ea3de3d84333d2c0ae8654f28e5f17330349732a1edc23a67fef16ee12957",
+    "src/platform/platform_error_win.c": "d6b4c55dd2bd2c22280333b045d2d63bad7f5e1a19936a4e19034565e1c86069",
+    "src/platform/platform_fd_posix.c": "b7a60ed8ab606ef5b4708244d426fff2a031cd9aff6d5dc41080ea48091c8d4b",
+    "src/platform/platform_fd_win.c": "213ae7796b8422259baac67134b0bb48361d8a34049f0ccf4d0f4540ffc3ad6a",
+    "src/platform/platform_icmp_posix.c": "1d7844b9b39e8ee2e2667a630b9dd70c7463df6c7da74b3346a5fc3d6f765454",
+    "src/platform/platform_icmp_win.c": "17e8f78af24288cd5c6ed4b5b6f1935989ba6371fc58b183297fc03a83aeab62",
+    "src/platform/platform_posix.c": "69a9ed08056c7af0dedca3800a769a691fa0276635d18b3e921d29aca18de3f8",
+    "src/platform/platform_process_posix.c": "150c3a8807ef5b21fc72ee0da7d5da58f95f03961a3222571576fd1c6a9433ec",
+    "src/platform/platform_process_win.c": "8bf9674a839e1097370d57b9aac8306d07104c5648be59942e7d925e5994d3c1",
+    "src/platform/platform_sandbox_freebsd.c": "afce85b3696dbff7fce491f9b63aca632b3e969fd4773dca1f9beca3a8d25e8e",
+    "src/platform/platform_sandbox_linux.c": "7c0186190350497585501465332eb8eba0c785385ef7c4a69c4fc7023c6d3ae4",
+    "src/platform/platform_sandbox_openbsd.c": "04390c38c88b66b52fdac522059176c80406b540e3f95ea5a227dfcf0d28e82c",
+    "src/platform/platform_sandbox_posix.c": "f9eb63fb2138922563a1a80e3d37230dbf5193d5614c78432aa74bffb4fb398b",
+    "src/platform/platform_sandbox_win.c": "20a221955e344ce6caa0d6c1165d4a54453e05ff46fb4c0f39282dfea931014e",
+    "src/platform/platform_socket_posix.c": "8a30c20fcf4265b863d10190fbae449cc0619dd48266cd1ee069821e1416edb2",
+    "src/platform/platform_socket_win.c": "c04317b73d427e9773991516e98d9c28f5ec739cb776a971870ff275b107f03f",
+    "src/platform/platform_win.c": "b840966742a5d0798611d0466bfad3286de1b48662833b69f01924199422aba4",
+    "src/snmp.c": "7321f949e66ab5ba751eb5466a9d59b9273b2022fd91d32b0e5ec00c3703facd",
+    "src/spine.c": "41d322ff4798a4ad471a5c0161c9cbe938f437f127de00d33e72631e5cc0b4ac",
+    "src/spine_audit.c": "36b0dfddb79aea96772d42e01af97fbf82d908bec32c3b23675a02705791d617",
+    "src/sql.c": "959d2fc3bbb972bb77e4ec8b47ff0297626dc435b7f6d1bd2f9b5d67ea443148",
+    "src/systemd_notify.c": "82649db2d9d8ba847fe4d486ba0316701ebc4a795f75c4bd5f0d3a70fd8cbe01"
+  },
+  "approach": "Characterization assertions run against actual pre-refactor and refactored source. Network/database adapters are deterministic mocks; no monitoring target or database is contacted.",
+  "availability": {
+    "runtime": "ping_behavior and poller_util_behavior retain availability-method combinations. snmp_behavior covers GET/GETNEXT integers, skipped hosts, timeout optional/fatal behavior, sysDesc missing-object exception, recoverable USM drift, multi-GET success/PDU-wide failure/timeout.",
+    "source_only": "SNMP credential setup, session lifecycle, indexed-PDU repair retries and walk/count internals retain control flow. Net-SNMP owns transport retry and timeout behavior."
+  },
+  "retries": {
+    "runtime": {
+      "sql_behavior": "1205/1213: 50ms between failures, 31 failures exhaust the shared budget. db_insert returns FALSE; db_query exits 1. 2006/2013 reconnects use the same budget and fatal die after 31 failures. EINTR retries at 50ms do not consume it. Reconnection via changed mysql_ping thread ID retains seven side queries per reconnect.",
+      "script_behavior": "Three command write attempts at most; each failed attempt closes/restarts the server. Timeout restarts and returns U; EOF returns U.",
+      "support_behavior": "Spawn EAGAIN/ENOMEM allow initial attempt plus retry_limit attempts; other errors return immediately. PID is published only on success."
+    },
+    "source_only": "db_connect normally has two attempts, increments its attempts counter after failure, and does not consume tries for EINTR on connection errors. Explicit db_connect reconnection and connection-option/SSL negotiation are not exercised against a database."
+  },
+  "formatting": {
+    "runtime": "CLI help/version exit codes, stdout and stderr match remaining_cli_baseline.json. Script CRLF and intact newline output, exact 42/U/empty SNMP results and keyword names/fallbacks are asserted.",
+    "source_check": "SQL/output/protocol literal sequences are unchanged in all C files except PHP: its same overflow error literal moves before the read, and strstr(\"\\n\") becomes equivalent strchr('\\n'). This is a literal comparison, not a complete runtime log trace."
+  },
+  "database_writes": {
+    "runtime": "SQL dry_run and SQL_readonly bypass mysql_query; normal insertion passes the exact query unchanged; SQL errors/retries/reconnect side-query counts and exhausted pools are asserted. Earlier poller_util_behavior checks generated persistence SQL.",
+    "source_only": "Startup/final settings/date, poller_time and remote push routing retain queries and predicates. Live MariaDB writes, escaping under a connected server character set, SSL, and final main-process persistence are not integration-tested."
+  },
+  "script_protocols": {
+    "runtime": "Legacy PHP argv through Cacti 1222; --environ=spine and --poller=N afterward; remote online/offline argv; Started handshake sets READY; round robin wraps; query framing uses CRLF. Long command truncation still loses the CRLF. Production nft_popen launches a fixed child, reads hello\\n, returns raw exit status 7, and invalid/stale descriptors return EBADF. Production environment helper filters controlled LD_PRELOAD/DYLD_INSERT_LIBRARIES/BASH_ENV values and injects PATH/IFS.",
+    "source_only": "Malformed Started handshake still marks BUSY while php_init returns TRUE. Environment allocation failure still falls back to environ. No PHP interpreter integration is claimed."
+  },
+  "shutdown": {
+    "runtime": "PHP close sends quit\\r\\n, closes descriptors and sets them -1; only PIDs >1 are terminated. nft_pclose closes/waits/removes entries. Fatal signal installation/restoration respects custom handlers. Mutex initialization remains repeatable; all mapped locks acquire/release. Existing circuit breaker tests cover cooldown and shutdown.",
+    "source_only": "SIGTERM stops scheduling and shortens main drain deadline to 30 seconds or remaining poll interval. Pools, PHP, heap, SQL and SNMP teardown order is unchanged. No full polling-daemon shutdown with active database/SNMP workers is simulated."
+  },
+  "intentional_safety_changes": [
+    "PHP retry intermediate U allocations are freed before retry.",
+    "INIT command uses a const literal rather than an allocation, including early failure paths.",
+    "PHP reads reserve one terminator byte; an unterminated response filling RESULTS_BUFFER-1 returns U and stops reading. Maximum valid newline-terminated content is RESULTS_BUFFER-1 bytes.",
+    "Payload validation copies into an aligned struct; valid wire data at any byte alignment produces the same result."
+  ],
+  "platform_evidence": {
+    "macOS": "Production executable build, strict C17 syntax checks and runtime platform tests.",
+    "Windows": "Source review only; allocation sizes and zero aggregate initialization refactored without changing argv quoting, job flags, transport/error mappings or handle operations. Windows branches are excluded by the macOS preprocessor.",
+    "Linux_BSD": "Source review only for Linux confinement and BSD-specific branches. No sandbox rules, syscall allowlists, privilege transitions, OS retry policies or no-op fallback behavior changed."
+  },
+  "already_idiomatic": "Files listed in scope without production changes were reviewed and kept as existing typed wrappers or bounded optional-feature implementations.",
+  "limitations": [
+    "Not every branch has a characterization test. Mocks verify application contracts, not database, Net-SNMP transport or PHP interoperability.",
+    "Existing async-signal-unsafe fatal logging and other unrelated legacy semantics are preserved, not certified safe.",
+    "No Annex K or new optional bounds-checking library was introduced."
+  ],
+  "validation": {
+    "baseline_characterization_suites": "4/4 passed against untouched remaining implementations",
+    "candidate_ctest": "27/27 passed on macOS",
+    "address_undefined_sanitizers": "27/27 passed on macOS",
+    "strict_c17": "33 build-selected translation units passed -std=c17 -Wall -Wextra -Werror -Wstrict-prototypes -Wwrite-strings -Wvla -Wshadow",
+    "literal_comparison": "SQL/output/protocol literals preserved; equivalent PHP newline character search and moved overflow diagnostic documented above",
+    "cli_golden_test": "Exit/stdout/stderr captured; test normalizes only release version for future version bumps"
+  }
+}

@@ -1,5 +1,4 @@
-#!/bin/sh
-<?php
+#!/usr/bin/env bash
 # +-------------------------------------------------------------------------+
 # | Copyright (C) 2004-2026 The Cacti Group                                 |
 # |                                                                         |
@@ -32,7 +31,7 @@ display_help() {
   echo "   spine. If all goes well a tar.gz file will be created."
   echo "----------------------------------------------------------------------------"
   echo " Syntax:"
-  echo "  ./$(basename $0) <Version>"
+  echo "  $0 <Version>"
   echo ""
   echo "    <Version> - Designated version for build (required)"
   echo ""
@@ -75,7 +74,7 @@ fi
 
 # Copy repository
 mkdir -p ${TMP_DIR}/cacti-spine-${VERSION} >/dev/null 2>&1
-tar -cf - --exclude 'package' --exclude '.svn' --exclude '.travis.yml' * | (
+tar -cf - --exclude 'scripts/package.sh' --exclude '.svn' --exclude '.travis.yml' * | (
   cd ${TMP_DIR}/cacti-spine-${VERSION}
   tar -xf -
 )

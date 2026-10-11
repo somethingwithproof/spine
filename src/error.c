@@ -93,17 +93,8 @@ static void spine_signal_handler(int spine_signal) {
 	}
 }
 
-static int spine_fatal_signals[] = {
-	SIGINT,
-	SIGPIPE,
-	SIGSEGV,
-	SIGBUS,
-	SIGFPE,
-	SIGQUIT,
-	SIGSYS,
-	SIGABRT,
-	0
-};
+static const int spine_fatal_signals[] = {
+    SIGINT, SIGPIPE, SIGSEGV, SIGBUS, SIGFPE, SIGQUIT, SIGSYS, SIGABRT, 0};
 
 /*! \fn void install_spine_signal_handler(void)
  *  \brief installs the spine signal handler to stop certain calls from
@@ -112,28 +103,27 @@ static int spine_fatal_signals[] = {
  */
 void install_spine_signal_handler(void) {
 	/* Set a handler for any fatal signal not already handled */
-	int i;
-	struct sigaction sa;
-	void (*ohandler)(int);
+        struct sigaction sa = {0};
+        void (*ohandler)(int);
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		sigaction(spine_fatal_signals[i], NULL, &sa);
-		if (sa.sa_handler == SIG_DFL) {
-			sa.sa_handler = spine_signal_handler;
-			sigemptyset(&sa.sa_mask);
-			sa.sa_flags = SA_RESTART;
-			sigaction(spine_fatal_signals[i], &sa, NULL);
-		}
-	}
+        for (int i = 0; spine_fatal_signals[i]; ++i) {
+          sigaction(spine_fatal_signals[i], NULL, &sa);
+          if (sa.sa_handler == SIG_DFL) {
+            sa.sa_handler = spine_signal_handler;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = SA_RESTART;
+            sigaction(spine_fatal_signals[i], &sa, NULL);
+          }
+        }
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		ohandler = signal(spine_fatal_signals[i], spine_signal_handler);
-		if (ohandler != SIG_DFL) {
-			signal(spine_fatal_signals[i], ohandler);
-		}
-	}
+        for (int i = 0; spine_fatal_signals[i]; ++i) {
+          ohandler = signal(spine_fatal_signals[i], spine_signal_handler);
+          if (ohandler != SIG_DFL) {
+            signal(spine_fatal_signals[i], ohandler);
+          }
+        }
 
-	return;
+        return;
 }
 
 /*! \fn void uninstall_spine_signal_handler(void)
@@ -142,22 +132,21 @@ void install_spine_signal_handler(void) {
  */
 void uninstall_spine_signal_handler(void) {
 	/* Remove a handler for any fatal signal handled */
-	int i;
-	struct sigaction sa;
-	void (*ohandler)(int);
+        struct sigaction sa = {0};
+        void (*ohandler)(int);
 
-	for (i=0; spine_fatal_signals[i]; ++i) {
-		sigaction(spine_fatal_signals[i], NULL, &sa);
-		if (sa.sa_handler == spine_signal_handler) {
-			sa.sa_handler = SIG_DFL;
-			sigaction(spine_fatal_signals[i], &sa, NULL);
-		}
-	}
+        for (int i = 0; spine_fatal_signals[i]; ++i) {
+          sigaction(spine_fatal_signals[i], NULL, &sa);
+          if (sa.sa_handler == spine_signal_handler) {
+            sa.sa_handler = SIG_DFL;
+            sigaction(spine_fatal_signals[i], &sa, NULL);
+          }
+        }
 
-	for ( i=0; spine_fatal_signals[i]; ++i ) {
-		ohandler = signal(spine_fatal_signals[i], SIG_DFL);
-		if (ohandler != spine_signal_handler) {
-			signal(spine_fatal_signals[i], ohandler);
-		}
-	}
+        for (int i = 0; spine_fatal_signals[i]; ++i) {
+          ohandler = signal(spine_fatal_signals[i], SIG_DFL);
+          if (ohandler != spine_signal_handler) {
+            signal(spine_fatal_signals[i], ohandler);
+          }
+        }
 }

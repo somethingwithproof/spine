@@ -58,8 +58,8 @@ static spine_cb_entry_t *spine_cb_get(int host_id) {
 	HASH_FIND_INT(spine_cb_table, &host_id, entry);
 	if (entry) return entry;
 
-	entry = (spine_cb_entry_t *)calloc(1, sizeof(*entry));
-	if (!entry) return NULL;
+        entry = calloc(1, sizeof(*entry));
+        if (!entry) return NULL;
 	entry->host_id       = host_id;
 	entry->next_cooldown = SPINE_CB_COOLDOWN_INITIAL;
 	HASH_ADD_INT(spine_cb_table, host_id, entry);
@@ -67,13 +67,14 @@ static spine_cb_entry_t *spine_cb_get(int host_id) {
 }
 
 int spine_cb_should_skip(int host_id) {
-	int threshold = set.circuit_breaker_threshold;
-	if (threshold <= 0) return 0;
+  const int threshold = set.circuit_breaker_threshold;
+  if (threshold <= 0)
+    return 0;
 
-	pthread_mutex_lock(&spine_cb_lock);
-	if (!spine_cb_initialized) {
-		pthread_mutex_unlock(&spine_cb_lock);
-		return 0;
+  pthread_mutex_lock(&spine_cb_lock);
+  if (!spine_cb_initialized) {
+    pthread_mutex_unlock(&spine_cb_lock);
+    return 0;
 	}
 
 	spine_cb_entry_t *entry = spine_cb_get(host_id);
@@ -87,13 +88,14 @@ int spine_cb_should_skip(int host_id) {
 }
 
 void spine_cb_record(int host_id, int errors) {
-	int threshold = set.circuit_breaker_threshold;
-	if (threshold <= 0) return;
+  const int threshold = set.circuit_breaker_threshold;
+  if (threshold <= 0)
+    return;
 
-	pthread_mutex_lock(&spine_cb_lock);
-	if (!spine_cb_initialized) {
-		pthread_mutex_unlock(&spine_cb_lock);
-		return;
+  pthread_mutex_lock(&spine_cb_lock);
+  if (!spine_cb_initialized) {
+    pthread_mutex_unlock(&spine_cb_lock);
+    return;
 	}
 
 	spine_cb_entry_t *entry = spine_cb_get(host_id);
@@ -110,8 +112,8 @@ void spine_cb_record(int host_id, int errors) {
 			if (entry->next_cooldown > SPINE_CB_COOLDOWN_MAX) {
 				entry->next_cooldown = SPINE_CB_COOLDOWN_MAX;
 			}
-			int skip_cycles_copy = entry->skip_cycles;
-			entry->consecutive_failures = 0;
+                        const int skip_cycles_copy = entry->skip_cycles;
+                        entry->consecutive_failures = 0;
 			pthread_mutex_unlock(&spine_cb_lock);
 			SPINE_LOG(("NOTE: circuit breaker tripped for device %d; skipping %d cycles",
 				host_id, skip_cycles_copy));

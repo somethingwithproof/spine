@@ -1,0 +1,94 @@
+{
+  "baseline_revision": "8b04bdabeb33bca080533badeee5472f9a953bac",
+  "scope": "Behavior before the ping.c C17 idiom refactor; existing quirks are characterization expectations, not endorsements.",
+  "source_sha256": {
+    "src/ping.c": "b009f7fcabb3bc4691ac3d23b92cfd2da5678d6a28c6ca5686e20da8a3834132",
+    "src/ping.h": "c19d3ff5183224df32b1550f482cd0157ed9f38968166eb6420fcb9f494220bf",
+    "src/poller.c": "5e3c4b9094bb3fd9716295f232ca66027652a5f5019f81e6824c1e43f0745c93",
+    "src/sql.c": "959d2fc3bbb972bb77e4ec8b47ff0297626dc435b7f6d1bd2f9b5d67ea443148",
+    "src/php.c": "7bb1dc8c7bf7a3ce668dde08e12e99ae8611f623cdc666f958cf322a87ca8f72",
+    "src/nft_popen.c": "9fce0fd61854303ef13bda2db7929cf597412e5349c9a640b06a4aba19b73f2e",
+    "src/spine.c": "41d322ff4798a4ad471a5c0161c9cbe938f437f127de00d33e72631e5cc0b4ac",
+    "src/error.c": "956dc6e131a40dbf215a0ab81e1ebf6f54174f951a1d01d1ec47eb9dabdc92ab",
+    "src/platform/platform_socket_posix.c": "8a30c20fcf4265b863d10190fbae449cc0619dd48266cd1ee069821e1416edb2",
+    "src/platform/platform_socket_win.c": "c04317b73d427e9773991516e98d9c28f5ec739cb776a971870ff275b107f03f"
+  },
+  "runtime_evidence": {
+    "test": "tests/unit/test_ping_behavior.c",
+    "environment": "macOS, AppleClang, C17; mocked resolver, sockets, clock, SNMP and logging; no external hosts or database",
+    "availability_matrix": "32 cases: modes 0 through 7, ping success/failure crossed with SNMP success/timeout",
+    "availability": {
+      "none": "HOST_UP",
+      "snmp_and_ping": "Both checks must succeed; failed ping skips SNMP",
+      "snmp": "SNMP result",
+      "ping": "Ping result",
+      "snmp_or_ping": "SNMP is skipped and defaults to HOST_UP even when ping fails",
+      "snmp_sysdesc": "GET .1.3.6.1.2.1.1.1.0",
+      "snmp_getnext": "GETNEXT .1.3",
+      "stream": "ping_host returns HOST_DOWN; poller handles stream separately as up"
+    },
+    "retry_semantics": {
+      "posix_tcp": "On failing connects with retries supported, ping_retries + 2 attempts; no-retry branch makes one attempt",
+      "udp": "Timeout path makes ping_retries + 1 sends",
+      "tcp_closed": "Connection refusal counts as alive"
+    },
+    "output_formatting": {
+      "alive_time": "Milliseconds with five decimal places; mock 1 ms yields 1.00000",
+      "tcp_down": "ping_status=down; ping_response=TCP: Cannot connect to host",
+      "udp_timeout": "ping_status=down; ping_response=UDP: Ping timed out",
+      "localhost": "ping_status=0.000; ping_response=PING: Device does not require ping.",
+      "snmp_no_community": "Direct ping_snmp returns HOST_UP with snmp_status=0.00 for SNMP v1/v2 without a community",
+      "snmp_missing_session": "HOST_DOWN; Invalid SNMP Session",
+      "snmp_unknown_oid": "Counts as alive",
+      "snmp_timeout": "HOST_DOWN; Device did not respond to SNMP; leaves the previous snmp_status untouched"
+    },
+    "persisted_host_state": "Two failures move UP to DOWN; two successes move DOWN through RECOVERING to UP; poll counts, 50% availability, failure/recovery dates, combined error text, and mean of SNMP/ping times are asserted"
+  },
+  "source_inspection_evidence": {
+    "icmp_retries": {
+      "source": "src/ping.c:304,582,1031",
+      "contract": "Windows, IPv4 and IPv6 allow ping_retries + 1 echo attempts; raw socket creation has a separate five-attempt loop on POSIX. This is traced in source, not exercised against real raw sockets."
+    },
+    "database_writes": {
+      "source": "src/poller.c:835-912",
+      "contract": "update_host_status mutates host_t; it does not issue SQL. Only host_thread 1 emits the local UPDATE host. Fields: status, status_event_count, failure/recovery dates, escaped last error, min/max/current/average time, total/failed polls, availability. Full sysinfo branch also persists SNMP metadata; ignore_sysinfo/ignore_host branches omit that metadata. SQL uses %f for timing and %.4f for availability.",
+      "limitation": "No live database UPDATE was executed. Host-state values are tested; SQL construction and thread ownership are source-inspected."
+    },
+    "script_protocols": {
+      "sources": [
+        "src/php.c:57-128",
+        "src/php.c:169-283",
+        "src/php.c:515-570",
+        "src/poller.c:1671-1800"
+      ],
+      "contract": "PHP commands are CRLF terminated under a per-process mutex; responses are read to LF. Write failures restart the server and allow three write attempts. Empty/error/timeout responses become U; reader errors/timeouts restart the server. Poller accepts numeric or multipart output, converts hexadecimal, and validates other normalized values. Shutdown sends quit followed by CRLF, closes input on a nonnegative write result, waits 50 ms on non-SOLAR_THREAD builds, terminates valid PIDs greater than 1, and closes the read fd.",
+      "limitation": "Protocol and process lifecycle are source-inspected; no PHP worker integration test was run."
+    },
+    "shutdown": {
+      "sources": [
+        "src/spine.c:115-143",
+        "src/spine.c:923-930",
+        "src/spine.c:1190-1225",
+        "src/spine.c:1310-1370",
+        "src/error.c:45-106"
+      ],
+      "contract": "SIGTERM sets a sig_atomic_t stop flag, stops dispatch between devices, and tightens worker drain to the earlier of the poller deadline or 30 seconds. Cleanup closes script servers, frees allocations, closes DB and SNMP, reports timing, clears credentials, closes the circuit breaker, notifies systemd, removes signal handlers, cleans the platform, and exits successfully. SIGINT uses the separate fatal-signal handler and is not equivalent to SIGTERM.",
+      "limitation": "Signal delivery, active worker draining, and cleanup were source-inspected rather than process-tested."
+    }
+  },
+  "intended_refactor_behavior_changes": [
+    "Resolver writes are limited to caller capacity, correcting the IPv6 sockaddr_storage overwrite.",
+    "Overlong parsed hostnames are safely truncated and terminated.",
+    "Hostname tokenization no longer shares strtok state across calls.",
+    "Checksum reads accept unaligned buffers and avoid signed accumulator overflow.",
+    "NULL or zero-length facade payloads consistently select the built-in signature; impossible payload sizes fail with EMSGSIZE before opening a socket."
+  ],
+  "unchanged_contract_files": [
+    "src/poller.c",
+    "src/sql.c",
+    "src/php.c",
+    "src/nft_popen.c",
+    "src/spine.c",
+    "src/error.c"
+  ]
+}
